@@ -87,7 +87,9 @@
     </div>
     <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-top:16px">
       <button class="btn primary" id="runBtn" type="button">推演最佳隊伍</button>
+      <button class="btn" id="cancelBtn" type="button" hidden>取消</button>
       <span class="status" id="runStatus"></span>
+      <progress id="runProg" max="100" value="0" hidden></progress>
     </div>
   </div></div>
 </section>
@@ -224,16 +226,26 @@
    刻意用注入 classic script 的方式而不是 import()：module 會把頂層宣告
    關進模組作用域，app.js 與 tests/smoke.mjs 都依賴那些是全域。 */
 try {
-  const res = await fetch('./data/game.json');
+  /* no-cache：不是不快取，是每次都向伺服器驗證（通常回 304，很便宜）。
+     GitHub Pages 送 max-age=600，沒這個的話改完資料後最多 10 分鐘會拿到舊的。
+     app.js / app.css 沒辦法這樣控，所以 app.js 另外有 SCHEMA 斷言擋版本偏移。 */
+  const res = await fetch('./data/game.json', { cache: 'no-cache' });
   if (!res.ok) throw new Error('HTTP ' + res.status);
-  window.GAMEDATA = await res.json();
-  await new Promise((ok, bad) => {
-    const s = document.createElement('script');
-    s.src = './src/app.js';
-    s.onload = ok;
-    s.onerror = () => bad(new Error('src/app.js 載入失敗'));
-    document.body.appendChild(s);
-  });
+  const data = await res.json();
+  for (const k of ['ings', 'berries', 'dex', 'recipes', 'ms', 'natures', 'subskills', 'islands', 'meta'])
+    if (!data[k]) throw new Error(`data/game.json 缺少 "${k}" —— 檔案不完整`);
+  window.GAMEDATA = data;
+  /* 順序有意義：engine.js 宣告 D 與所有引擎函式，app.js 直接用那些全域名字。
+     兩個都是 classic script，共用全域作用域。 */
+  for (const src of ['./src/engine.js', './src/app.js']) {
+    await new Promise((ok, bad) => {
+      const s = document.createElement('script');
+      s.src = src;
+      s.onload = ok;
+      s.onerror = () => bad(new Error(src + ' 載入失敗'));
+      document.body.appendChild(s);
+    });
+  }
 } catch (err) {
   const local = location.protocol === 'file:';
   document.querySelector('.wrap').innerHTML =

@@ -14022,6 +14022,7 @@
     }
   },
   "meta": {
+    "schema": 1,
     "src": "nerolis-lab/nerolis-lab",
     "commit": "7814857",
     "commitDate": "2026-08-30",

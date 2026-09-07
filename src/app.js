@@ -1,24 +1,58 @@
 "use strict";
-/* 遊戲資料由 index.html 的 loader 先 fetch 好放在 window.GAMEDATA。
+/* UI 與持久層。引擎在 src/engine.js，由 index.html 的 loader 在這個檔之前注入 —— 
+   所以 D / ING_NAME / scoreTeam / buildPool 這些名字在這裡直接可用（同為 classic
+   script，共用全域作用域）。這個檔不要自己宣告 D，會和 engine.js 撞成 SyntaxError。
+
    app.js 刻意是 classic script（不是 module）—— 頂層宣告必須留在全域，
    tests/smoke.mjs 靠 page.evaluate 直接驅動 roster / run() / scoreTeam()。 */
-const D = window.GAMEDATA;
 const $ = id => document.getElementById(id);
-const ING_NAME = D.ings.map(x=>x[0]);
-const ING_VAL  = D.ings.map(x=>x[1]);
-const NING = ING_NAME.length;
-const BERRY_VAL = Object.fromEntries(D.berries);
-const BERRY_NAMES = D.berries.map(b=>b[0]);
-const NAT = Object.fromEntries(D.natures.map(n=>[n.n,n]));
-const SS = Object.fromEntries(D.subskills.map(s=>[s.n,s]));
-const SS_SLOT_LV = [10,25,50,70,80];
-const RIBBON_CARRY = [0,1,3,6,8];
-const AVG_CRIT = 1.171428571;
-// Helper Boost extra helps: rows = unique species on the team sharing its berry (1-5)
-const HB_TABLE = [[2,3,3,4,4,5],[2,3,3,4,5,6],[3,4,5,6,7,8],[4,5,6,7,8,9],[6,7,8,9,10,11]];
-const MAGNET_POOL = ING_NAME.map((n,i)=>i).filter(i=>ING_NAME[i]!=='Tail');
-const MEALS_WEEK = 21;
 
+/* 使用者可見文案裡提到的檔案路徑與指令，一律從這裡取，不要寫死在字串裡。
+
+   為什麼：拆檔的時候踩過一次 —— UI 還在教使用者「替換 index.html 裡的
+   <script id="gamedata">」，但那個區塊早就不存在了。這種「文案描述了不存在的
+   東西」的 bug 讀程式碼看不出來，只有截圖才會發現。
+
+   tests/smoke.mjs 的「文案一致性」那一節會斷言：PATHS.files 裡的每個路徑
+   在 repo 裡真的存在、PATHS.cmds 裡的每個指令真的定義在 package.json。
+   改檔名或改 npm script 時，測試會逼你連文案一起改。 */
+const PATHS = {
+  files: {
+    data:   'data/game.json',
+    app:    'src/app.js',
+    engine: 'src/engine.js',
+    worker: 'src/engine.worker.js',
+    html:   'index.html',
+  },
+  cmds: {
+    rebuild: 'npm run data',
+    serve:   'npm run serve',
+    test:    'npm test',
+  },
+};
+const P = PATHS.files, C = PATHS.cmds;
+const code = s => `<code>${s}</code>`;
+
+/* 資料結構版本。`data/game.json` 的 meta.schema 必須等於這個值。
+   動到欄位結構（改名／改型別／移除）時兩邊一起 +1；純數值更新不用動。
+
+   為什麼需要這個：拆檔之後 app.js 與 game.json 是兩個獨立快取的資源，
+   GitHub Pages 送 max-age=600，所以更新後有最多 10 分鐘的窗口，瀏覽器可能
+   拿到「新 app.js ＋ 舊 game.json」。純數值過期還好，結構變了就會算出錯的
+   數字或直接壞掉 —— 而使用者只會看到壞頁面，不知道重新整理就好。 */
+const SCHEMA = 1;
+
+/** 致命錯誤：整頁換成一段說明。這種狀況下繼續跑只會產生錯的數字。 */
+function fatal(html){
+  const w = document.querySelector('.wrap');
+  if (w) w.innerHTML = `<section><h1 style="margin:0 0 10px">無法啟動</h1><p class="muted">${html}</p></section>`;
+  throw new Error('fatal: ' + html.replace(/<[^>]*>/g, ''));
+}
+if (!D || !D.meta || D.meta.schema !== SCHEMA){
+  fatal(`遊戲資料的版本和程式不符（資料 <code>schema=${D && D.meta ? D.meta.schema : '?'}</code>，程式預期 <code>${SCHEMA}</code>）。`
+      + `這通常是瀏覽器快取到一半新一半舊 —— 請<b>強制重新整理</b>（Ctrl+Shift+R，Mac 是 Cmd+Shift+R）。`
+      + `如果重新整理還是一樣，那就是 ${code(P.data)} 和 ${code(P.app)} 沒有一起更新。`);
+}
 const Z = D.zh || {};
 const bz  = k => (Z.berries   && Z.berries[k])   || k;
 const iz  = k => (Z.ings      && Z.ings[k])      || k;
@@ -35,360 +69,6 @@ const recipeZh = n => (Z.recipes && Z.recipes[n]) || n.split('_').map(w=>w[0]+w.
 const fmt = n => n>=1e6 ? (n/1e6).toFixed(2)+'M' : n>=1e4 ? Math.round(n/1e3)+'k' : Math.round(n).toLocaleString();
 const f1 = n => (Math.round(n*10)/10).toFixed(1);
 
-/* ================= ENGINE ================= */
-const energyF = e => e>=80?0.45 : e>=60?0.52 : e>=40?0.58 : e>=1?0.66 : 1.00;
-const mealRecovery = e => e>=81?1 : e>=71?2 : e>=61?3 : e>=51?4 : e>=41?5 : e>=31?6 : e>=21?7 : e>=11?8 : 9;
-const round4 = x => Math.round(x*1e4)/1e4;
-function berryPower(name, level){
-  const v = BERRY_VAL[name];
-  return Math.round(Math.max(v + (level-1), v*Math.pow(1.025, level-1)));
-}
-function ribbonFreqMul(r, remainingEvo){
-  if (!remainingEvo || r<2) return 1;
-  if (r>=4) return remainingEvo>=2 ? 0.75 : 0.88;
-  return remainingEvo>=2 ? 0.89 : 0.95;
-}
-function activeSubskills(m){
-  const out = [];
-  for (let i=0;i<5;i++){
-    const nm = m.ss[i];
-    if (nm && m.level >= SS_SLOT_LV[i]) out.push(nm);
-  }
-  return out;
-}
-/** Static (context-free) per-member stats. */
-function baseStats(m, wk){
-  const p = D.dex[m.sp], nat = NAT[m.nature] || NAT.Bashful;
-  const act = activeSubskills(m);
-  const h = nm => act.includes(nm);
-  const invAdd = (h('Inventory Up S')?6:0)+(h('Inventory Up M')?12:0)+(h('Inventory Up L')?18:0);
-  const carry = Math.ceil((p.cs + 5*p.pe + invAdd + RIBBON_CARRY[m.ribbon||0]) * (wk.camp?1.2:1));
-  const ingChance = Math.min(1, (p.ip/100) * nat.i * (1 + (h('Ingredient Finder S')?0.18:0) + (h('Ingredient Finder M')?0.36:0)));
-  const berriesPerDrop = ((p.sp==='berry'||p.sp==='all')?2:1) + (h('Berry Finding S')?1:0);
-  const slots = Math.min(Math.floor(m.level/30)+1, 3);
-  // average ingredient vector per ingredient-help (already /slots)
-  const opts = [p.i0, p.i30, p.i60];
-  const ingVec = new Float64Array(NING);
-  let avgIngAmt = 0;
-  for (let s=0;s<slots;s++){
-    const list = opts[s] || [];
-    const pick = list[Math.min(m.ingSet[s]||0, list.length-1)];
-    if (!pick) continue;
-    ingVec[pick[0]] += pick[1]/slots;
-    avgIngAmt += pick[1]/slots;
-  }
-  const skillLvMax = (D.ms[p.ms]||{max:6}).max;
-  const skillLv = Math.max(1, Math.min(skillLvMax, (m.skillLv||1) + (h('Skill Level Up M')?2:0) + (h('Skill Level Up S')?1:0)));
-  const skillChance = (p.sk/100) * (1 + (h('Skill Trigger S')?0.18:0) + (h('Skill Trigger M')?0.36:0)) * nat.s;
-  const pity = p.sp==='skill' ? Math.floor(144000/p.f) : 78;
-  const effSkill = skillChance<=0 ? 0 : skillChance/(1 - Math.pow(1-skillChance, pity+1));
-  const natureFreqMul = 2 - nat.f;
-  return {p, nat, act, h, carry, ingChance, berriesPerDrop, slots, ingVec, avgIngAmt,
-          skillLv, effSkill, natureFreqMul, hasHB:h('Helping Bonus'), hasERB:h('Energy Recovery Bonus'),
-          ribbonMul:ribbonFreqMul(m.ribbon||0, p.re)};
-}
-const WILDCARD = /^(Metronome|Versatile|Skill Copy|Mimic \(|Transform \()/;
-const BASE_SKILLS = Object.keys(D.ms).filter(n =>
-  !WILDCARD.test(n) && !/Range$/.test(n) && !/\(/.test(n) && Object.keys(D.ms[n]).length > 1);
-const wildcardCache = {};
-/** Metronome, Skill Copy and Versatile resolve to some other skill each proc —
- *  approximate them as the mean payload of the base skills at the same level. */
-function wildcardPayload(lv){
-  if (wildcardCache[lv]) return wildcardCache[lv];
-  const acc = {}; let n = 0;
-  for (const nm of BASE_SKILLS){
-    const pay = rawPayload(nm, lv);
-    for (const k of Object.keys(pay)) acc[k] = (acc[k]||0) + pay[k];
-    n++;
-  }
-  for (const k of Object.keys(acc)) acc[k] /= n;
-  return (wildcardCache[lv] = acc);
-}
-/** Classify a main skill into what it contributes per proc. */
-function skillPayload(msName, lv){
-  if (WILDCARD.test(msName)) return {...wildcardPayload(lv), wild:1};
-  return rawPayload(msName, lv);
-}
-function rawPayload(msName, lv){
-  const s = D.ms[msName]; if (!s) return {};
-  const at = a => a && a[Math.min(lv,a.length)-1] || 0;
-  const o = {};
-  if (s.strength)         o.strength = at(s.strength);
-  if (s.averageStrength)  o.strength = at(s.averageStrength);
-  if (s.ingredient)       o.ingSpread = at(s.ingredient);
-  if (s.bonusIngredient)  o.ingSpread = (o.ingSpread||0) + at(s.bonusIngredient)/2;
-  if (s.energy)           o.energySelf = at(s.energy);
-  if (s.potSize)          o.pot = at(s.potSize);
-  if (s.selfBerry)        o.selfBerry = at(s.selfBerry);
-  if (s.teamBerry)        o.teamBerry = at(s.teamBerry);
-  if (s.help)             o.helpsOne = at(s.help);
-  if (s.base)             o.helpsAll = at(s.base);
-  if (s.latiasBerries)    o.selfBerry = at(s.latiasBerries);
-  if (/Energy For Everyone/.test(msName)) { o.energyTeam = o.energySelf||0; delete o.energySelf; }
-  if (/Energizing Cheer/.test(msName))   { o.energyTeam = (o.energySelf||0)/5; delete o.energySelf; }
-  if (s.chance)           o.critChance = at(s.chance);
-  return o;
-}
-/** Simulate one member's day. ctx = {nHB,nERB,supportEnergy (per day, to each member), extraHelps} */
-function simulate(bs, m, wk, ctx){
-  const helpSS = Math.max(0.65, 1 - (bs.h('Helping Speed M')?0.14:0) - (bs.h('Helping Speed S')?0.07:0) - 0.05*Math.min(5, ctx.nHB));
-  const levelFactor = 1 - 0.002*(m.level-1);
-  const freqBase = Math.floor(round4(bs.natureFreqMul * helpSS * levelFactor * bs.ribbonMul) * bs.p.f / (wk.camp?1.2:1));
-  const sleepMin = Math.round(wk.sleepH*60), wakeMin = 1440 - sleepMin;
-  const cap = bs.hasERB ? 105 : 100;
-  const nSteps = Math.floor(wakeMin/10);
-  const supportPerStep = nSteps>0 ? ctx.supportEnergy/nSteps : 0;
-  let start = 0, helpsDay = 0, helpsNight = 0, fastSteps = 0, totalSteps = 0;
-  for (let iter=0; iter<4; iter++){
-    const rec = Math.min(cap, sleepMin*(100/510)*bs.nat.e*(1 + 0.14*Math.min(5, ctx.nERB)));
-    let e = Math.min(150, start + rec);
-    helpsDay = 0; helpsNight = 0; fastSteps = 0; totalSteps = 0;
-    const mealAt = [Math.floor(wakeMin*0.12/10)*10, Math.floor(wakeMin*0.45/10)*10, Math.floor(wakeMin*0.8/10)*10];
-    for (let t=0; t<wakeMin; t+=10){
-      if (e >= 80) fastSteps++;
-      totalSteps++;
-      helpsDay += 600 / (freqBase * energyF(e));
-      e = Math.max(0, e - 1);
-      for (const mt of mealAt) if (mt === t) e = Math.min(150, e + mealRecovery(e));
-      if (supportPerStep) e = Math.min(150, e + supportPerStep);
-    }
-    for (let t=0; t<sleepMin; t+=10){
-      if (e >= 80) fastSteps++;
-      totalSteps++;
-      helpsNight += 600 / (freqBase * energyF(e));
-      e = Math.max(0, e - 1);
-    }
-    start = e;
-  }
-  // extra helps injected by team main skills, spread across the day
-  helpsDay += ctx.extraHelps || 0;
-  // carry-size truncation applies at night only
-  const dropPerHelp = (1-bs.ingChance)*bs.berriesPerDrop + bs.ingChance*bs.avgIngAmt;
-  const helpsTillFull = dropPerHelp>0 ? bs.carry/dropPerHelp : Infinity;
-  const nightNormal = Math.min(helpsNight, helpsTillFull);
-  const snack = Math.max(0, helpsNight - nightNormal);
-  const productive = helpsDay + nightNormal;
-  const bankedProcs = bs.p.sp==='skill' ? 2 : 1;
-  const procs = productive*bs.effSkill + Math.min(bankedProcs, nightNormal*bs.effSkill);
-  return {freqBase, helpsDay, helpsNight, productive, snack, procs,
-          fastHours: fastSteps/6, fastShare: totalSteps ? fastSteps/totalSteps : 0, wakeEnergy: start,
-          berries: productive*(1-bs.ingChance)*bs.berriesPerDrop + snack*bs.berriesPerDrop};
-}
-/** Full per-member per-day output in a given team context. */
-function memberOutput(m, wk, ctx){
-  const bs = m._bs;
-  const sim = simulate(bs, m, wk, ctx);
-  const pay = {...skillPayload(bs.p.ms, bs.skillLv)};
-  // Helper Boost's real payout depends on how many team-mates share its berry
-  if (/^Helper Boost/.test(bs.p.ms))
-    pay.helpsAll = HB_TABLE[(ctx.hbU||1)-1][Math.min(bs.skillLv, 6)-1];
-  // Minus only hands out energy when a Plus partner is on the team
-  if (/^Minus \(/.test(bs.p.ms) && !ctx.hasPlus) delete pay.energySelf;
-  const ing = new Float64Array(NING);
-  for (let i=0;i<NING;i++) ing[i] = sim.productive * bs.ingChance * bs.ingVec[i];
-  if (pay.ingSpread) { const per = sim.procs*pay.ingSpread/MAGNET_POOL.length; for (const i of MAGNET_POOL) ing[i] += per; }
-  const favMul = wk.fav.has(bs.p.b) ? 2 : 1;
-  const bp = berryPower(bs.p.b, m.level);
-  let berryStrength = sim.berries * bp * favMul;
-  if (pay.selfBerry) berryStrength += sim.procs*pay.selfBerry*bp*favMul;
-  if (pay.teamBerry) berryStrength += sim.procs*pay.teamBerry*4*bp*favMul;
-  const skillStrength = sim.procs * (pay.strength||0);
-  return {sim, pay, ing, berryStrength, skillStrength,
-          potBonus: sim.procs*(pay.pot||0),
-          energyGiven: sim.procs*((pay.energyTeam||0)*5 + (pay.energySelf||0)),
-          helpsGiven: sim.procs*((pay.helpsAll||0)*5 + (pay.helpsOne||0)),
-          critAdd: Math.min(0.7, sim.procs*(pay.critChance||0)/100)};
-}
-
-/* -------- team context resolution + memoised member outputs -------- */
-const qE = v => Math.min(120, Math.round(v/15)*15);
-const qH = v => Math.round(v*2)/2;
-function ctxKey(c){ return c.nHB+'|'+c.nERB+'|'+c.supportEnergy+'|'+c.extraHelps+'|'+c.hbU+'|'+(c.hasPlus?1:0); }
-function teamContext(idxs, roster, wk, memo){
-  let nHB=0, nERB=0, hasPlus=false, hbU=1;
-  for (const i of idxs){
-    const bs = roster[i]._bs;
-    if (bs.hasHB) nHB++;
-    if (bs.hasERB) nERB++;
-    if (/^Plus \(/.test(bs.p.ms)) hasPlus = true;
-  }
-  const hbHolder = idxs.find(i => /^Helper Boost/.test(roster[i]._bs.p.ms));
-  if (hbHolder !== undefined){
-    const berry = roster[hbHolder]._bs.p.b;
-    const uniq = new Set();
-    for (const i of idxs) if (roster[i]._bs.p.b === berry) uniq.add(roster[i]._bs.p.n);
-    hbU = Math.max(1, Math.min(5, uniq.size));
-  }
-  // two-pass: neutral context to size team-wide skill support, then re-evaluate
-  let ctx = {nHB, nERB, supportEnergy:0, extraHelps:0, hbU, hasPlus};
-  for (let pass=0; pass<2; pass++){
-    let energy=0, helps=0;
-    for (const i of idxs){ const o = getOut(i, roster, wk, ctx, memo); energy += o.energyGiven; helps += o.helpsGiven; }
-    const next = {nHB, nERB, hbU, hasPlus, supportEnergy: qE(energy/5), extraHelps: qH(helps/5)};
-    if (ctxKey(next)===ctxKey(ctx)) { ctx = next; break; }
-    ctx = next;
-  }
-  return ctx;
-}
-function getOut(i, roster, wk, ctx, memo){
-  const k = i+'#'+ctxKey(ctx);
-  let v = memo.get(k);
-  if (!v){ v = memberOutput(roster[i], wk, ctx); memo.set(k, v); }
-  return v;
-}
-
-/* -------- recipe scoring -------- */
-const rlvl = r => {
-  const v = wk.recipeLevels && wk.recipeLevels[r.n];
-  return (typeof v === 'number' && v >= 1) ? Math.min(70, v) : wk.recipeLv;
-};
-function recipeValue(r, lv){
-  let sum = 0; for (const [i,a] of r.ings) sum += a*ING_VAL[i];
-  return Math.round(sum * (D.rlb[lv]||1) * (1 + r.bonus/100));
-}
-function scoreTeam(idxs, roster, wk, memo){
-  const ctx = teamContext(idxs, roster, wk, memo);
-  const ing = new Float64Array(NING);
-  let berryS=0, skillS=0, pot=0, critAdd=0;
-  const outs = [];
-  for (const i of idxs){
-    const o = getOut(i, roster, wk, ctx, memo);
-    outs.push(o);
-    for (let k=0;k<NING;k++) ing[k] += o.ing[k];
-    berryS += o.berryStrength; skillS += o.skillStrength; pot += o.potBonus; critAdd += o.critAdd;
-  }
-  const wIng = new Float64Array(NING);
-  for (let k=0;k<NING;k++) wIng[k] = ing[k]*7;
-  const potEff = Math.round((wk.pot + pot) * (wk.camp?1.5:1));
-  const critMul = AVG_CRIT + critAdd*0.8;
-  const areaMul = 1 + wk.areaBonus/100;
-  const mul = critMul * areaMul;
-  let r, cooksCapped, fits, rv, dishS;
-  if (wk.recipePick === 'auto'){
-    const b = bestSingleRecipe(wIng, potEff, mul);
-    if (b){ r = b.c.r; cooksCapped = b.n; rv = b.c.rv; fits = true;
-            dishS = Math.max(b.s, proxyDish(wIng, potEff, mul)) / areaMul; }
-    else { r = wk.recipe; cooksCapped = 0; rv = recipeValue(r, rlvl(r)); fits = r.cnt <= potEff; dishS = 0; }
-  } else {
-    r = wk.recipe;
-    rv = recipeValue(r, rlvl(r));
-    fits = r.cnt <= potEff;
-    let cooks = Infinity;
-    for (const [i,a] of r.ings) cooks = Math.min(cooks, wIng[i]/a);
-    cooksCapped = Math.min(MEALS_WEEK, Math.floor(cooks));
-    dishS = fits ? cooksCapped * rv * critMul : 0;
-  }
-  let bottleneck = null, worstRatio = Infinity;
-  for (const [i,a] of r.ings){ const c = wIng[i]/a; if (c < worstRatio){ worstRatio = c; bottleneck = i; } }
-  const total = (berryS*7 + skillS*7 + dishS) * areaMul;
-  const score = wk.mode==='dish' ? dishS*areaMul : wk.mode==='berry' ? berryS*7*areaMul : total;
-  return {idxs, ctx, outs, ing, wIng, berryS:berryS*7*areaMul, skillS:skillS*7*areaMul,
-          dishS:dishS*areaMul, total, score, cooksCapped, bottleneck, fits, potEff, rv, critMul, recipe:r, mul};
-}
-
-let POOL = [];
-function buildPool(){
-  const all = wk.recipeScope === 'all';
-  POOL = D.recipes.filter(r => all || r.t === wk.dishType)
-    .map(r => ({r, rv: recipeValue(r, rlvl(r)), lv: rlvl(r), cnt: r.cnt}))
-    .sort((a,b) => b.rv - a.rv);
-}
-/** Every recipe this team can sustain, ranked by what spamming it alone would yield. */
-function rankSingle(wIng, potEff, mul){
-  const out = [];
-  for (const c of POOL){
-    if (c.cnt > potEff) continue;
-    let cooks = Infinity;
-    for (const [i,a] of c.r.ings){ const k = wIng[i]/a; if (k < cooks) cooks = k; }
-    const n = Math.min(MEALS_WEEK, Math.floor(cooks));
-    if (n <= 0) continue;
-    out.push({c, n, s: n * c.rv * mul});
-  }
-  out.sort((a,b)=>b.s-a.s);
-  return out;
-}
-function bestSingleRecipe(wIng, potEff, mul){ return rankSingle(wIng, potEff, mul)[0] || null; }
-/** Search-stage proxy for the 21-meal plan: walk recipes by value, fill meals,
- *  ignore that ingredients are shared. Over-counts, but ranks teams the same way
- *  the real plan does — which is all the search needs. */
-function proxyDish(wIng, potEff, mul){
-  let meals = MEALS_WEEK, total = 0;
-  for (const c of POOL){
-    if (meals <= 0) break;
-    if (c.cnt > potEff) continue;
-    let cooks = Infinity;
-    for (const [i,a] of c.r.ings){ const k = Math.floor(wIng[i]/a); if (k < cooks) cooks = k; }
-    if (cooks < 1) continue;
-    const n = Math.min(cooks, meals);
-    total += n * c.rv * mul; meals -= n;
-  }
-  return total;
-}
-/** Plain greedy is not monotone — raising one recipe's level could make it pick a
- *  worse opening move and lose value. So try several openings and keep the best. */
-function bestPlan(wIng, potEff, mul, forced){
-  const seeds = forced ? [forced]
-    : [null, ...rankSingle(wIng, potEff, mul).slice(0, 8).map(x => x.c.r)];
-  let best = null;
-  for (const sd of seeds){
-    const mp = mealPlan(wIng, potEff, mul, sd);
-    if (!best || mp.total > best.total) best = mp;
-  }
-  return best;
-}
-/** Greedy fill of all 21 meals from one shared ingredient pool. */
-function mealPlan(wIng, potEff, mul, forceFirst){
-  const pool = Array.from(wIng);
-  const plan = []; let meals = MEALS_WEEK, total = 0, guard = 0;
-  if (forceFirst && forceFirst.cnt <= potEff){
-    const rv = recipeValue(forceFirst, rlvl(forceFirst));
-    let cooks = Infinity;
-    for (const [i,a] of forceFirst.ings){ const k = Math.floor(pool[i]/a); if (k < cooks) cooks = k; }
-    cooks = Math.min(cooks, meals);
-    if (cooks >= 1){
-      for (const [i,a] of forceFirst.ings) pool[i] -= a * cooks;
-      plan.push({r: forceFirst, n: cooks, each: rv, primary: true});
-      total += cooks * rv * mul; meals -= cooks;
-    }
-  }
-  while (meals > 0 && guard++ < 40){
-    let best = null;
-    for (const c of POOL){
-      if (c.cnt > potEff) continue;
-      let cooks = Infinity;
-      for (const [i,a] of c.r.ings){ const k = Math.floor(pool[i]/a); if (k < cooks) cooks = k; }
-      if (cooks < 1) continue;
-      if (!best || c.rv > best.c.rv) best = {c, cooks: Math.min(cooks, meals)};
-    }
-    if (!best) break;
-    for (const [i,a] of best.c.r.ings) pool[i] -= a * best.cooks;
-    plan.push({r: best.c.r, n: best.cooks, each: best.c.rv});
-    total += best.cooks * best.c.rv * mul;
-    meals -= best.cooks;
-  }
-  return {plan, total, idleMeals: meals, leftover: pool};
-}
-
-function rankRecipesForTeam(r){
-  const potEff = r.potEff;
-  const out = [];
-  for (const cand of POOL){
-    const rec = cand.r;
-    let cooks = Infinity, bn = null, worst = Infinity;
-    for (const [i,a] of rec.ings){
-      const c = r.wIng[i]/a;
-      if (c < worst){ worst = c; bn = i; }
-      cooks = Math.min(cooks, c);
-    }
-    const capped = Math.min(MEALS_WEEK, Math.floor(cooks));
-    const fits = rec.cnt <= potEff;
-    const rv = cand.rv;
-    out.push({rec, capped, fits, rv, bn,
-              strength: fits ? capped*rv*r.critMul*(1+wk.areaBonus/100) : 0});
-  }
-  out.sort((a,b)=>b.strength-a.strength);
-  return out;
-}
 
 /* ================= STATE ================= */
 const BLANK = () => ({sp: D.dex.findIndex(p=>p.n==='PIKACHU'), level:30, nature:'Bashful', ss:[null,null,null,null,null], ingSet:[0,0,0], skillLv:1, ribbon:0, pin:false, ex:false});
@@ -702,73 +382,138 @@ $('importBtn').addEventListener('click', ()=>{
   catch(e){ setStatus('JSON 格式不正確'); }
 });
 
-/* ================= RUN ================= */
-function combinations(pool, k, pinned, cb){
-  const idx = new Array(k);
-  const need = k - pinned.length;
-  if (need < 0) return;
-  (function rec(start, depth){
-    if (depth === need){ cb(pinned.concat(idx.slice(0, need))); return; }
-    for (let i=start; i<=pool.length-(need-depth); i++){ idx[depth] = pool[i]; rec(i+1, depth+1); }
-  })(0, 0);
+/* ---- Worker 管線 ----
+   引擎在 engine.js，主執行緒和 worker 都載入同一份，所以兩邊數值一定一致。
+   worker 只是把那個同步迴圈搬離 UI 執行緒。 */
+let worker = null, workerReady = null, runSeq = 0, running = false;
+
+function spawnWorker(){
+  const w = new Worker('./src/engine.worker.js');
+  const ready = new Promise((ok, bad) => {
+    const onMsg = (e) => {
+      if (e.data && e.data.type === 'ready'){ w.removeEventListener('message', onMsg); ok(w); }
+    };
+    w.addEventListener('message', onMsg);
+    w.addEventListener('error', (ev) => bad(new Error(ev.message || 'worker 載入失敗')));
+  });
+  // 資料只送一次；之後每次推演只送 roster 與 wk
+  w.postMessage({ type:'init', data: D });
+  worker = w; workerReady = ready;
+  return ready;
 }
-function run(){
-  const active = roster.map((m,i)=>({m,i})).filter(x=>!x.m.ex);
-  if (active.length < 5){ $('results').innerHTML = `<div class="notice warn">箱子裡至少要有 5 隻可用的寶可夢（目前 ${active.length} 隻）。</div>`; return; }
+
+const CANCELLED = 'psleep-cancelled';
+let pendingReject = null;   // 讓 killWorker 能結束還在等的那個 promise
+
+/** 砍掉目前的 worker。取消只能這樣做 —— 理由見 engine.worker.js 的檔頭。 */
+function killWorker(){
+  if (worker){ worker.terminate(); worker = null; workerReady = null; }
+  // terminate 之後 worker 永遠不會再回訊息，等它的 promise 會就這樣掛著。
+  // 主動 reject 掉，否則每次取消都留下一個永不 settle 的 async 呼叫。
+  if (pendingReject){ const r = pendingReject; pendingReject = null; r(new Error(CANCELLED)); }
+}
+
+/** 送一次推演給 worker。worker 不可用時回傳 null，由呼叫端退回主執行緒。 */
+function searchViaWorker(payload, onProgress){
+  if (typeof Worker === 'undefined') return null;
+  try { if (!worker) spawnWorker(); } catch { return null; }
+  return workerReady.then(w => new Promise((ok, bad) => {
+    pendingReject = bad;
+    const onMsg = (e) => {
+      const m = e.data || {};
+      if (m.type === 'progress'){ onProgress(m.done, m.total); return; }
+      w.removeEventListener('message', onMsg);
+      pendingReject = null;
+      if (m.type === 'done') ok(m.result);
+      else bad(new Error(m.message || '推演失敗'));
+    };
+    w.addEventListener('message', onMsg);
+    w.postMessage({ type:'run', ...payload });
+  }));
+}
+
+function setRunning(on){
+  running = on;
+  $('runBtn').disabled = on;
+  $('cancelBtn').hidden = !on;
+  $('runProg').hidden = !on;
+  if (!on){ $('runStatus').textContent = ''; $('runProg').value = 0; }
+}
+
+const RUN_ERR = {
+  few:    n => `箱子裡至少要有 5 隻可用的寶可夢（目前 ${n} 隻）。`,
+  nopool: () => `目前的料理類型／範圍下沒有任何食譜可比較。`,
+  pins:   n => `固定（📌）的寶可夢超過 5 隻，請減少到 5 隻以內。`,
+};
+
+async function run(){
+  if (running) return;                 // 一次只跑一個
+  const seq = ++runSeq;
+
+  // 前置驗證與主執行緒的準備工作（這些都要 DOM 或會被 renderResults 用到）
+  const active = roster.filter(m => !m.ex);
+  if (active.length < 5){ $('results').innerHTML = `<div class="notice warn">${RUN_ERR.few(active.length)}</div>`; return; }
   wk.recipe = D.recipes.find(r=>r.n===wk.recipeName) || D.recipes[0];
-  buildPool();
-  if (!POOL.length){ $('results').innerHTML = `<div class="notice warn">目前的料理類型／範圍下沒有任何食譜可比較。</div>`; return; }
+  buildPool(wk);                       // renderResults 的 rankRecipesForTeam 需要 POOL
+  if (!POOL.length){ $('results').innerHTML = `<div class="notice warn">${RUN_ERR.nopool()}</div>`; return; }
+  roster.forEach(m => { m._bs = baseStats(m, wk); });   // memberCard 需要 _bs
+
+  setRunning(true);
   $('runStatus').textContent = '推演中…';
-  roster.forEach(m=>{ m._bs = baseStats(m, wk); });
-  setTimeout(()=>{
-    const t0 = performance.now();
-    const pinned = active.filter(x=>x.m.pin).map(x=>x.i);
-    if (pinned.length > 5){ $('results').innerHTML = `<div class="notice warn">固定（📌）的寶可夢超過 5 隻，請減少到 5 隻以內。</div>`; $('runStatus').textContent=''; return; }
-    let pool = active.map(x=>x.i).filter(i=>!pinned.includes(i));
-    const memo = new Map();
-    // pre-filter very large boxes by solo score
-    const nC = (n,k)=>{ let r=1; for(let i=0;i<k;i++) r = r*(n-i)/(i+1); return r; };
-    let trimmed = false;
-    if (nC(pool.length, 5-pinned.length) > 1.2e6){
-      const solo = pool.map(i=>({i, s: scoreTeam([i,i,i,i,i].slice(0,1).concat(pool.filter(j=>j!==i).slice(0,4)), roster, wk, memo).score}));
-      solo.sort((a,b)=>b.s-a.s);
-      pool = solo.slice(0, 42-pinned.length).map(x=>x.i);
-      trimmed = true;
-    }
-    const FINALISTS = 50, SHOWN = 8;
-    const best = [];
-    let count = 0;
-    combinations(pool, 5, pinned, idxs=>{
-      count++;
-      const r = scoreTeam(idxs, roster, wk, memo);
-      if (best.length < FINALISTS){ best.push(r); best.sort((a,b)=>b.score-a.score); }
-      else if (r.score > best[FINALISTS-1].score){ best[FINALISTS-1] = r; best.sort((a,b)=>b.score-a.score); }
-    });
-    // finalists get the expensive treatment: fill all 21 meals from one shared pool
-    for (const b of best){
-      const mp = bestPlan(b.wIng, b.potEff, b.mul, wk.recipePick==='manual' ? wk.recipe : null);
-      b.mp = mp;
-      if (mp && mp.total > b.dishS){
-        b.dishS = mp.total;
-        if (wk.recipePick === 'auto' && mp.plan.length){
-          const top = mp.plan.reduce((x,y)=> (y.n*y.each > x.n*x.each ? y : x));
-          b.recipe = top.r;
-          b.cooksCapped = top.n;
-          b.rv = top.each;
-          b.fits = true;
-        }
-      }
-      b.total = b.berryS + b.skillS + b.dishS;
-      b.score = wk.mode==='dish' ? b.dishS : wk.mode==='berry' ? b.berryS : b.total;
-    }
-    best.sort((a,b)=>b.score-a.score);
-    const ms = Math.round(performance.now()-t0);
-    lastResults = best.slice(0, SHOWN); shownAlt = 0;
-    $('comboCount').textContent = `${count.toLocaleString()} 種組合 · ${ms}ms${trimmed?' · 已預篩至前 42 隻':''}`;
-    $('runStatus').textContent = '';
-    renderResults();
-  }, 20);
+  const onProgress = (done, total) => {
+    if (seq !== runSeq) return;
+    const pct = total ? Math.min(100, Math.round(done/total*100)) : 0;
+    $('runProg').value = pct;
+    $('runStatus').textContent = `推演中… ${pct}%（${done.toLocaleString()} / ${total.toLocaleString()}）`;
+  };
+
+  // _bs 和 recipe 不必送過去：worker 自己會算 / 自己從 recipeName 解析。
+  // 少送這兩樣可以讓 postMessage 的 payload 小很多。
+  const payload = {
+    roster: roster.map(m => { const c = {...m}; delete c._bs; return c; }),
+    wk: { ...wk, recipe: undefined },
+  };
+
+  let res = null, viaWorker = true;
+  try {
+    const p = searchViaWorker(payload, onProgress);
+    if (p) res = await p;
+    else viaWorker = false;
+  } catch (err){
+    if (err.message === CANCELLED) return;   // 使用者按了取消，狀態已由 cancelBtn 處理好
+    console.warn('worker 推演失敗，退回主執行緒：', err.message);
+    killWorker();
+    viaWorker = false;
+  }
+  if (seq !== runSeq) return;           // 已經有更新的推演，丟棄這次結果
+
+  if (!viaWorker){
+    // 退路：沒有 Worker（或 worker 掛了）就在主執行緒跑，UI 會凍住但至少有答案
+    $('runStatus').textContent = '推演中…（無 Worker，畫面會暫停）';
+    await new Promise(r => setTimeout(r, 20));   // 讓上面那行先畫出來
+    res = searchTeams(roster, wk, {});
+    if (seq !== runSeq) return;
+  }
+
+  setRunning(false);
+  if (!res || res.error){
+    const f = res && RUN_ERR[res.error];
+    if (res && res.error === 'stopped') return;
+    $('results').innerHTML = `<div class="notice warn">${f ? f(res.n) : '推演失敗，請重試。'}</div>`;
+    return;
+  }
+  lastResults = res.best; shownAlt = 0;
+  $('comboCount').textContent = `${res.count.toLocaleString()} 種組合 · ${res.ms}ms${res.trimmed?' · 已預篩至前 42 隻':''}${viaWorker?'':' · 主執行緒'}`;
+  renderResults();
 }
+
+$('cancelBtn').addEventListener('click', ()=>{
+  if (!running) return;
+  runSeq++;                 // 讓還在飛的結果被丟棄
+  killWorker();             // 同步迴圈只能靠 terminate 中斷
+  setRunning(false);
+  $('comboCount').textContent = '已取消';
+});
 
 /* ================= RESULTS RENDER ================= */
 function memberCard(rank, i, r, o){
@@ -843,7 +588,7 @@ function renderResults(){
         <div class="eyebrow">${wk.recipePick==='auto'?'自動選中的主食譜':'指定食譜'}</div>
         <div style="font-size:13.5px;font-weight:700;margin:3px 0 2px">${recipeZh(TR.n)}</div>
         <div class="subfig"><span>主食譜可煮</span><b>${r.cooksCapped} / 21 餐</b></div>
-        <div class="subfig"><span>單道能量 (Lv${rlvl(TR)})</span><b>${fmt(r.rv)}</b></div>
+        <div class="subfig"><span>單道能量 (Lv${rlvl(TR, wk)})</span><b>${fmt(r.rv)}</b></div>
         <div class="subfig"><span>瓶頸食材</span><b>${bn}</b></div>
       </div>
     </div>
@@ -862,7 +607,7 @@ function renderResults(){
       <div class="phead"><h3>這隊最能煮的食譜</h3><span class="muted" style="font-size:12px">以目前產量排序</span></div>
       <div class="pbody" style="padding:0"><div class="scroll" style="border:0">
       <table><thead><tr><th>食譜</th><th style="text-align:right">煮/週</th><th style="text-align:right">週能量</th><th></th></tr></thead>
-      <tbody>${rankRecipesForTeam(r).slice(0,7).map(x=>`<tr${x.rec.n===wk.recipe.n?' style="background:color-mix(in srgb,var(--accent) 12%,transparent)"':''}>
+      <tbody>${rankRecipesForTeam(r, wk).slice(0,7).map(x=>`<tr${x.rec.n===wk.recipe.n?' style="background:color-mix(in srgb,var(--accent) 12%,transparent)"':''}>
         <td>${recipeZh(x.rec.n)} <span class="muted num">共${x.rec.cnt}</span>${x.fits?'':' <span class="tag pin">鍋子不足</span>'}</td>
         <td class="n" style="text-align:right">${x.capped}</td>
         <td class="n" style="text-align:right">${fmt(x.strength)}</td>
@@ -928,8 +673,8 @@ function renderRecipeLevels(){
     if (!q) return true;
     const hay = (recipeZh(r.n) + ' ' + r.n + ' ' + r.ings.map(([i])=>iz(ING_NAME[i])).join(' ')).toLowerCase();
     return hay.includes(q);
-  }).map(r=>({r, lv: rlvl(r), set: typeof (wk.recipeLevels||{})[r.n] === 'number',
-              val: recipeValue(r, rlvl(r))}));
+  }).map(r=>({r, lv: rlvl(r, wk), set: typeof (wk.recipeLevels||{})[r.n] === 'number',
+              val: recipeValue(r, rlvl(r, wk))}));
   const cmp = {value:(a,b)=>b.val-a.val, lv:(a,b)=>b.lv-a.lv, cnt:(a,b)=>a.r.cnt-b.r.cnt,
                name:(a,b)=>recipeZh(a.r.n).localeCompare(recipeZh(b.r.n),'zh-Hant')}[sort];
   list.sort(cmp);
@@ -977,7 +722,7 @@ function renderVersion(){
   if (selfHosted){
     $('refreshBtn').disabled = true;
     $('refreshBtn').textContent = '自架版本不適用';
-    $('refreshNote').innerHTML = '這是<b>自架版本</b>，遊戲資料是靜態快照，不會自己更新。更新方式：在 repo 根目錄跑 <code>npm run data</code> 從上游重新萃取，確認 <code>git diff data/game.json</code> 合理後 commit。詳見 repo 的 README。';
+    $('refreshNote').innerHTML = `這是<b>自架版本</b>，遊戲資料是靜態快照，不會自己更新。更新方式：在 repo 根目錄跑 ${code(C.rebuild)} 從上游重新萃取，確認 ${code('git diff ' + P.data)} 合理後 commit。詳見 repo 的 README。`;
   }
   const parts = [];
   if (metaStatus && metaStatus.lastCheckedAt) parts.push('檢查：' + metaStatus.lastCheckedAt.slice(0,16).replace('T',' '));
@@ -990,7 +735,7 @@ $('refreshBtn').addEventListener('click', async ()=>{
   if (!dbObj){
     $('refreshNote').innerHTML = window.claude
       ? '<b style="color:var(--neg)">這個檢視連不上雲端資料庫，請求無法排隊。</b> 請直接在對話裡跟 Claude 說「更新資料」。'
-      : '<b>自架版本沒有收單機制。</b> 更新方式是在 repo 根目錄跑 <code>npm run data</code> 重新萃取，然後 commit <code>data/game.json</code>。';
+      : `<b>自架版本沒有收單機制。</b> 更新方式是在 repo 根目錄跑 ${code(C.rebuild)} 重新萃取，然後 commit ${code(P.data)}。`;
     return;
   }
   btn.disabled = true; btn.textContent = '送出中…';

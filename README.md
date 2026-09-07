@@ -61,7 +61,7 @@ Settings → Pages → Source 選 `main` 分支根目錄。幾分鐘後 `https:/
 ```bash
 npm i playwright-core
 npm run serve     # 起 http server → 開 http://localhost:8080
-npm test          # tests/smoke.mjs — 27 項檢查（測試會自己起 server）
+npm test          # tests/smoke.mjs — 46 項檢查（測試會自己起 server）
 npm run data      # 從上游重建 data/game.json
 ```
 
@@ -73,8 +73,12 @@ npm run data      # 從上游重建 data/game.json
 |---|---|
 | `index.html` | 骨架 —— markup ＋ 載入器 |
 | `src/app.css` | 樣式 |
-| `src/app.js` | 引擎與 UI |
+| `src/engine.js` | 純引擎（主執行緒與 Worker 共用同一份） |
+| `src/engine.worker.js` | Worker 外殼，把推演搬離 UI 執行緒 |
+| `src/app.js` | UI 與持久層 |
 | `data/game.json` | 遊戲資料快照（indent-2，一個欄位一行，方便 diff） |
+
+推演跑在 Web Worker 裡，所以箱子很大（40 隻 = 65.8 萬組合）時畫面不會凍住，有進度條也能取消。瀏覽器不支援 Worker 時會退回主執行緒同步跑。
 
 動手前先讀 [CLAUDE.md](CLAUDE.md)（架構與已知陷阱）與 [DECISIONS.md](DECISIONS.md)（為什麼做成這樣）。待辦見 [TODO.md](TODO.md)。
 
