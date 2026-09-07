@@ -63,6 +63,9 @@ const msz = n => (Z.ms        && Z.ms[n])        || n;
 const ssz = n => (Z.subskills && Z.subskills[n]) || n;
 const sss = n => (Z.ssShort   && Z.ssShort[n])   || (SS[n] ? SS[n].s : n);
 const SPEC_ZH = {berry:"樹果",ingredient:"食材",skill:"技能",all:"全能"};
+/* 專長 → CSS 類名。刻意不是 p.sp 本身：app.css 的類是 .tag.ing，不是 .tag.ingredient，
+   直接用 p.sp 會拿到一個不存在的類（沒有顏色，而且看不出來壞了）。 */
+const SPEC_TAG = {berry:"berry",ingredient:"ing",skill:"skill",all:"all"};
 /** 睡眠緞帶的標籤。索引就是 m.ribbon，對應 engine.js 的 RIBBON_CARRY。 */
 const RIBBON_LABEL = ['無','200h','500h','1000h','2000h'];
 const NAT_AB = {speed:"速度",ingredient:"食材",skill:"技能",energy:"活力",exp:"EXP"};
@@ -118,11 +121,12 @@ function deserialize(o, opts){
 function rosterTable(){
   const head = ['種類','圖鑑','等級','性格','副技能1','副技能2','副技能3','副技能4','副技能5','食材1','食材2','食材3','技能Lv','主技能','緞帶','固定','排除'];
   const rows = roster.map(m=>{
-    const p = D.dex[m.sp], opts = [p.i0, p.i30, p.i60];
+    const p = D.dex[m.sp];
+    // 和 UI 共用 ingPick()，順便避開 ING_NAME[null] 會寫出 "undefined×0" 的問題
     const ings = [0,1,2].map(k=>{
-      const list = opts[k] || [];
-      const pick = list[Math.min(m.ingSet[k]||0, list.length-1)];
-      return pick ? iz(ING_NAME[pick[0]]) + '×' + pick[1] : '';
+      const pick = ingPick(m, k);
+      if (!pick) return '';
+      return (pick[0] != null ? iz(ING_NAME[pick[0]]) : '（無）') + '×' + pick[1];
     });
     return [pz(p), p.no, m.level, natZ(NAT[m.nature]||NAT.Bashful),
             ...[0,1,2,3,4].map(i=>m.ss[i] ? ssz(m.ss[i]) : ''),
@@ -358,61 +362,149 @@ function syncWeeklyUI(){
 }
 
 /* ================= UI: box ================= */
-const SPECIES_OPTS = D.dex.map((p,i)=>`<option value="${i}">${pz(p)}　#${p.no} ${p.d} · ${SPEC_ZH[p.sp]} · ${bz(p.b)}</option>`).join('');
+/* 種類選單刻意只放「中文名 #圖鑑號」。之前塞了英文名、專長、樹果，結果在實際寬度下
+   整串被裁成「大食花　#71 Vi…」—— 被裁掉的資訊等於沒有。專長／樹果／主技能改成
+   卡片上的獨立標籤（也才能拿來篩選）。打中文名跳選照樣可用，因為中文名在最前面。 */
+const SPECIES_OPTS = D.dex.map((p,i)=>`<option value="${i}">${pz(p)}　#${p.no}</option>`).join('');
 const NATURE_OPTS = D.natures.map(n=>`<option value="${n.n}">${natLabel(n)}</option>`).join('');
-const SS_OPTS = `<option value="">—</option>` + D.subskills.map(s=>`<option value="${s.n}" title="${ssz(s.n)}">${sss(s.n)}</option>`).join('');
+/* 副技能用**全名**，不用縮寫 —— 這一欄要「完全顯示」，卡片版面已經給足寬度。 */
+const SS_OPTS = `<option value="">—</option>` + D.subskills.map(s=>`<option value="${s.n}">${ssz(s.n)}</option>`).join('');
+/** 某一格目前選中的 [食材索引, 數量]；沒有就 null。 */
+function ingPick(m, slot){
+  const p = D.dex[m.sp], list = [p.i0, p.i30, p.i60][slot] || [];
+  return list[Math.min(m.ingSet[slot]||0, list.length-1)] || null;
+}
+/* 選項只放食材名，數量顯示在選單旁邊。
+   為什麼不做成兩個選單：同一格裡食材種類不會重複（`[null,0]` 那個空欄位除外），
+   所以**數量由食材決定**，選好食材後數量只有一個可能值。做成兩個選單會假裝有
+   不存在的彈性。夢幻／達克萊伊有 `[null,0]` 這個空選項，要顯示成「（無）」——
+   否則 `ING_NAME[null]` 會讓選項變成 "undefined×0"。 */
 function ingSetOpts(m, slot){
   const p = D.dex[m.sp], list = [p.i0, p.i30, p.i60][slot] || [];
   if (!list.length) return `<option value="0">—</option>`;
-  return list.map((x,i)=>`<option value="${i}">${iz(ING_NAME[x[0]])}×${x[1]}</option>`).join('');
+  return list.map((x,i)=>
+    `<option value="${i}">${x && x[0]!=null ? iz(ING_NAME[x[0]]) : '（無）'}</option>`).join('');
+}
+
+/** 一隻寶可夢的可編輯卡片。寶可夢箱與截圖校對區**共用這一份**。
+ *  兩邊各寫一份的話，改了一邊另一邊就會不一樣 —— 而校對區看到的必須就是進箱子的東西。
+ *  `idx == null` 代表校對區用（不放操作按鈕、不放 data-i）。 */
+function monCard(m, idx, o){
+  o = o || {};
+  const p = D.dex[m.sp];
+  const slots = Math.min(Math.floor(m.level/30)+1, 3);
+  const amb = o.amb || {};
+  const ambCls = k => amb[k] ? ' class="amb"' : '';
+  const ambIng = s => (amb.ing && amb.ing[s] && amb.ing[s].length>1) ? ' class="amb"' : '';
+  const acts = idx == null ? '' : `<span class="mon-acts">
+        <button class="btn sm ghost" data-act="pin" title="固定在隊上（一定入選）">${m.pin?'📌':'📍'}</button>
+        <button class="btn sm ghost" data-act="ex" title="從推演中排除">${m.ex?'🚫':'○'}</button>
+        <button class="btn sm ghost" data-act="del" title="刪除">✕</button></span>`;
+  return `<div class="mon${m.ex?' is-ex':''}${m.pin?' is-pin':''}"${idx==null?'':` data-i="${idx}"`}>
+      <div class="mon-row">
+        <label class="f w-sp">種類<select data-k="sp"${ambCls('sp')}>${SPECIES_OPTS}</select></label>
+        <span class="mon-tags">
+          <span class="tag ${SPEC_TAG[p.sp]}" title="專長">${SPEC_ZH[p.sp]}</span>
+          <span class="pill" title="樹果">${bz(p.b)}</span>
+          <span class="pill" title="主技能：${msz(p.ms)}">${msz(p.ms)}</span>
+        </span>
+        <label class="f w-num">等級<input type="number" data-k="level" min="1" max="70" value="${m.level}"></label>
+        <label class="f w-nat">性格<select data-k="nature">${NATURE_OPTS}</select></label>
+        ${acts}
+      </div>
+      <div class="mon-row"><span class="mon-lbl">副技能</span><div class="mon-ss">${[0,1,2,3,4].map(s=>
+        /* 未解鎖的欄位只是變淡，**不 disable** —— 遊戲畫面上看得到（🔒Lv.70），
+           先記下來是對的，引擎會自己依等級判斷要不要採計。 */
+        `<select data-k="ss" data-s="${s}"${m.level<SS_SLOT_LV[s]?' class="dim"':''} title="第 ${s+1} 格 — Lv${SS_SLOT_LV[s]} 解鎖${m.level<SS_SLOT_LV[s]?'（尚未解鎖，可以先記）':''}">${SS_OPTS}</select>`).join('')}</div></div>
+      <div class="mon-row"><span class="mon-lbl">食材</span><div class="mon-ing">${[0,1,2].map(s=>{
+        const pick = ingPick(m, s);
+        const lv = [1,30,60][s];
+        return `<span class="ingpick${s>=slots?' locked':''}" title="第 ${s+1} 格 — Lv${lv} 解鎖">`
+             + `<select data-k="ingSet" data-s="${s}"${s>=slots?' disabled':ambIng(s)}>${ingSetOpts(m,s)}</select>`
+             + `<b>${s>=slots ? '未解鎖' : (pick ? '×'+pick[1] : '—')}</b></span>`;
+      }).join('')}</div>
+        <label class="f w-num">技能Lv<input type="number" data-k="skillLv" min="1" max="8" value="${m.skillLv}"></label>
+        <label class="f w-rib">緞帶<select data-k="ribbon"${ambCls('rb')} title="睡眠緞帶：提升攜帶上限，未進化的還會縮短幫手間隔。遊戲畫面上看不到，是由持有上限反解出來的">${
+          RIBBON_LABEL.map((t,i)=>`<option value="${i}">${t}</option>`).join('')}</select></label>
+      </div>
+    </div>`;
+}
+/** 把 m 的值套進一張已經渲染好的卡片。select 的 value 不能寫在 HTML 字串裡。 */
+function setMonValues(el, m){
+  el.querySelector('[data-k="sp"]').value = m.sp;
+  el.querySelector('[data-k="nature"]').value = m.nature;
+  el.querySelectorAll('[data-k="ss"]').forEach(s=>{ s.value = m.ss[+s.dataset.s] || ''; });
+  el.querySelectorAll('[data-k="ingSet"]').forEach(s=>{ s.value = String(m.ingSet[+s.dataset.s]||0); });
+  el.querySelector('[data-k="ribbon"]').value = String(m.ribbon||0);
+}
+
+/* ---- 篩選 ----
+   只影響「顯示哪幾張卡」，不動 roster、不影響推演。純檢視偏好，所以不進 serialize()。
+
+   實作用 `hidden` 切換而不是重建 innerHTML：一張卡有 246 個種類選項，60 隻就是
+   一萬多個 <option>，每次打字都重建會卡。 */
+let boxFlt = {spec:'', state:'', q:''};
+function monMatch(m){
+  const p = D.dex[m.sp];
+  if (boxFlt.spec && p.sp !== boxFlt.spec) return false;
+  if (boxFlt.state === 'pin' && !m.pin) return false;
+  if (boxFlt.state === 'ex' && !m.ex) return false;
+  if (boxFlt.state === 'plain' && (m.pin || m.ex)) return false;
+  if (boxFlt.q){
+    const hay = [pz(p), p.d, '#'+p.no, SPEC_ZH[p.sp], bz(p.b), msz(p.ms),
+      ...m.ss.filter(Boolean).map(ssz),
+      ...[0,1,2].map(s=>{ const k = ingPick(m, s); return k && k[0]!=null ? iz(ING_NAME[k[0]]) : ''; }),
+    ].join(' ').toLowerCase();
+    if (!hay.includes(boxFlt.q.toLowerCase())) return false;
+  }
+  return true;
+}
+function applyBoxFilter(){
+  let shown = 0;
+  for (const el of $('boxList').querySelectorAll('[data-i]')){
+    const ok = monMatch(roster[+el.dataset.i]);
+    el.hidden = !ok;
+    if (ok) shown++;
+  }
+  const on = !!(boxFlt.spec || boxFlt.state || boxFlt.q);
+  $('boxNone').hidden = !(roster.length && !shown);
+  $('boxCount').textContent = !roster.length ? ''
+    : on ? `顯示 ${shown} / ${roster.length} 隻` : `共 ${roster.length} 隻`;
 }
 function renderBox(){
   const host = $('boxList');
   $('boxEmpty').style.display = roster.length ? 'none' : 'block';
-  host.innerHTML = roster.map((m,idx)=>{
-    const p = D.dex[m.sp];
-    const slots = Math.min(Math.floor(m.level/30)+1, 3);
-    return `<div class="boxrow" data-i="${idx}">
-      <div data-lbl="種類"><select data-k="sp">${SPECIES_OPTS}</select></div>
-      <div data-lbl="等級"><input type="number" data-k="level" min="1" max="70" value="${m.level}"></div>
-      <div data-lbl="性格"><select data-k="nature">${NATURE_OPTS}</select></div>
-      <div data-lbl="副技能"><div class="ss-mini">${[0,1,2,3,4].map(s=>
-        `<select data-k="ss" data-s="${s}" title="第 ${s+1} 格 — Lv${SS_SLOT_LV[s]} 解鎖${m.ss[s]?'：'+ssz(m.ss[s]):''}"${m.level<SS_SLOT_LV[s]?' style="opacity:.45"':''}>${SS_OPTS}</select>`).join('')}</div></div>
-      <div data-lbl="食材組合"><div class="ss-mini" style="grid-template-columns:repeat(3,1fr)">${[0,1,2].map(s=>
-        `<select data-k="ingSet" data-s="${s}"${s>=slots?' disabled style="opacity:.35"':''}>${ingSetOpts(m,s)}</select>`).join('')}</div></div>
-      <div data-lbl="技能Lv"><input type="number" data-k="skillLv" min="1" max="8" value="${m.skillLv}"></div>
-      <div data-lbl="緞帶"><select data-k="ribbon" title="睡眠緞帶：縮短未進化寶可夢的幫手間隔並提升攜帶上限">${
-        RIBBON_LABEL.map((t,i)=>`<option value="${i}">${t}</option>`).join('')}</select></div>
-      <div data-lbl="" style="display:flex;gap:5px;justify-content:flex-end">
-        <button class="btn sm ghost" data-act="pin" title="固定在隊上">${m.pin?'📌':'📍'}</button>
-        <button class="btn sm ghost" data-act="ex" title="排除">${m.ex?'🚫':'○'}</button>
-        <button class="btn sm ghost" data-act="del" title="刪除">✕</button>
-      </div>
-    </div>`;
-  }).join('');
-  roster.forEach((m,idx)=>{
-    const row = host.querySelector(`[data-i="${idx}"]`);
-    row.querySelector('[data-k="sp"]').value = m.sp;
-    row.querySelector('[data-k="nature"]').value = m.nature;
-    row.querySelectorAll('[data-k="ss"]').forEach(s=>{ s.value = m.ss[+s.dataset.s] || ''; });
-    row.querySelectorAll('[data-k="ingSet"]').forEach(s=>{ s.value = String(m.ingSet[+s.dataset.s]||0); });
-    row.querySelector('[data-k="ribbon"]').value = String(m.ribbon||0);
-    row.style.opacity = m.ex ? .5 : 1;
-  });
+  /* data-i 一律是**真實的 roster 索引**。用篩選後的序號當索引，
+     改一格就會改到別隻身上 —— 這是這一段最容易寫錯的地方。 */
+  host.innerHTML = roster.map((m, idx)=> monCard(m, idx)).join('');
+  for (const el of host.querySelectorAll('[data-i]')) setMonValues(el, roster[+el.dataset.i]);
+  applyBoxFilter();
 }
 $('boxList').addEventListener('change', e=>{
   const row = e.target.closest('[data-i]'); if (!row) return;
   const m = roster[+row.dataset.i], k = e.target.dataset.k;
   if (!k) return;
+  /* sp / level / ingSet 會改變卡片本身（標籤、解鎖格數、×N 數量）→ 要重畫。
+     其餘只是存值，重畫會白白弄掉焦點。改完都要 applyBoxFilter()：
+     改了種類或標記之後，這一隻可能已經不符合目前的篩選了。 */
   if (k==='sp'){ m.sp = +e.target.value; m.ingSet = [0,0,0]; m.skillLv = 1; renderBox(); }
-  else if (k==='ss') m.ss[+e.target.dataset.s] = e.target.value || null;
-  else if (k==='ingSet') m.ingSet[+e.target.dataset.s] = +e.target.value;
+  else if (k==='ss'){ m.ss[+e.target.dataset.s] = e.target.value || null; applyBoxFilter(); }
+  else if (k==='ingSet'){ m.ingSet[+e.target.dataset.s] = +e.target.value; renderBox(); }
   else if (k==='level'){ m.level = Math.max(1, Math.min(70, +e.target.value||1)); renderBox(); }
   else if (k==='skillLv') m.skillLv = Math.max(1, Math.min(8, +e.target.value||1));
   else if (k==='nature') m.nature = e.target.value;
   else if (k==='ribbon') m.ribbon = +e.target.value;
   save();
 });
+/* ---- 篩選列 ---- */
+for (const [id, key] of [['fltSpec','spec'], ['fltState','state']])
+  $(id).addEventListener('change', e=>{ boxFlt[key] = e.target.value; applyBoxFilter(); });
+$('fltName').addEventListener('input', e=>{ boxFlt.q = e.target.value.trim(); applyBoxFilter(); });
+function clearBoxFilter(){
+  boxFlt = {spec:'', state:'', q:''};
+  $('fltSpec').value = ''; $('fltState').value = ''; $('fltName').value = '';
+}
+$('fltClear').addEventListener('click', ()=>{ clearBoxFilter(); applyBoxFilter(); });
 $('boxList').addEventListener('click', e=>{
   const btn = e.target.closest('[data-act]'); if (!btn) return;
   const i = +btn.closest('[data-i]').dataset.i, a = btn.dataset.act;
@@ -421,8 +513,14 @@ $('boxList').addEventListener('click', e=>{
   else if (a==='ex'){ roster[i].ex = !roster[i].ex; if (roster[i].ex) roster[i].pin = false; }
   renderBox(); save();
 });
-$('addBtn').addEventListener('click', ()=>{ roster.push(BLANK()); renderBox(); save();
-  const rows = $('boxList').querySelectorAll('[data-i]'); rows[rows.length-1].scrollIntoView({block:'nearest'}); });
+/* 新增時先清掉篩選 —— 新的那隻（預設皮卡丘）常常不符合目前的篩選條件，
+   結果按了「新增一隻」卻什麼都沒出現。 */
+$('addBtn').addEventListener('click', ()=>{
+  roster.push(BLANK());
+  clearBoxFilter(); renderBox(); save();
+  const rows = $('boxList').querySelectorAll('[data-i]');
+  rows[rows.length-1].scrollIntoView({block:'nearest'});
+});
 $('exportBtn').addEventListener('click', async ()=>{
   const t = JSON.stringify(serialize());
   try { await navigator.clipboard.writeText(t); setStatus('JSON 已複製'); }
@@ -445,6 +543,7 @@ $('importBtn').addEventListener('click', ()=>{
   }
   try {
     deserialize(o, {append});
+    clearBoxFilter();          // 匯入的可能不符合目前篩選，會看起來像沒進去
     renderAll(); save();
     setStatus(append ? `已追加 ${n} 隻（共 ${roster.length} 隻）` : `已匯入 ${roster.length} 隻`);
   } catch(e){ setStatus('匯入失敗：' + e.message); }
@@ -671,29 +770,9 @@ function renderImpChecks(){
 function renderImpDraft(){
   const m = impDraft;
   if (!m){ $('impRow').innerHTML = ''; return; }
-  const slots = Math.min(Math.floor(m.level/30)+1, 3);
-  const ambIng = s => (impAmbIng[s] && impAmbIng[s].length > 1) ? ' class="amb"' : '';
-  $('impRow').innerHTML = `<div class="boxrow">
-    <div data-lbl="種類"><select data-k="sp"${impAmbSp?' class="amb"':''}>${SPECIES_OPTS}</select></div>
-    <div data-lbl="等級"><input type="number" data-k="level" min="1" max="70" value="${m.level}"></div>
-    <div data-lbl="性格"><select data-k="nature">${NATURE_OPTS}</select></div>
-    <div data-lbl="副技能"><div class="ss-mini">${[0,1,2,3,4].map(s=>
-      `<select data-k="ss" data-s="${s}" title="第 ${s+1} 格 — Lv${SS_SLOT_LV[s]} 解鎖${m.ss[s]?'：'+ssz(m.ss[s]):''}"${m.level<SS_SLOT_LV[s]?' style="opacity:.45"':''}>${SS_OPTS}</select>`).join('')}</div></div>
-    <div data-lbl="食材組合"><div class="ss-mini" style="grid-template-columns:repeat(3,1fr)">${[0,1,2].map(s=>
-      s>=slots
-        ? `<select data-k="ingSet" data-s="${s}" disabled style="opacity:.35">${ingSetOpts(m,s)}</select>`
-        : `<select data-k="ingSet" data-s="${s}"${ambIng(s)}>${ingSetOpts(m,s)}</select>`).join('')}</div></div>
-    <div data-lbl="技能Lv"><input type="number" data-k="skillLv" min="1" max="8" value="${m.skillLv}"></div>
-    <div data-lbl="緞帶"><select data-k="ribbon"${impAmbRb?' class="amb"':''} title="截圖上看不到，由持有上限反解">${
-      RIBBON_LABEL.map((t,i)=>`<option value="${i}">${t}</option>`).join('')}</select></div>
-    <div></div>
-  </div>`;
-  const row = $('impRow').querySelector('.boxrow');
-  row.querySelector('[data-k="sp"]').value = m.sp;
-  row.querySelector('[data-k="nature"]').value = m.nature;
-  row.querySelectorAll('[data-k="ss"]').forEach(s=>{ s.value = m.ss[+s.dataset.s] || ''; });
-  row.querySelectorAll('[data-k="ingSet"]').forEach(s=>{ s.value = String(m.ingSet[+s.dataset.s]||0); });
-  row.querySelector('[data-k="ribbon"]').value = String(m.ribbon||0);
+  // 和寶可夢箱共用 monCard()：校對區看到的版面就是進箱子之後的版面
+  $('impRow').innerHTML = monCard(m, null, {amb: {sp: impAmbSp, rb: impAmbRb, ing: impAmbIng}});
+  setMonValues($('impRow').querySelector('.mon'), m);
 }
 
 function renderImpNotes(){
@@ -742,6 +821,7 @@ function impSaveDraft(){
   if (failed.length && !confirm(`${failed.join('、')}和截圖上的數字不一致 —— 這通常表示有欄位讀錯了，存進去會讓推演結果不準。\n\n還是要存入嗎？`))
     return;
   roster.push({...impDraft, ss: impDraft.ss.slice(), ingSet: impDraft.ingSet.slice(), pin:false, ex:false});
+  clearBoxFilter();            // 剛存進去的那隻一定要看得到
   renderBox(); save();
   const p = D.dex[impDraft.sp];
   impResetForm();

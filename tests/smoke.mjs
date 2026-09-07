@@ -674,6 +674,80 @@ console.log('\n[11c] JSON 匯入：追加 vs 取代');
   ok('取代會套用 JSON 裡的本週條件', r.tookWk === 5, String(r.tookWk));
 }
 
+/* 箱子 UI 重做（一隻一張卡、三列、加篩選）。最要守住的是 data-i：
+   篩選是用 hidden 切換而不是重建列表，所以 data-i 一定要是**真實的 roster 索引** ——
+   用篩選後的序號當索引，改一格就會改到別隻身上，而且沒有任何錯誤訊息。 */
+console.log('\n[11d] 寶可夢箱 UI：篩選、真實索引、完整顯示');
+{
+  const r = await page.evaluate(() => {
+    const mk = (n, lv) => ({sp:n, level:lv||60, nature:'Bashful',
+      ss:['Helping Speed M',null,null,null,null], ingSet:[0,0,0], skillLv:1, ribbon:0});
+    // 順序刻意讓「篩選後的位置」和「真實索引」不一致：食材型在索引 1 和 3
+    deserialize({roster: [mk('RAICHU'), mk('VICTREEBEL'), mk('SLOWKING'), mk('BLASTOISE')]});
+    clearBoxFilter(); renderBox();
+    const vis = () => [...$('boxList').querySelectorAll('[data-i]')].filter(e => !e.hidden).map(e => +e.dataset.i);
+    const fire = (id, ev) => $(id).dispatchEvent(new Event(ev, {bubbles:true}));
+
+    const all = vis();
+    $('fltSpec').value = 'ingredient'; fire('fltSpec', 'change');
+    const ingOnly = vis();
+    const countText = $('boxCount').textContent;
+
+    // 改第一張「可見」卡片的等級 → 必須落在它 data-i 指的那一隻身上
+    const card = $('boxList').querySelector('[data-i]:not([hidden])');
+    const targetIdx = +card.dataset.i;
+    const lvInput = card.querySelector('[data-k="level"]');
+    lvInput.value = 41; lvInput.dispatchEvent(new Event('change', {bubbles:true}));
+    const levels = roster.map(m => m.level);
+
+    // 文字搜尋（中文名）
+    $('fltSpec').value = ''; fire('fltSpec', 'change');
+    $('fltName').value = '水箭龜'; fire('fltName', 'input');
+    const searched = vis();
+    // 搜尋副技能也要能命中
+    $('fltName').value = '幫忙速度M'; fire('fltName', 'input');
+    const bySs = vis().length;
+    $('fltClear').click();
+    const cleared = vis();
+
+    // 新增一隻要清掉篩選，否則新的那隻（皮卡丘＝樹果型）會被篩掉、看起來像沒反應
+    $('fltSpec').value = 'skill'; fire('fltSpec', 'change');
+    $('addBtn').click();
+    const newIdx = roster.length - 1;
+    const afterAdd = {n: roster.length, spec: $('fltSpec').value,
+      newVisible: !$('boxList').querySelector(`[data-i="${newIdx}"]`).hidden};
+
+    // 完整顯示：副技能選項是全名（不是 Help M 這種縮寫）、食材選項只放名稱、數量在旁邊
+    const ssSel = $('boxList').querySelector('[data-k="ss"]');
+    const ssText = [...ssSel.options].find(o => o.value === 'Helping Speed M').text;
+    const ingSel = $('boxList').querySelector('[data-k="ingSet"]');
+    const ingText = ingSel.options[0].text;
+    const amount = ingSel.closest('.ingpick').querySelector('b').textContent;
+
+    // regression：夢幻／達克萊伊的 [null,0] 空欄位以前會顯示成 "undefined×0"
+    deserialize({roster: [mk('MEW')]});
+    clearBoxFilter(); renderBox();
+    const mewSlot3 = [...$('boxList').querySelectorAll('[data-k="ingSet"]')][2].options[0].text;
+
+    return {all, ingOnly, countText, targetIdx, levels, searched, bySs, cleared, afterAdd,
+            ssText, ingText, amount, mewSlot3};
+  });
+  ok('未篩選時四隻都看得到', r.all.join(',') === '0,1,2,3', r.all.join(','));
+  ok('依專長篩選（食材型是索引 1 和 3）', r.ingOnly.join(',') === '1,3', r.ingOnly.join(','));
+  ok('會顯示篩選後的數量', /顯示 2 \/ 4/.test(r.countText), r.countText);
+  ok('篩選後改欄位會落在正確的那一隻（data-i 是真實索引）',
+     r.targetIdx === 1 && r.levels.join(',') === '60,41,60,60', `idx=${r.targetIdx} levels=${r.levels.join(',')}`);
+  ok('文字搜尋中文名', r.searched.join(',') === '3', r.searched.join(','));
+  ok('文字搜尋也能搜副技能', r.bySs === 4, String(r.bySs));
+  ok('清除篩選會全部顯示', r.cleared.join(',') === '0,1,2,3', r.cleared.join(','));
+  ok('新增一隻會清掉篩選並且看得到新的那隻',
+     r.afterAdd.n === 5 && r.afterAdd.spec === '' && r.afterAdd.newVisible, JSON.stringify(r.afterAdd));
+  ok('副技能選項顯示全名', r.ssText === '幫忙速度M', r.ssText);
+  ok('食材選項只放名稱，數量顯示在旁邊', r.ingText === '特選蘋果' && r.amount === '×1',
+     `「${r.ingText}」 / 「${r.amount}」`);
+  ok('空食材欄位顯示「（無）」而不是 undefined', r.mewSlot3 === '（無）', r.mewSlot3);
+}
+
 /* 用另開的頁面跑 —— 這一節刻意觸發致命錯誤，不能污染上面的 errors 收集。 */
 console.log('\n[12] 快取偏移：schema 不符必須明確擋下');
 {

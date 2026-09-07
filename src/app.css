@@ -123,15 +123,47 @@ td.n{font-family:var(--mono);font-variant-numeric:tabular-nums}
 .alt{cursor:pointer}
 .alt.on{background:color-mix(in srgb,var(--accent) 12%,transparent)}
 
-/* ---- box editor ---- */
-.boxrow{display:grid;grid-template-columns:minmax(112px,1fr) 44px 100px minmax(225px,2.4fr) minmax(190px,2.1fr) 44px 74px 84px;gap:8px;align-items:center;padding:8px;border-bottom:1px solid var(--line)}
-.boxrow:last-of-type{border-bottom:0}
-.boxrow.head{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:600;background:var(--surface-2);border-radius:8px 8px 0 0}
-@media(max-width:900px){
-  .boxrow{grid-template-columns:1fr 1fr;gap:8px 10px}
-  .boxrow.head{display:none}
-  .boxrow{border:1px solid var(--line);border-radius:9px;margin-bottom:8px;padding:11px}
-  .boxrow > *[data-lbl]::before{content:attr(data-lbl);display:block;font-size:10.5px;color:var(--muted);letter-spacing:.06em;text-transform:uppercase;margin-bottom:3px}
+/* ---- box editor ----
+   一隻一張卡、分三列。刻意**不**擠成一列：選單被裁掉的資訊等於沒有，而這個工具
+   的價值就建立在「畫面上寫的就是實際採用的值」。窄螢幕靠 flex-wrap 自己折。 */
+.boxbar{display:flex;flex-wrap:wrap;gap:10px 14px;align-items:flex-end;
+  padding:2px 2px 12px;border-bottom:1px solid var(--line);margin-bottom:11px}
+.boxbar label.f{min-width:112px}
+.boxbar input[type=text]{min-width:240px}
+.boxbar .status{margin-left:auto;align-self:center;white-space:nowrap}
+
+.mon{border:1px solid var(--line);border-radius:10px;background:var(--surface-2);
+  padding:10px 12px;margin-bottom:9px;display:flex;flex-direction:column;gap:9px}
+/* 必須顯式寫：`.mon{display:flex}` 是作者樣式，會蓋掉瀏覽器預設的 [hidden]{display:none}，
+   篩選就會失效（卡片明明 hidden 卻還看得到）。 */
+.mon[hidden]{display:none}
+.mon-ss select.dim{opacity:.5}
+.mon.is-ex{opacity:.55}
+.mon.is-pin{border-color:var(--accent);box-shadow:inset 3px 0 0 var(--accent)}
+.mon-row{display:flex;flex-wrap:wrap;gap:8px 11px;align-items:flex-end}
+.mon-lbl{font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);
+  font-weight:600;align-self:center;min-width:42px;flex:0 0 auto}
+.mon label.f{gap:3px}
+.mon .w-sp select{min-width:208px}
+.mon .w-nat select{min-width:216px}
+.mon .w-num input{width:72px;text-align:center}
+.mon .w-rib select{min-width:96px}
+.mon-tags{display:flex;gap:5px;align-items:center;flex-wrap:wrap;padding-bottom:7px}
+.mon-tags .pill{max-width:190px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mon-acts{display:flex;gap:5px;margin-left:auto;padding-bottom:5px}
+/* 副技能與食材：給足寬度完整顯示，不用 text-overflow */
+.mon-ss{display:flex;flex-wrap:wrap;gap:6px;flex:1 1 auto}
+.mon-ss select{flex:1 1 152px;min-width:146px}
+.mon-ss select:disabled{opacity:.45}
+.mon-ing{display:flex;flex-wrap:wrap;gap:6px 10px;flex:1 1 auto}
+.ingpick{display:flex;align-items:center;gap:6px;flex:1 1 176px;min-width:170px}
+.ingpick select{flex:1 1 auto;min-width:0}
+.ingpick b{font-family:var(--mono);font-variant-numeric:tabular-nums;font-size:12.5px;
+  color:var(--ink-2);white-space:nowrap}
+.ingpick.locked{opacity:.4}
+@media(max-width:720px){
+  .mon-lbl{min-width:100%}
+  .mon .w-sp select,.mon .w-nat select{min-width:100%}
 }
 .ss-mini{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:4px}
 .ss-mini select{padding:4px 2px;font-size:11px;text-overflow:ellipsis}
@@ -175,7 +207,7 @@ details.notes li{margin:5px 0;max-width:74ch}
   background:color-mix(in srgb,var(--ing) 9%,var(--surface));color:var(--ink-2)}
 .impnote.bad{border-color:color-mix(in srgb,var(--neg) 50%,var(--line));background:color-mix(in srgb,var(--neg) 9%,var(--surface))}
 /* 反解不出唯一值的欄位 —— 一定要看得出來，不能靜靜地填一個猜的值 */
-.boxrow select.amb,.boxrow input.amb{border-color:var(--ing);
+.mon select.amb,.mon input.amb{border-color:var(--ing);
   box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--ing) 55%,transparent)}
 .impalts{margin-top:12px}
 .impalts .scroll{max-height:210px;overflow-y:auto}

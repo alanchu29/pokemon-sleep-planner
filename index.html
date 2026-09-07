@@ -204,7 +204,7 @@
         <select id="impNature"></select>
       </label>
       <label class="f span2">副技能（1→5 格，依畫面上的排列順序：左→右、上→下）
-        <div class="ss-mini" id="impSs"></div>
+        <div class="mon-ss" id="impSs"></div>
       </label>
       <label class="f span2">食材 ×N 的數字（三格，由左到右）
         <div class="ss-mini" style="grid-template-columns:repeat(3,1fr)">
@@ -230,13 +230,9 @@
       </div>
       <div id="impChecks" class="impchecks"></div>
       <div id="impNotes"></div>
+      <!-- 校對用的那一列，和寶可夢箱共用同一個 monCard() 渲染器 -->
       <div class="panel" style="margin-top:12px;box-shadow:none">
-        <div class="pbody" style="padding:10px">
-          <div class="boxrow head">
-            <div>種類</div><div>等級</div><div>性格</div><div>副技能（1→5 格）</div><div>食材組合</div><div>技能Lv</div><div>緞帶</div><div></div>
-          </div>
-          <div id="impRow"></div>
-        </div>
+        <div class="pbody" style="padding:10px"><div id="impRow"></div></div>
       </div>
       <div id="impAlts"></div>
       <div style="display:flex;flex-wrap:wrap;gap:9px;align-items:center;margin-top:14px">
@@ -260,10 +256,32 @@
     </div>
   </div>
   <div class="panel"><div class="pbody" style="padding:10px">
-    <div class="boxrow head">
-      <div>種類（點開後打中文名可跳選）</div><div>等級</div><div>性格</div><div>副技能（1→5 格）</div><div>食材組合</div><div>技能Lv</div><div>緞帶</div><div></div>
+    <div class="boxbar">
+      <label class="f">專長
+        <select id="fltSpec">
+          <option value="">全部</option>
+          <option value="berry">樹果</option>
+          <option value="ingredient">食材</option>
+          <option value="skill">技能</option>
+          <option value="all">全能</option>
+        </select>
+      </label>
+      <label class="f">狀態
+        <select id="fltState">
+          <option value="">全部</option>
+          <option value="pin">📌 已固定</option>
+          <option value="ex">🚫 已排除</option>
+          <option value="plain">未標記</option>
+        </select>
+      </label>
+      <label class="f">搜尋
+        <input type="text" id="fltName" placeholder="中文名、主技能、副技能、食材" autocomplete="off">
+      </label>
+      <button class="btn sm ghost" id="fltClear" type="button">清除篩選</button>
+      <span class="status" id="boxCount"></span>
     </div>
     <div id="boxList"></div>
+    <div class="empty" id="boxNone" hidden>沒有符合篩選條件的寶可夢。</div>
     <div class="empty" id="boxEmpty">
       <div style="font-weight:700;color:var(--ink);font-size:15px;margin-bottom:6px">箱子還是空的</div>
       用上面的<b>「從截圖建立」</b>最快 —— 填畫面上看得到的數字，物種、進化階段、睡眠緞帶和食材欄位由程式反解，還會驗算對不對。<br>

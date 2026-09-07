@@ -112,7 +112,21 @@ app.js  run()   ──{init, data:D}──▶  engine.worker.js × N
 5. **狀態**：`roster` `wk` `lastResults`
 6. **持久層**：雙後端配接器（見下）
 7. **Worker 管線**：`spawnWorker` `killWorker` `searchViaWorker` `setRunning`
-8. **UI**：`buildWeekly` `renderBox` `run` `renderResults` `renderRecipeLevels` `showView` `renderVersion`
+8. **UI**：`buildWeekly`、`ingPick` / `monCard` / `setMonValues`（**寶可夢箱與截圖校對區共用同一個卡片渲染器**）、`boxFlt` / `monMatch` / `applyBoxFilter` / `renderBox`、`buildImport` 那一組、`run` `renderResults` `renderRecipeLevels` `showView` `renderVersion`
+
+### 寶可夢箱的卡片版面
+
+一隻一張卡、三列：①種類＋專長／樹果／主技能標籤＋等級＋性格＋操作 ②副技能 ×5 ③食材 ×3＋技能Lv＋緞帶。
+
+**刻意不擠成一列。** 原本是一列八欄的 grid，實際寬度下每個選單都被裁掉（`大食花　#71 Vi…`、`技能…`、`頑皮 +速度` 都看不完），而這個工具的可信度就建立在「畫面上寫的就是實際採用的值」—— 看不完等於沒有。所以種類選單只放「中文名 #圖鑑號」，專長／樹果／主技能改成獨立標籤。
+
+**食材是「[食材名 選單] ×N（靜態文字）」，不是兩個選單。** 同一格裡食材種類不會重複（`[null,0]` 空欄位除外），所以**數量由食材決定** —— 選好食材後數量只有一個可能值。做成兩個選單會假裝有不存在的彈性。
+
+### 陷阱：篩選後的 `data-i`
+
+`applyBoxFilter` 用 `hidden` 切換而不是重建列表（一張卡有 246 個種類選項，60 隻就是一萬多個 `<option>`，每次打字重建會卡）。所以 **`data-i` 一律是真實的 roster 索引**。
+
+用「篩選後的序號」當索引的話，改一格會改到別隻身上，**而且不會有任何錯誤訊息** —— 只是資料悄悄錯掉。`tests/smoke.mjs` 第 11d 節會刻意讓「篩選後的位置」和「真實索引」不一致，然後斷言改動落在正確的那一隻。
 
 ## 雙後端持久層
 
@@ -225,7 +239,7 @@ node tools/extract-data.mjs        # 會印出用法
 
 ```bash
 npm i playwright-core
-npm test                         # smoke：引擎、單調性、窮舉不變量、雙後端、Sheet 往返、Worker、截圖匯入、文案一致性、schema 偏移
+npm test                         # smoke：引擎、單調性、窮舉不變量、雙後端、Sheet 往返（含離線沖出與失敗重試）、Worker、截圖匯入、箱子篩選、JSON 追加／取代、文案一致性、schema 偏移
 npm run verify                   # 慢速（數分鐘）：大箱子的順序不變性、FINALISTS 夠不夠
 ```
 
