@@ -51,14 +51,16 @@
         <input type="number" id="sleepH" min="1.5" max="13" step="0.5" value="8.5">
       </label>
       <label class="f">好露營券
-        <select id="camp"><option value="0">沒有</option><option value="1">有（頻率/容量 ×1.2、鍋 ×1.5）</option></select>
+        <select id="camp"><option value="0">沒有</option><option value="1">有</option></select>
+        <span class="hint">頻率／容量 ×1.2、鍋 ×1.5</span>
       </label>
       <label class="f">最佳化目標
         <select id="mode">
-          <option value="total">綜合週能量（樹果＋料理＋技能）</option>
-          <option value="dish">衝料理：最大化目標食譜產出</option>
-          <option value="berry">衝樹果：最大化樹果能量</option>
+          <option value="total">綜合週能量</option>
+          <option value="dish">衝料理</option>
+          <option value="berry">衝樹果</option>
         </select>
+        <span class="hint">綜合 ＝ 樹果＋料理＋技能</span>
       </label>
       <label class="f span2">本週加成樹果（萌綠之島／專家模式自選 3 種）
         <div class="chips" id="favBerries" style="padding-top:2px"></div>
@@ -68,23 +70,35 @@
       </label>
       <label class="f">食譜選擇
         <select id="recipePick">
-          <option value="auto">自動配對 — 隊伍與食譜一起算</option>
+          <option value="auto">自動配對</option>
           <option value="manual">手動指定一道</option>
         </select>
+        <span class="hint">自動 ＝ 隊伍與食譜一起算</span>
       </label>
       <label class="f">考慮範圍
         <select id="recipeScope">
-          <option value="type">只限本週料理類型</option>
-          <option value="all">三類都納入比較</option>
+          <option value="type">只限本週類型</option>
+          <option value="all">三類都比較</option>
         </select>
+        <span class="hint">比較哪些料理類型</span>
       </label>
       <label class="f span2">目標食譜<span id="recipeAutoNote" class="muted" style="font-weight:400"></span>
         <select id="recipe"></select>
+        <span class="hint" id="recipeIngs"></span>
       </label>
       <label class="f">預設食譜等級<span class="muted" style="font-weight:400" id="rlvCount"></span>
         <input type="number" id="recipeLv" min="1" max="70" step="1" value="20">
       </label>
     </div>
+    <label style="display:flex;gap:8px;align-items:flex-start;margin-top:14px;cursor:pointer">
+      <input type="checkbox" id="strictBerry" checked style="margin-top:2px">
+      <span>樹果型只考慮本週加成樹果
+        <span class="muted" style="display:block;font-weight:400;font-size:12.5px;margin-top:2px">
+          樹果型寶可夢的職責是產樹果，不符合本週加成就不列入候選。<b>食材型／技能型／全能型不受影響。</b>
+          關掉的話，樹果型也可能因為主技能（例如食材磁鐵）而入選 —— 總能量會高一些，但那不見得是你要的隊伍。
+        </span>
+      </span>
+    </label>
     <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-top:16px">
       <button class="btn primary" id="runBtn" type="button">推演最佳隊伍</button>
       <button class="btn" id="cancelBtn" type="button" hidden>取消</button>
@@ -214,6 +228,7 @@
     <li><b>料理</b>：以「本週能煮成幾次目標食譜」計分，一週上限 21 餐，暴擊採週平均 <code class="num">1.171</code>。星期日的鍋子 ×2 與暴擊 ×3 已含在平均裡，但<b>沒有</b>單獨最佳化週日那一餐。</li>
     <li><b>隊伍互動（有算）</b>：幫手獎勵按隊上人數疊加；活力回復獎勵影響全隊睡眠回復；活力全體療癒／活力療癒的補能量會回饋進模擬並疊代收斂；幫手支援／幫手加速的額外幫手計入；<b>幫手加速會依隊上與牠同樹果的不同種類數放大</b>（2→11 次幫手）；負電只有在隊上有正電夥伴時才給能量。</li>
     <li><b>活力檔位</b>：最快檔位是 <code class="num">活力 ≥ 80 → ×0.45</code>，而且 80 到 150 是<b>同一格</b> —— 超過 80 不會更快。追高活力的價值在於「掉回 80 以下要更久」：起床 100 只撐 3.3 小時，起床 150 撐 11.7 小時，一天多約 8 小時跑在最快檔。每隻的「最快檔位 Xh／日」就是這個數字，也是判斷要不要帶補師的依據。睡眠回復上限 100（活力回復獎勵 105），只有活力全體療癒／活力枕頭／料理／薰香能推到 150。</li>
+    <li><b>候選範圍（刻意的限制）</b>：預設<b>只有產本週加成樹果的樹果型</b>會進候選名單 —— 上面「樹果型只考慮本週加成樹果」那個勾選框控制。食材型／技能型／全能型不受影響。這會排除掉「專長是樹果、但價值來自主技能」的寶可夢（例如天然鳥專長樹果、主技能是食材磁鐵），關掉勾選後總能量會高約 4~7%，但那些隊伍不符合「樹果型該產本週樹果」的要求。<b>被排除的隻數會顯示在推演結果右上角，把滑鼠移上去可以看到名單。</b>📌 固定的成員不受此限。</li>
     <li><b>近似處理</b>：補能量以「每日總量平均攤到白天」計算，不是隨機時點的逐次事件 —— 能量超過 80 沒有加成這件事有算，所以補過頭會被視為浪費。揮指／技能複製／十項全能每次發動會變成別的技能，以<b>全部基礎主技能的平均值</b>近似。</li>
     <li><b>還沒做</b>：食材精選（Ingredient Draw）的專屬食材池 —— 目前當成平均撒在所有食材上，種類會不準；專家模式的主／副喜好樹果頻率修正；期間限定活動加成；週日單獨最佳化（暴擊已用週平均 1.171 折算）；薰香。</li>
     <li>遊戲資料（246 隻寶可夢、78 道食譜、性格／副技能／主技能數值）取自 <a href="https://github.com/SleepAPI/SleepAPI" target="_blank" rel="noopener">Neroli's Lab / SleepAPI</a>（Apache-2.0）。</li>

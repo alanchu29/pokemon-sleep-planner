@@ -71,7 +71,12 @@ input[type=range]{width:100%;accent-color:var(--accent)}
 .chip[aria-pressed="true"]{background:var(--berry);border-color:transparent;color:var(--chip-on-ink);font-weight:600}
 
 /* ---- weekly settings layout ---- */
-.wk{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:14px}
+.wk{display:grid;grid-template-columns:repeat(auto-fit,minmax(168px,1fr));gap:14px}
+/* 標籤旁的補充說明。長的選項文字放這裡，不要塞在 <option> 裡 ——
+   欄寬只有 168px，塞進去會被裁掉，而被裁掉的資訊等於沒有。 */
+.wk .hint{display:block;font-weight:400;font-size:11px;color:var(--muted);opacity:.85;margin-top:3px;line-height:1.35}
+/* 保險：萬一還是塞不下，用 … 收尾而不是硬切在字中間 */
+.wk select{text-overflow:ellipsis}
 .wk .span2{grid-column:span 2}
 @media(max-width:640px){.wk .span2{grid-column:span 1}}
 

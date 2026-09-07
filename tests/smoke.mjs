@@ -4,7 +4,7 @@
  *
  *   npm i playwright-core && node tests/smoke.mjs
  *
- * 容器內 chromium 在 /opt/pw-browsers/chromium；可用 CHROMIUM 環境變數覆蓋。
+ * Chromium 會自動尋找（見 tests/chromium.mjs）；要指定就設 CHROMIUM 環境變數。
  */
 import { chromium } from 'playwright-core';
 import http from 'node:http';
@@ -12,9 +12,10 @@ import { readFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { resolve, dirname, extname, normalize } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { resolveChromium } from './chromium.mjs';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const EXEC = process.env.CHROMIUM || '/opt/pw-browsers/chromium';
+const EXEC = resolveChromium();   // 見 tests/chromium.mjs —— 不用再加 CHROMIUM= 前綴
 const TOKEN = 'smoke-token';
 
 let pass = 0, fail = 0;
@@ -47,7 +48,7 @@ const GAS = `http://127.0.0.1:${server.address().port}/`;
    資料改成 fetch('./data/game.json') 之後不能再用 file:// 載入（CORS 會擋），
    所以測試自己起一台。CI 因此不需要額外的 server step。 */
 const MIME = { '.html': 'text/html', '.js': 'text/javascript', '.json': 'application/json', '.css': 'text/css' };
-// 設成數字時，game.json 的 meta.schema 會被改寫成該值 —— 用來模擬快取偏移（見第 9 節）
+// 設成數字時，game.json 的 meta.schema 會被改寫成該值 —— 用來模擬快取偏移（見第 12 節）
 let tamperSchema = null;
 const statics = http.createServer(async (req, res) => {
   const urlPath = decodeURIComponent(new URL(req.url, 'http://x').pathname);
@@ -148,7 +149,82 @@ console.log('\n[3] 單調性 — 調高食譜等級絕不能讓總分變低');
   await page.evaluate(() => { wk.recipeLevels = {}; });
 }
 
-console.log('\n[4] 幫手加速依同樹果種類數放大');
+console.log('\n[4] 窮舉不變量 — 結果只能取決於箱子內容，不能取決於順序');
+{
+  /* regression: 曾經有個預篩（>120 萬組合就按「單隻分數」砍到前 42 隻），而那個
+     分數是 scoreTeam([i] + pool.slice(0,4)) —— companions 按 roster 順序取。
+     實測 60 隻箱子只改順序就差 −16.34%、前 8 名零重疊。整段已移除。
+     這一節同時守住兩件事：(a) 不再有任何裁切 (b) 洗牌不改變答案。 */
+  const r = await page.evaluate(() => {
+    const picks = D.dex.filter(x => x.ms && x.b).filter((_, i) => i % 9 === 0).slice(0, 22);
+    const base = picks.map((x, i) => ({
+      sp: D.dex.indexOf(x), level: 30 + (i % 25), nature: ['Adamant','Modest','Careful','Mild','Sassy'][i % 5],
+      ss: ['Helping Bonus', null, null, null, null], ingSet: [0,0,0], skillLv: 3 + (i % 4),
+      ribbon: 0, pin: false, ex: false,
+    }));
+    const FAV = ['ORAN','PAMTRE','PECHA'];
+    const mkWk = (strictBerry) => ({ island:'greengrass', fav:new Set(FAV), areaBonus:15,
+      pot:57, sleepH:8.5, camp:0, mode:'total', dishType:'curry', recipeName:null, recipeLv:20,
+      recipePick:'auto', recipeScope:'all', recipeLevels:{}, strictBerry });
+    const shuffle = (arr, seed) => {
+      const a = arr.slice(); let s = seed;
+      const rnd = () => (s = (s * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff;
+      for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(rnd() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; }
+      return a;
+    };
+    // 用物種名稱的集合當 key —— 索引會隨順序改變，不能直接比
+    const go = (roster, strictBerry) => {
+      const res = searchTeams(roster.map(m => ({ ...m })), mkWk(strictBerry), {});
+      return { count: res.count, trimmed: 'trimmed' in res, excluded: res.excluded || [],
+        top: res.best.map(x => x.idxs.map(i => D.dex[roster[i].sp].n).sort().join('+')),
+        // 入選成員裡有沒有「樹果型但樹果不符」的
+        violators: [...new Set(res.best.flatMap(x => x.idxs
+          .map(i => D.dex[roster[i].sp])
+          .filter(dx => dx.sp === 'berry' && !FAV.includes(dx.b))
+          .map(dx => dx.n)))],
+        total: Math.round(res.best[0].total * 100) / 100 };
+    };
+    const nCk = (n, k) => { let v = 1; for (let i = 0; i < k; i++) v = v * (n - i) / (i + 1); return v; };
+    const berryOff = base.filter(m => { const dx = D.dex[m.sp]; return dx.sp === 'berry' && !FAV.includes(dx.b); }).length;
+    return {
+      n: base.length, berryOff,
+      expectFull: Math.round(nCk(base.length, 5)),
+      expectStrict: Math.round(nCk(base.length - berryOff, 5)),
+      // strictBerry: false → 純窮舉，用來守住順序不變性
+      runs: [false, false, false, false].map((_, k) =>
+        go(k === 0 ? base : shuffle(base, [0, 7, 4242, 31337][k]), false)),
+      // strictBerry: true → 產品規則，同樣要與順序無關
+      strict: [0, 7, 4242].map((s, k) => go(k === 0 ? base : shuffle(base, s), true)),
+    };
+  });
+
+  ok(`關掉篩選時窮舉全部 C(${r.n},5)=${r.expectFull.toLocaleString()} 組（沒有任何裁切）`,
+     r.runs.every(x => x.count === r.expectFull), r.runs.map(x => x.count).join(' / '));
+  ok('回傳值不再有 trimmed 欄位', r.runs.every(x => !x.trimmed));
+
+  const ref = r.runs[0];
+  const sameTop = r.runs.every(x => x.top.join('|') === ref.top.join('|'));
+  const sameTotal = r.runs.every(x => x.total === ref.total);
+  ok('洗牌 3 次，前 8 名完全相同', sameTop,
+     sameTop ? '' : r.runs.map(x => x.top[0]).join('  vs  '));
+  ok(`洗牌 3 次，第 1 名 total 相同（${ref.total}）`, sameTotal, r.runs.map(x => x.total).join(' / '));
+
+  /* ---- 產品規則：樹果型必須產本週加成樹果 ---- */
+  const s0 = r.strict[0];
+  ok(`篩選只排除樹果型（${r.berryOff} 隻），組合數 = C(${r.n}-${r.berryOff},5) = ${r.expectStrict.toLocaleString()}`,
+     r.strict.every(x => x.count === r.expectStrict), r.strict.map(x => x.count).join(' / '));
+  ok(`回報了被排除的名單（${s0.excluded.length} 隻）`, s0.excluded.length === r.berryOff,
+     `excluded=${s0.excluded.length} 期望=${r.berryOff}`);
+  ok('開篩選後，入選成員裡沒有「樹果型但樹果不符」的',
+     r.strict.every(x => x.violators.length === 0), s0.violators.join('、'));
+  ok('關篩選時本來會有違規者入選（證明這個檢查有意義）',
+     r.runs.some(x => x.violators.length > 0), `關篩選時的違規者：${ref.violators.join('、') || '無'}`);
+  ok('篩選開啟時同樣與順序無關',
+     r.strict.every(x => x.top.join('|') === s0.top.join('|')),
+     r.strict.map(x => x.top[0]).join('  vs  '));
+}
+
+console.log('\n[5] 幫手加速依同樹果種類數放大');
 {
   const r = await page.evaluate(() => {
     const hb = D.dex.find(x => /^Helper Boost/.test(x.ms || ''));
@@ -167,7 +243,7 @@ console.log('\n[4] 幫手加速依同樹果種類數放大');
   ok('同樹果隊拿到更多額外幫手', r && r.monoHelps > r.mixedHelps, JSON.stringify(r));
 }
 
-console.log('\n[5] 揮指類技能不再算 0');
+console.log('\n[6] 揮指類技能不再算 0');
 {
   const r = await page.evaluate(() => {
     const w = skillPayload('Metronome', 3);
@@ -176,7 +252,7 @@ console.log('\n[5] 揮指類技能不再算 0');
   ok('揮指有非零產出', r.keys > 1 && r.strength > 0, JSON.stringify(r));
 }
 
-console.log('\n[6] 自架版本偵測與文案');
+console.log('\n[7] 自架版本偵測與文案');
 {
   const r = await page.evaluate(() => ({
     selfHosted: !window.claude,
@@ -192,7 +268,7 @@ console.log('\n[6] 自架版本偵測與文案');
   ok('說明沒有謊稱 Claude 會收單', !/每週一.*收單/.test(r.note));
 }
 
-console.log('\n[7] Google Sheet 同步往返');
+console.log('\n[8] Google Sheet 同步往返');
 {
   await page.evaluate(seed);
   await page.evaluate(([gas, tok]) => {
@@ -221,16 +297,70 @@ console.log('\n[7] Google Sheet 同步往返');
   ok('錯誤金鑰有明確錯誤', /unauthorized/.test(await page.evaluate(() => $('syncStatus').textContent)));
 }
 
-console.log('\n[8] 每個 view 都能渲染');
+console.log('\n[9] 每個 view 都能渲染');
 for (const v of ['plan', 'box', 'recipes']) {
   await page.evaluate((x) => showView(x), v);
   await page.waitForTimeout(400);
   ok(`view-${v} 有內容`, await page.evaluate((x) => $('view-' + x).innerText.trim().length > 50, v));
 }
 
-console.log('\n[9] Worker：40 隻的箱子推演期間 UI 不能凍住');
+console.log('\n[10] 多 worker 分片 = 單執行緒窮舉（這是平行化的正確性保證）');
 {
-  // 40 隻 → C(40,5) = 658,008 組合。同步版本會凍住約 5 秒。
+  /* 分片把列舉空間按 i % N 切給多個 worker，各自回傳前 FINALISTS 名，
+     主執行緒合併後才跑決賽。這一節斷言「分片路徑」與「單執行緒 searchTeams」
+     的輸出**逐欄位相同** —— 不是「差不多」，是相同。
+     這是整個平行化改動唯一真正重要的檢查。 */
+  const r = await page.evaluate(async () => {
+    const picks = D.dex.filter(x => x.ms && x.b).filter((_, i) => i % 7 === 0).slice(0, 26);
+    roster = picks.map((x, i) => ({
+      sp: D.dex.indexOf(x), level: 30 + (i % 25),
+      nature: ['Adamant','Modest','Careful','Mild','Sassy'][i % 5],
+      ss: i % 2 ? ['Helping Bonus', null,null,null,null] : [null,null,null,null,null],
+      ingSet: [0,0,0], skillLv: 3 + (i % 4), ribbon: 0, pin: false, ex: false,
+    }));
+    wk.fav = new Set(['ORAN','PAMTRE','PECHA']);
+    wk.recipeScope = 'all'; wk.strictBerry = false;
+    renderBox(); syncWeeklyUI();
+
+    const shape = (best) => best.map(x => ({
+      idxs: x.idxs.slice(),
+      total: Math.round(x.total * 100) / 100,
+      berryS: Math.round(x.berryS * 100) / 100,
+      skillS: Math.round(x.skillS * 100) / 100,
+      dishS: Math.round(x.dishS * 100) / 100,
+      score: Math.round(x.score * 100) / 100,
+      potEff: x.potEff, recipe: x.recipe ? x.recipe.n : null,
+      mpTotal: x.mp ? Math.round(x.mp.total * 100) / 100 : null,
+      fast: x.outs.map(o => Math.round(o.sim.fastShare * 1e4) / 1e4),
+    }));
+
+    // 走 worker 池
+    lastResults = null;
+    await run();
+    const viaPool = shape(lastResults);
+    const poolNote = $('comboCount').textContent;
+
+    // 單執行緒，同一份輸入
+    const single = searchTeams(roster.map(m => ({...m})), { ...wk, fav: new Set(wk.fav) }, {});
+
+    return { viaPool, poolNote, viaSingle: shape(single.best),
+             countPool: Number(poolNote.replace(/,/g,'').match(/(\d+) 種組合/)?.[1] || 0),
+             countSingle: single.count, threads: poolNote.match(/(\d+) 執行緒/)?.[1] || null };
+  });
+
+  ok(`用了多執行緒（${r.threads || '?'}）`, !!r.threads && Number(r.threads) >= 1, r.poolNote);
+  ok(`兩條路徑列舉的組合數相同（${r.countSingle.toLocaleString()}）`,
+     r.countPool === r.countSingle, `pool=${r.countPool} single=${r.countSingle}`);
+  const same = JSON.stringify(r.viaPool) === JSON.stringify(r.viaSingle);
+  ok('多 worker 與單執行緒的前 8 名逐欄位相同', same,
+     same ? '' : `pool[0]=${JSON.stringify(r.viaPool[0])}\n      single[0]=${JSON.stringify(r.viaSingle[0])}`);
+}
+
+console.log('\n[10b] Worker：40 隻的箱子推演期間 UI 不能凍住');
+{
+  /* 40 隻 → C(40,5) = 658,008 組合。同步版本會凍住約 5 秒。
+     這一節刻意關掉 strictBerry —— 它要測的是「長時間推演期間 UI 不凍住」，
+     開著篩選會把搜尋縮到 3 萬多組、300ms 就跑完，取消鈕與進度條都來不及觀察（會 flaky）。 */
   await page.evaluate(() => {
     const picks = D.dex.filter(p => p.ms).slice(0, 40);
     roster = picks.map((p) => ({
@@ -238,7 +368,8 @@ console.log('\n[9] Worker：40 隻的箱子推演期間 UI 不能凍住');
       ss: [null, null, null, null, null], ingSet: [0, 0, 0], skillLv: 3,
       ribbon: 0, pin: false, ex: false,
     }));
-    renderBox();
+    wk.strictBerry = false;
+    renderBox(); syncWeeklyUI();
   });
   ok('箱子有 40 隻', await page.evaluate(() => roster.length) === 40);
 
@@ -282,7 +413,7 @@ console.log('\n[9] Worker：40 隻的箱子推演期間 UI 不能凍住');
   ok('取消後仍能重新推演', await page.evaluate(() => lastResults.length) === 8);
 }
 
-console.log('\n[10] 文案一致性 — 不能提到不存在的檔案或指令');
+console.log('\n[11] 文案一致性 — 不能提到不存在的檔案或指令');
 {
   const paths = await page.evaluate(() => PATHS);
   const pkg = JSON.parse(await readFile(resolve(ROOT, 'package.json'), 'utf8'));
@@ -316,7 +447,7 @@ console.log('\n[10] 文案一致性 — 不能提到不存在的檔案或指令'
 }
 
 /* 用另開的頁面跑 —— 這一節刻意觸發致命錯誤，不能污染上面的 errors 收集。 */
-console.log('\n[11] 快取偏移：schema 不符必須明確擋下');
+console.log('\n[12] 快取偏移：schema 不符必須明確擋下');
 {
   ok('資料帶著 schema 版本', await page.evaluate(() => typeof D.meta.schema === 'number'));
 

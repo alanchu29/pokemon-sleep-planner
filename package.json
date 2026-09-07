@@ -5,6 +5,7 @@
   "description": "Pokémon Sleep 每週最佳隊伍推演工具",
   "scripts": {
     "test": "node tests/smoke.mjs",
+    "verify": "node tests/verify.mjs",
     "serve": "python3 -m http.server 8080",
     "data": "node tools/extract-data.mjs"
   },

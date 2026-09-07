@@ -389,40 +389,92 @@ function rankRecipesForTeam(r, wk){
 }
 
 /* ================= SEARCH ================= */
-function combinations(pool, k, pinned, cb){
+/**
+ * 把第一層的每個 i0 指派給某個分片，讓各分片的**組合數盡量相等**。
+ *
+ * 為什麼不用 `i % total`：i0 越小子樹越大（i0 的子樹有 C(n−1−i0, need−1) 組），
+ * 所以 modulo 交錯會讓 shard 0 拿到最大的幾塊。實測 40 隻 8 分片時，
+ * shard 0 拿 123,971 組、shard 7 只有 48,476 組 —— 差 2.6 倍。
+ * **最慢的分片決定總時間**，所以那樣的加速只有 2.4x。
+ *
+ * 這裡用「最大者優先」的貪婪裝箱：子樹由大到小，每個都丟給目前最輕的分片。
+ * 只吃 (poolLen, need, total) 三個數字，所以每個 worker 都會算出同一份指派。
+ */
+function shardAssign(poolLen, need, total){
+  const last = poolLen - need;
+  const w = [];
+  for (let i = 0; i <= last; i++) w.push({ i, n: nCk(poolLen - 1 - i, need - 1) });
+  w.sort((a, b) => b.n - a.n || a.i - b.i);
+  const load = new Array(total).fill(0);
+  const owner = new Array(last + 1).fill(0);
+  for (const { i, n } of w){
+    let m = 0;
+    for (let s = 1; s < total; s++) if (load[s] < load[m]) m = s;
+    owner[i] = m; load[m] += n;
+  }
+  return owner;
+}
+
+/**
+ * 列舉 pool 裡所有 k 取 (k − pinned) 的組合。
+ *
+ * `shard = {index, total}` 時只列舉自己那一份 —— 指派由 `shardAssign` 決定。
+ *
+ * 分片是「同一份窮舉分給多核」，不是取樣：各分片的聯集等於完整列舉，
+ * 每組恰好被列舉一次。
+ */
+function combinations(pool, k, pinned, cb, shard){
   const idx = new Array(k);
   const need = k - pinned.length;
   if (need < 0) return;
+  if (need === 0){
+    // 5 隻都被 📌 固定：只有一組。沒有第一層迴圈可分片，交給 shard 0。
+    if (!shard || shard.index === 0) cb(pinned.slice());
+    return;
+  }
+  const owner = shard ? shardAssign(pool.length, need, shard.total) : null;
   (function rec(start, depth){
     if (depth === need){ cb(pinned.concat(idx.slice(0, need))); return; }
-    for (let i=start; i<=pool.length-(need-depth); i++){ idx[depth] = pool[i]; rec(i+1, depth+1); }
+    for (let i=start; i<=pool.length-(need-depth); i++){
+      if (depth === 0 && owner && owner[i] !== shard.index) continue;
+      idx[depth] = pool[i]; rec(i+1, depth+1);
+    }
   })(0, 0);
+}
+
+/* 決賽名單的排序。**必須有決定性的 tie-break** —— 不然多 worker 合併時，
+   分數完全相同的兩組隊伍會因為合併順序不同而排出不同結果。
+   單執行緒時靠「插入 + 重排」的順序碰巧穩定，分片之後那個巧合就沒了。 */
+const byScore = (a, b) => b.score - a.score || cmpIdxs(a.idxs, b.idxs);
+function cmpIdxs(a, b){
+  for (let i=0; i<a.length && i<b.length; i++) if (a[i] !== b[i]) return a[i] - b[i];
+  return a.length - b.length;
 }
 
 const FINALISTS = 50;   // 進決賽（跑真實 21 餐排程）的隊伍數。改評分方式時要重新確認夠不夠大
 const SHOWN = 8;        // 實際顯示幾組
-const PRESCAN_LIMIT = 1.2e6;  // 超過這麼多組合就先按單隻分數預篩到前 42
 const nCk = (n,k)=>{ let r=1; for(let i=0;i<k;i++) r = r*(n-i)/(i+1); return r; };
 
-/**
- * 窮舉最佳隊伍。**純函式，可在 Worker 裡跑** —— 不碰 DOM、不讀全域狀態。
- *
- * @param roster  寶可夢陣列（會就地寫入 `_bs`，這是刻意的：renderResults 要用）
- * @param wk      本週條件。`wk.recipe` 由這裡自己從 wk.recipeName 解析，
- *                呼叫端不必傳物件參照過來（postMessage 序列化後參照本來也會斷）
- * @param opts    { onProgress(done, total), shouldStop() }
- * @returns { best, count, trimmed, ms } 或 { error: 'few'|'nopool'|'pins'|'stopped', ... }
- */
-function searchTeams(roster, wk, opts){
-  const onProgress = (opts && opts.onProgress) || null;
-  const shouldStop = (opts && opts.shouldStop) || null;
-  /* 這兩個可覆寫，是為了能對照實驗驗證「捷徑有沒有丟掉最佳解」——
-     正式執行（app.js / worker）一律不傳，用上面的預設。
-     兩者都已實測過，結論見 DECISIONS.md 的「兩個搜尋捷徑都驗證過了」。 */
-  const finalists = (opts && opts.finalists) || FINALISTS;
-  const prescanLimit = (opts && opts.prescanLimit) || PRESCAN_LIMIT;
-  const t0 = Date.now();
+/* 這裡曾經有個 PRESCAN_LIMIT：超過 120 萬組合就按「單隻分數」把箱子砍到前 42 隻。
+   那個「單隻分數」其實是 scoreTeam([i] + pool.slice(0,4)) —— companions 按 roster
+   順序取，也就是使用者把寶可夢加進箱子的順序，一個跟答案無關的輸入。
 
+   實測（60 隻箱子，只改順序）：三種順序拿到正解 1,522,202.82，第四種拿到
+   1,273,490.43 —— 差 −16.34%，前 8 名與正解零重疊。細節見 DECISIONS.md。
+
+   已經整段移除。最佳組合是「箱子內容」的函數，不該和順序有關；任何預篩啟發式
+   都有丟掉最佳解的風險，跑得動窮舉就不必賭。**不要再加回來** ——
+   要壓縮搜尋空間就做可證明的 branch-and-bound（上界剪枝），不是啟發式取樣。 */
+
+/**
+ * 搜尋前的準備：驗證、解析食譜、建 POOL、算每隻的 baseStats、套用候選規則。
+ *
+ * **每個 worker 都會各自跑一次**（很便宜），所以分片時不需要把 pool 傳過去 ——
+ * 只要 roster 與 wk 相同，各 worker 算出來的 pool 必然相同。
+ *
+ * 會就地修改：`wk.recipe`、`roster[i]._bs`、模組層的 `POOL`。
+ */
+function prepareSearch(roster, wk){
   const active = roster.map((m,i)=>({m,i})).filter(x=>!x.m.ex);
   if (active.length < 5) return { error:'few', n: active.length };
 
@@ -435,33 +487,100 @@ function searchTeams(roster, wk, opts){
 
   roster.forEach(m=>{ m._bs = baseStats(m, wk); });
 
-  let pool = active.map(x=>x.i).filter(i=>!pinned.includes(i));
-  const memo = new Map();
-  let trimmed = false;
-  if (nCk(pool.length, 5-pinned.length) > prescanLimit){
-    const solo = pool.map(i=>({i, s: scoreTeam([i,i,i,i,i].slice(0,1).concat(pool.filter(j=>j!==i).slice(0,4)), roster, wk, memo).score}));
-    solo.sort((a,b)=>b.s-a.s);
-    pool = solo.slice(0, 42-pinned.length).map(x=>x.i);
-    trimmed = true;
-  }
+  /* 樹果型必須產本週加成樹果，否則不進候選名單（`wk.strictBerry`，預設開）。
 
-  const totalCombos = Math.round(nCk(pool.length, 5-pinned.length));
+     **這是產品需求，不是最佳化。** 使用者的立場：樹果型寶可夢的職責就是產樹果，
+     不符合本週加成就不該入選；會入選代表輸出不符需求。
+
+     已知代價（實測，見 DECISIONS.md）：會排除掉「專長是樹果、但價值來自主技能」
+     的寶可夢 —— 例如 Xatu 專長 berry、樹果 MAGO，主技能是 Ingredient Magnet S，
+     牠是去生產食材的。開這個規則之後前 8 名的總能量會低 3.9%~6.6%。
+     這是刻意的取捨，不是 bug。
+
+     兩個例外：
+     1. `wk.fav` 是空的（還沒設本週樹果）→ 規則不生效，否則會把所有樹果型都排除
+     2. 明確 📌 固定的成員不受此限 —— 使用者的個別指定優先於通則
+     食材型／技能型／全能型完全不受影響（牠們的價值本來就不只看樹果）。 */
+  let pool = active.map(x=>x.i).filter(i=>!pinned.includes(i));
+  const strictBerry = wk.strictBerry !== false && wk.fav && wk.fav.size > 0;
+  const excluded = [];
+  if (strictBerry){
+    const keep = [];
+    for (const i of pool){
+      const dx = D.dex[roster[i].sp];
+      if (dx.sp === 'berry' && !wk.fav.has(dx.b)) excluded.push(i);
+      else keep.push(i);
+    }
+    pool = keep;
+    if (pool.length + pinned.length < 5)
+      return { error:'fewBerry', n: pool.length + pinned.length, cut: excluded.length };
+  }
+  return { pool, pinned, excluded, total: Math.round(nCk(pool.length, 5-pinned.length)) };
+}
+
+/**
+ * 列舉並評分一個分片，回傳這個分片的前 `finalists` 名（**尚未跑決賽**）。
+ *
+ * 分片正確性：每個分片各自保留自己的前 N 名，合併後取全域前 N 名 —— 全域前 N
+ * 名必然也在各自分片的前 N 名內，所以合併集合一定包含它們。因此「分片 + 合併」
+ * 與單執行緒的決賽名單**完全相同**，不是近似。
+ *
+ * `opts.lean` 時只回傳 `{idxs, score}` —— 給 Worker 用。完整的 scoreTeam 結果
+ * 帶著 `outs`（5 個成員輸出，各含 Float64Array）和 `ing`，一個分片 241 KB，
+ * 8 個分片就是 1.9 MB 的 structured clone，實測那就是平行化的主要瓶頸
+ * （理論上限 7.3x，實際只拿到 3.2x）。精簡後 32 KB，少 87%。
+ * 主執行緒收到後用 `rehydrate()` 對合併的前 FINALISTS 名重算 —— `scoreTeam`
+ * 是決定性的，所以結果與完整回傳一模一樣。
+ *
+ * @param opts { shard:{index,total}, onProgress(done,total), shouldStop(), finalists, lean }
+ */
+function searchShard(roster, wk, opts){
+  const o = opts || {};
+  const finalists = o.finalists || FINALISTS;
+  const shard = o.shard || null;
+  const prep = prepareSearch(roster, wk);
+  if (prep.error) return prep;
+
+  const memo = new Map();
   const best = [];
   let count = 0, stopped = false;
   // 每 4096 組回報一次進度並檢查取消。combinations 沒有中斷機制，
   // 所以用旗標讓 callback 變成 no-op —— 列舉本身很便宜，貴的是 scoreTeam。
-  combinations(pool, 5, pinned, idxs=>{
+  combinations(prep.pool, 5, prep.pinned, idxs=>{
     if (stopped) return;
     count++;
     if ((count & 0xFFF) === 0){
-      if (shouldStop && shouldStop()){ stopped = true; return; }
-      if (onProgress) onProgress(count, totalCombos);
+      if (o.shouldStop && o.shouldStop()){ stopped = true; return; }
+      if (o.onProgress) o.onProgress(count, prep.total);
     }
     const r = scoreTeam(idxs, roster, wk, memo);
-    if (best.length < finalists){ best.push(r); best.sort((a,b)=>b.score-a.score); }
-    else if (r.score > best[finalists-1].score){ best[finalists-1] = r; best.sort((a,b)=>b.score-a.score); }
-  });
+    if (best.length < finalists){ best.push(r); best.sort(byScore); }
+    else if (byScore(r, best[finalists-1]) < 0){ best[finalists-1] = r; best.sort(byScore); }
+  }, shard);
   if (stopped) return { error:'stopped', count };
+  const cands = o.lean ? best.map(b => ({ idxs: b.idxs, score: b.score })) : best;
+  return { cands, count, excluded: prep.excluded, total: prep.total };
+}
+
+/**
+ * 把精簡候選（只有 `idxs` / `score`）還原成完整的 `scoreTeam` 結果。
+ * 因為 `scoreTeam` 對同一組 (idxs, roster, wk) 是決定性的，還原出來的東西
+ * 與 worker 端算的完全相同 —— 這是「精簡傳輸不影響結果」的依據。
+ * 需要先跑過 `prepareSearch`（要 `POOL` 與 `_bs`）。
+ */
+function rehydrate(cands, roster, wk){
+  const memo = new Map();
+  return cands.map(c => scoreTeam(c.idxs, roster, wk, memo));
+}
+
+/**
+ * 決賽：對候選名單跑真實的 21 餐排程，重算總分後排序，取前 `SHOWN` 名。
+ * **只能在合併之後跑一次** —— 每個 worker 各跑一遍是白費工，而且 bestPlan 很貴。
+ * 需要 `POOL`（`prepareSearch` 建的）。
+ */
+function finalizeTeams(cands, roster, wk, finalists){
+  const n = finalists || FINALISTS;
+  const best = cands.slice().sort(byScore).slice(0, n);
 
   // 決賽組跑真實排程：從同一個食材池填滿 21 餐
   for (const b of best){
@@ -480,8 +599,29 @@ function searchTeams(roster, wk, opts){
     b.total = b.berryS + b.skillS + b.dishS;
     b.score = wk.mode==='dish' ? b.dishS : wk.mode==='berry' ? b.berryS : b.total;
   }
-  best.sort((a,b)=>b.score-a.score);
-  if (onProgress) onProgress(count, totalCombos);
-  return { best: best.slice(0, SHOWN), count, trimmed, ms: Date.now()-t0 };
+  best.sort(byScore);
+  return best.slice(0, SHOWN);
+}
+
+/**
+ * 單執行緒的完整搜尋 = 準備 → 一個分片（就是全部）→ 決賽。
+ *
+ * 保證：結果只取決於 roster 的**內容**，與陣列順序無關（`tests/smoke.mjs` 第 4 節、
+ * `tests/verify.mjs` 第 1 節有斷言）。
+ *
+ * app.js 平常走多 worker 的路徑（`searchShard` × N ＋ `finalizeTeams`）；
+ * 這個函式留給「沒有 Worker 的退路」和測試用 —— 兩條路徑的結果必須逐欄位相同。
+ *
+ * @param opts { onProgress(done,total), shouldStop(), finalists }
+ * @returns { best, count, ms, excluded } 或 { error: 'few'|'nopool'|'pins'|'fewBerry'|'stopped', ... }
+ */
+function searchTeams(roster, wk, opts){
+  const t0 = Date.now();
+  const r = searchShard(roster, wk, opts);
+  if (r.error) return r;
+  const best = finalizeTeams(r.cands, roster, wk, (opts && opts.finalists) || FINALISTS);
+  if (opts && opts.onProgress) opts.onProgress(r.count, r.total);
+  return { best, count: r.count, ms: Date.now()-t0,
+           excluded: r.excluded.map(i => D.dex[roster[i].sp].n) };
 }
 

@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm test)",
+      "Bash(npm run verify)",
+      "Bash(npm run serve)",
+      "Bash(node tests/smoke.mjs)",
+      "Bash(node tests/verify.mjs)",
+      "Bash(node --check *)",
+      "Bash(git add *)",
+      "Bash(mkdir -p *)"
+    ]
+  }
+}

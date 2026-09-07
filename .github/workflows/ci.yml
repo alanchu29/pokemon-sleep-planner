@@ -20,10 +20,6 @@ jobs:
       # 可能對不上 package-lock 釘住的 playwright-core，executablePath() 就會指向不存在的檔案。
       - name: Install Chromium
         run: npx playwright-core install --with-deps chromium
-      - name: Resolve Chromium path
-        id: chromium
-        run: echo "path=$(node -e "console.log(require('playwright-core').chromium.executablePath())")" >> "$GITHUB_OUTPUT"
+      # 不用再解析路徑 —— tests/chromium.mjs 會自己找（含 playwright-core 下載的那份）
       - name: Smoke tests
-        env:
-          CHROMIUM: ${{ steps.chromium.outputs.path }}
-        run: node tests/smoke.mjs
+        run: npm test

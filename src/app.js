@@ -73,7 +73,7 @@ const f1 = n => (Math.round(n*10)/10).toFixed(1);
 /* ================= STATE ================= */
 const BLANK = () => ({sp: D.dex.findIndex(p=>p.n==='PIKACHU'), level:30, nature:'Bashful', ss:[null,null,null,null,null], ingSet:[0,0,0], skillLv:1, ribbon:0, pin:false, ex:false});
 let roster = [];
-let wk = {island:'greengrass', fav:new Set(), areaBonus:15, pot:57, sleepH:8.5, camp:0, mode:'total', dishType:'curry', recipeName:null, recipeLv:20, recipePick:'auto', recipeScope:'type', recipeLevels:{}};
+let wk = {island:'greengrass', fav:new Set(), areaBonus:15, pot:57, sleepH:8.5, camp:0, mode:'total', dishType:'curry', recipeName:null, recipeLv:20, recipePick:'auto', recipeScope:'type', recipeLevels:{}, strictBerry:true};
 let lastResults = null, shownAlt = 0;
 
 /* ================= PERSISTENCE ================= */
@@ -266,38 +266,49 @@ function buildWeekly(){
     syncWeeklyUI(); save();
   });
   $('dishType').addEventListener('change', e=>{ wk.dishType = e.target.value; wk.recipeName = null; fillRecipes(); save(); });
-  $('recipe').addEventListener('change', e=>{ wk.recipeName = e.target.value; save(); });
+  $('recipe').addEventListener('change', e=>{ wk.recipeName = e.target.value; syncRecipeIngs(); save(); });
   for (const [id, key, num] of [['areaBonus','areaBonus',1],['pot','pot',1],['sleepH','sleepH',1],['recipeLv','recipeLv',1],['camp','camp',1]]){
     $(id).addEventListener('change', e=>{ wk[key] = num ? Number(e.target.value) : e.target.value; save(); });
   }
   $('mode').addEventListener('change', e=>{ wk.mode = e.target.value; save(); });
   $('recipePick').addEventListener('change', e=>{ wk.recipePick = e.target.value; syncWeeklyUI(); save(); });
   $('recipeScope').addEventListener('change', e=>{ wk.recipeScope = e.target.value; syncWeeklyUI(); save(); });
+  $('strictBerry').addEventListener('change', e=>{ wk.strictBerry = e.target.checked; save(); });
   $('runBtn').addEventListener('click', run);
 }
+/* option 只放名稱與食材數。完整食材清單放在 select 下方的 #recipeIngs ——
+   最長的食譜（絕對睡眠奶油咖哩）連食材清單要 555px，而這一欄就算 span2 也只有
+   約 320px，塞進 option 會被裁掉，而被裁掉的資訊等於沒有。 */
 function fillRecipes(){
   const list = D.recipes.filter(r=>r.t===wk.dishType).sort((a,b)=>a.cnt-b.cnt);
-  $('recipe').innerHTML = list.map(r=>{
-    const ings = r.ings.map(([i,a])=>iz(ING_NAME[i])+'×'+a).join('・');
-    return `<option value="${r.n}">${recipeZh(r.n)} — ${ings}（共 ${r.cnt}）</option>`;
-  }).join('');
+  $('recipe').innerHTML = list.map(r=>
+    `<option value="${r.n}">${recipeZh(r.n)}（${r.cnt} 材）</option>`).join('');
   if (!wk.recipeName || !list.some(r=>r.n===wk.recipeName)){
     const pick = list.find(r=>r.cnt>=21) || list[list.length-1];
     wk.recipeName = pick && pick.n;
   }
   $('recipe').value = wk.recipeName;
+  syncRecipeIngs();
+}
+function syncRecipeIngs(){
+  const r = D.recipes.find(x=>x.n===wk.recipeName);
+  $('recipeIngs').textContent = r
+    ? r.ings.map(([i,a])=>iz(ING_NAME[i])+'×'+a).join('・') + `（共 ${r.cnt}）`
+    : '';
 }
 function syncWeeklyUI(){
   $('island').value = wk.island; $('areaBonus').value = wk.areaBonus; $('pot').value = wk.pot;
   $('sleepH').value = wk.sleepH; $('camp').value = wk.camp; $('mode').value = wk.mode;
   $('dishType').value = wk.dishType; $('recipeLv').value = wk.recipeLv;
   $('recipePick').value = wk.recipePick; $('recipeScope').value = wk.recipeScope;
+  $('strictBerry').checked = wk.strictBerry !== false;
   const nSet = Object.keys(wk.recipeLevels||{}).length;
   $('rlvCount').textContent = nSet ? `（${nSet} 道已個別設定）` : '';
   const auto = wk.recipePick === 'auto';
   $('recipe').disabled = auto;
   $('recipe').style.opacity = auto ? .5 : 1;
   $('recipeAutoNote').textContent = auto ? '（自動模式下由推演決定，這裡只是備援）' : '';
+  $('recipeIngs').style.opacity = auto ? .5 : 1;
   $('dishType').disabled = auto && wk.recipeScope === 'all';
   for (const el of $('favBerries').querySelectorAll('[data-berry]'))
     el.setAttribute('aria-pressed', wk.fav.has(el.dataset.berry) ? 'true' : 'false');
@@ -382,54 +393,113 @@ $('importBtn').addEventListener('click', ()=>{
   catch(e){ setStatus('JSON 格式不正確'); }
 });
 
-/* ---- Worker 管線 ----
-   引擎在 engine.js，主執行緒和 worker 都載入同一份，所以兩邊數值一定一致。
-   worker 只是把那個同步迴圈搬離 UI 執行緒。 */
-let worker = null, workerReady = null, runSeq = 0, running = false;
+/* ---- Worker 池 ----
+   引擎在 engine.js，主執行緒和每個 worker 都載入同一份，所以數值一定一致。
 
-function spawnWorker(){
-  const w = new Worker('./src/engine.worker.js');
-  const ready = new Promise((ok, bad) => {
-    const onMsg = (e) => {
-      if (e.data && e.data.type === 'ready'){ w.removeEventListener('message', onMsg); ok(w); }
-    };
-    w.addEventListener('message', onMsg);
-    w.addEventListener('error', (ev) => bad(new Error(ev.message || 'worker 載入失敗')));
-  });
-  // 資料只送一次；之後每次推演只送 roster 與 wk
-  w.postMessage({ type:'init', data: D });
-  worker = w; workerReady = ready;
-  return ready;
+   分片：`combinations` 按第一個自由索引切，指派由 `shardAssign` 貪婪裝箱決定
+   （不是 `i % N` —— i0 越小子樹越大，那樣會讓 shard 0 拿到 2.6 倍的量）。
+   各 worker 回傳自己的前 FINALISTS 名（**精簡成 idxs/score，且不跑決賽**），
+   主執行緒合併 → 取全域前 N → `rehydrate` 還原 → 跑一次 `finalizeTeams`。
+   結果與單執行緒窮舉**完全相同** —— 全域前 N 名必然也在各自分片的前 N 名內，
+   所以合併集合一定包含它們。理由與證明見 engine.js 的 searchShard。
+   `tests/smoke.mjs` 第 10 節會斷言兩條路徑逐欄位相同。
+
+   核心數上限刻意壓在 8：再多的邊際效益被 postMessage 的序列化成本吃掉
+   （每個 worker 要回傳 50 組候選，含 Float64Array）。 */
+/* 上限刻意不等於 hardwareConcurrency。
+
+   實測（Intel Core Ultra 5 135H、18 邏輯核心、40 隻箱子 658,008 組）：
+     1 worker 4776ms · 2 worker 3544ms · 4 worker 2818ms
+     6 worker 2441ms · 8 worker 2360ms · 16 worker 2413ms
+   6 個之後就飽和在約 2x。飽和**不是分配不均** —— 各分片耗時只差 1.06~1.11x、
+   浪費 3~7%，所以動態工作竊取最多也只能買到那 3~7%，不值得那個複雜度。
+   天花板是機器沒有更多空閒 CPU。量測細節見 DECISIONS.md。
+
+   留幾個邏輯核心給 UI 執行緒和使用者的其他程式 —— 這個工具不該把機器吃滿。
+   用 let 是為了能在 console 或量測腳本裡改。 */
+let MAX_WORKERS = 6;
+let pool = [];            // [{ w, ready }]
+let runSeq = 0, running = false;
+
+function poolSize(){
+  const hc = (typeof navigator !== 'undefined' && navigator.hardwareConcurrency) || 4;
+  return Math.max(1, Math.min(MAX_WORKERS, hc));
+}
+
+function spawnPool(n){
+  const made = [];
+  for (let i = 0; i < n; i++){
+    const w = new Worker('./src/engine.worker.js');
+    const ready = new Promise((ok, bad) => {
+      const onMsg = (e) => {
+        if (e.data && e.data.type === 'ready'){ w.removeEventListener('message', onMsg); ok(w); }
+      };
+      w.addEventListener('message', onMsg);
+      w.addEventListener('error', (ev) => bad(new Error(ev.message || 'worker 載入失敗')));
+    });
+    // 資料只在 init 送一次；之後每次推演只送 roster 與 wk
+    w.postMessage({ type:'init', data: D });
+    made.push({ w, ready });
+  }
+  pool = made;
+  return made;
 }
 
 const CANCELLED = 'psleep-cancelled';
-let pendingReject = null;   // 讓 killWorker 能結束還在等的那個 promise
+let pendingRejects = [];   // 讓 killPool 能結束所有還在等的 promise
 
-/** 砍掉目前的 worker。取消只能這樣做 —— 理由見 engine.worker.js 的檔頭。 */
-function killWorker(){
-  if (worker){ worker.terminate(); worker = null; workerReady = null; }
+/** 砍掉整個 worker 池。取消只能這樣做 —— 理由見 engine.worker.js 的檔頭。 */
+function killPool(){
+  for (const { w } of pool) { try { w.terminate(); } catch {} }
+  pool = [];
   // terminate 之後 worker 永遠不會再回訊息，等它的 promise 會就這樣掛著。
-  // 主動 reject 掉，否則每次取消都留下一個永不 settle 的 async 呼叫。
-  if (pendingReject){ const r = pendingReject; pendingReject = null; r(new Error(CANCELLED)); }
+  // 主動 reject 掉，否則每次取消都留下一堆永不 settle 的 async 呼叫。
+  const rs = pendingRejects; pendingRejects = [];
+  for (const r of rs) r(new Error(CANCELLED));
 }
 
-/** 送一次推演給 worker。worker 不可用時回傳 null，由呼叫端退回主執行緒。 */
-function searchViaWorker(payload, onProgress){
+/**
+ * 把一次推演分片丟給 worker 池。worker 不可用時回傳 null，由呼叫端退回主執行緒。
+ * @returns Promise<{cands, count, excluded, total}> —— 已合併但**尚未決賽**
+ */
+function searchViaPool(payload, onProgress){
   if (typeof Worker === 'undefined') return null;
-  try { if (!worker) spawnWorker(); } catch { return null; }
-  return workerReady.then(w => new Promise((ok, bad) => {
-    pendingReject = bad;
+  try { if (!pool.length) spawnPool(poolSize()); } catch { return null; }
+  const n = pool.length;
+  const seen = new Array(n).fill(0);   // 每個分片最新回報的 count
+  let grandTotal = 0;
+
+  const jobs = pool.map(({ w, ready }, i) => ready.then(() => new Promise((ok, bad) => {
+    pendingRejects.push(bad);
     const onMsg = (e) => {
       const m = e.data || {};
-      if (m.type === 'progress'){ onProgress(m.done, m.total); return; }
+      if (m.type === 'progress'){
+        seen[i] = m.done;
+        grandTotal = m.total;   // 每個分片回報的 total 都是「全部組合數」
+        onProgress(seen.reduce((s, x) => s + x, 0), grandTotal);
+        return;
+      }
       w.removeEventListener('message', onMsg);
-      pendingReject = null;
-      if (m.type === 'done') ok(m.result);
-      else bad(new Error(m.message || '推演失敗'));
+      if (m.type === 'shard'){
+        if (m.error) bad(Object.assign(new Error('shard-error'), { shardError: m }));
+        else ok(m);
+      } else bad(new Error(m.message || '推演失敗'));
     };
     w.addEventListener('message', onMsg);
-    w.postMessage({ type:'run', ...payload });
-  }));
+    w.postMessage({ type:'shard', shard:{ index:i, total:n }, ...payload });
+  })));
+
+  return Promise.all(jobs).then(parts => {
+    pendingRejects = [];
+    return {
+      cands: parts.flatMap(p => p.cands),
+      count: parts.reduce((s, p) => s + p.count, 0),
+      excluded: parts[0].excluded,   // 每個分片算出來的排除名單相同
+      total: parts[0].total,
+      workers: n,
+      shardMs: parts.map(p => p.ms),   // 診斷用：worker 自己量的耗時
+    };
+  });
 }
 
 function setRunning(on){
@@ -444,6 +514,8 @@ const RUN_ERR = {
   few:    n => `箱子裡至少要有 5 隻可用的寶可夢（目前 ${n} 隻）。`,
   nopool: () => `目前的料理類型／範圍下沒有任何食譜可比較。`,
   pins:   n => `固定（📌）的寶可夢超過 5 隻，請減少到 5 隻以內。`,
+  fewBerry: n => `套用「樹果型只考慮本週加成樹果」之後只剩 ${n} 隻可用（需要 5 隻）。`
+              + `請調整本週加成樹果、把需要的成員用 📌 固定（固定的不受此限），或關掉那個選項。`,
 };
 
 async function run(){
@@ -474,20 +546,37 @@ async function run(){
     wk: { ...wk, recipe: undefined },
   };
 
-  let res = null, viaWorker = true;
+  const t0 = performance.now();
+  let res = null, nWorkers = 0;
   try {
-    const p = searchViaWorker(payload, onProgress);
-    if (p) res = await p;
-    else viaWorker = false;
+    const p = searchViaPool(payload, onProgress);
+    if (p){
+      const merged = await p;
+      if (seq !== runSeq) return;
+      nWorkers = merged.workers;
+      /* worker 回傳的是精簡候選（只有 idxs/score）。合併 → 取全域前 FINALISTS 名
+         → 在主執行緒 rehydrate 成完整結果 → 跑一次決賽。
+         POOL 與 _bs 上面都準備好了，rehydrate 與 finalizeTeams 都需要。 */
+      const top = merged.cands.slice().sort(byScore).slice(0, FINALISTS);
+      res = { best: finalizeTeams(rehydrate(top, roster, wk), roster, wk),
+              count: merged.count, shardMs: merged.shardMs,
+              excluded: merged.excluded.map(i => D.dex[roster[i].sp].n) };
+    }
   } catch (err){
     if (err.message === CANCELLED) return;   // 使用者按了取消，狀態已由 cancelBtn 處理好
+    if (err.shardError){                     // worker 回報了引擎層的錯誤（例如候選不足 5 隻）
+      setRunning(false);
+      const m = err.shardError, f = RUN_ERR[m.error];
+      $('results').innerHTML = `<div class="notice warn">${f ? f(m.n) : '推演失敗，請重試。'}</div>`;
+      return;
+    }
     console.warn('worker 推演失敗，退回主執行緒：', err.message);
-    killWorker();
-    viaWorker = false;
+    killPool();
+    res = null;
   }
   if (seq !== runSeq) return;           // 已經有更新的推演，丟棄這次結果
 
-  if (!viaWorker){
+  if (!res){
     // 退路：沒有 Worker（或 worker 掛了）就在主執行緒跑，UI 會凍住但至少有答案
     $('runStatus').textContent = '推演中…（無 Worker，畫面會暫停）';
     await new Promise(r => setTimeout(r, 20));   // 讓上面那行先畫出來
@@ -503,14 +592,22 @@ async function run(){
     return;
   }
   lastResults = res.best; shownAlt = 0;
-  $('comboCount').textContent = `${res.count.toLocaleString()} 種組合 · ${res.ms}ms${res.trimmed?' · 已預篩至前 42 隻':''}${viaWorker?'':' · 主執行緒'}`;
+  const cut = res.excluded ? res.excluded.length : 0;
+  $('comboCount').textContent = `${res.count.toLocaleString()} 種組合 · ${Math.round(performance.now()-t0)}ms`
+    + (cut ? ` · 已排除 ${cut} 隻樹果不符的樹果型` : '')
+    + (nWorkers ? ` · ${nWorkers} 執行緒` : ' · 主執行緒');
+  // 排除名單要看得到 —— 靜靜地少算候選是這個 repo 最不想要的行為
+  const shardTip = res.shardMs ? '\n\n各分片耗時：' + res.shardMs.map(x => x + 'ms').join(' / ') : '';
+  $('comboCount').title = (cut
+    ? '因「樹果型只考慮本週加成樹果」而未列入候選：\n' + res.excluded.map(n => pz(D.dex.find(d=>d.n===n))).join('、')
+    : '') + shardTip;
   renderResults();
 }
 
 $('cancelBtn').addEventListener('click', ()=>{
   if (!running) return;
   runSeq++;                 // 讓還在飛的結果被丟棄
-  killWorker();             // 同步迴圈只能靠 terminate 中斷
+  killPool();               // 同步迴圈只能靠 terminate 中斷
   setRunning(false);
   $('comboCount').textContent = '已取消';
 });
@@ -647,7 +744,7 @@ function renderResults(){
   </div>`;
   $('results').querySelectorAll('.alt').forEach(tr=>tr.addEventListener('click', ()=>{ shownAlt = +tr.dataset.alt; renderResults(); }));
   $('results').querySelectorAll('[data-setrecipe]').forEach(b=>b.addEventListener('click', ()=>{
-    wk.recipeName = b.dataset.setrecipe; $('recipe').value = wk.recipeName; save(); run();
+    wk.recipeName = b.dataset.setrecipe; $('recipe').value = wk.recipeName; syncRecipeIngs(); save(); run();
   }));
 }
 

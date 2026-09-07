@@ -28,29 +28,37 @@ Pokémon Sleep 每週最佳隊伍推演工具。零依賴、無 build step、純
 
 `engine.js` 宣告 `D` 和所有引擎函式；`app.js` 直接用那些全域名字，**自己不要再宣告 `D`**（同名 `const` 會撞成 SyntaxError）。
 
-**為什麼是動態插入 classic script 而不是 `import()`**：頂層宣告必須留在全域。`tests/smoke.mjs` 靠 `page.evaluate` 直接驅動內部狀態（`roster = [...]`、`run()`、`scoreTeam()`、`buildPool(wk)`），改成 module 會把這些關進模組作用域，46 項測試會全滅。**不要「順手」改成 module。**
+**為什麼是動態插入 classic script 而不是 `import()`**：頂層宣告必須留在全域。`tests/smoke.mjs` 靠 `page.evaluate` 直接驅動內部狀態（`roster = [...]`、`run()`、`scoreTeam()`、`buildPool(wk)`），改成 module 會把這些關進模組作用域，整套測試會全滅。**不要「順手」改成 module。**
 
 因為用了 `fetch`，**`file://` 直接開會失效**（CORS）。本機要跑 `npm run serve`。載入器有 catch，會顯示提示而不是白畫面 —— 改動載入器時要保留這個 fallback。
 
-### Worker
+### Worker 池
 
-推演跑在 `src/engine.worker.js`。主執行緒和 worker **載入同一份 `engine.js`**，所以不會有兩份引擎走鐘的問題。
+推演分片跑在 `MAX_WORKERS`（預設 6）個 `src/engine.worker.js` 上。主執行緒和每個 worker **載入同一份 `engine.js`**，所以不會有多份引擎走鐘的問題。
 
 ```
-app.js  run()  ──postMessage{init:D}──▶  engine.worker.js
-                                            └─ importScripts('./engine.js')
-        ──postMessage{run,roster,wk}──▶  searchTeams(roster, wk, {onProgress})
-        ◀──{progress,done,total}────────  （每 80ms 節流一次）
-        ◀──{done,result}───────────────
+app.js  run()   ──{init, data:D}──▶  engine.worker.js × N
+                                        └─ importScripts('./engine.js')
+        ──{shard:{index,total}, roster, wk}──▶  searchShard(...)  ← 只列舉與評分
+        ◀──{progress, done, total}──────────    （每 80ms 節流，主執行緒加總）
+        ◀──{shard, cands:[{idxs,score}], ms}──  精簡候選
+
+        合併 → 取全域前 FINALISTS → rehydrate() → finalizeTeams()   ← 都在主執行緒
 ```
 
-三條規則：
+**分片的正確性**：全域前 N 名必然也在各自分片的前 N 名內，所以合併集合一定包含它們 —— 分片結果與單執行緒窮舉**完全相同，不是近似**。`tests/smoke.mjs` 第 10 節斷言兩條路徑逐欄位相同。
+
+五條規則：
 
 1. **`engine.js` 絕對不能碰 DOM，也不能讀 `app.js` 的狀態**（`roster` / `wk` / `lastResults`）。需要什麼就當參數收 —— worker 裡沒有那些全域。`rlvl(r, wk)`、`buildPool(wk)`、`rankRecipesForTeam(r, wk)` 的 `wk` 參數就是為此而加的，**不要改回讀全域**。
-2. **取消是靠主執行緒 `terminate()`，不是傳訊息。** 搜尋是同步迴圈，跑的時候 worker 不會處理訊息佇列，送 `cancel` 進去要等搜尋結束才被讀到。`SharedArrayBuffer` + `Atomics` 可以真正中斷，但需要 COOP/COEP 標頭，GitHub Pages 給不了。
-3. **主執行緒也需要 `POOL` 和 `_bs`**。`renderResults` 會呼叫 `rankRecipesForTeam`（吃 `POOL`）、`memberCard` 會讀 `m._bs`。worker 算的那份在它自己的記憶體裡，所以 `run()` 在送出之前會自己再算一遍（很便宜）。
+2. **決賽（`bestPlan`）只能在合併之後跑一次。** 每個 worker 各跑一遍是白費工，而且各自只看到自己的候選集合。
+3. **worker 回傳精簡候選（`{idxs, score}`），主執行緒用 `rehydrate()` 還原。** 完整的 `scoreTeam` 結果一個分片 241 KB，8 個分片 1.9 MB，實測那就是平行化的主要瓶頸。`scoreTeam` 是決定性的，所以還原出來的與 worker 端算的相同。
+4. **取消是靠主執行緒 `terminate()` 砍掉整池，不是傳訊息。** 搜尋是同步迴圈，跑的時候 worker 不會處理訊息佇列，送 `cancel` 進去要等搜尋結束才被讀到。`SharedArrayBuffer` + `Atomics` 可以真正中斷，但需要 COOP/COEP 標頭，GitHub Pages 給不了。`killPool()` 也會主動 reject 還在等的 promise，否則每次取消都留下永不 settle 的 async 呼叫。
+5. **主執行緒也需要 `POOL` 和 `_bs`**。`renderResults` 會呼叫 `rankRecipesForTeam`（吃 `POOL`）、`memberCard` 會讀 `m._bs`，`rehydrate` 兩者都要。worker 算的那份在它自己的記憶體裡，所以 `run()` 在送出之前會自己再算一遍（很便宜）。
 
-`Worker` 不可用或載入失敗時會**退回主執行緒**同步跑（UI 會凍住，但至少有答案），`comboCount` 會標上「· 主執行緒」。
+`Worker` 不可用或載入失敗時會**退回主執行緒**跑 `searchTeams()`（UI 會凍住，但至少有答案），`comboCount` 會標上「· 主執行緒」。
+
+**加速只有約 2x，而且瓶頸不在程式碼**：分片是平衡的（各分片耗時差 1.06~1.11x），編排開銷 27~46ms，飽和點在 6 個 worker。量測與「為什麼不做動態工作竊取」見 `DECISIONS.md`。
 
 ### 程式碼分區
 
@@ -59,7 +67,7 @@ app.js  run()  ──postMessage{init:D}──▶  engine.worker.js
 1. `const D`（= `self.GAMEDATA`，加完整性檢查）＋ 資料衍生常數：`ING_NAME` `ING_VAL` `NING` `BERRY_VAL` `NAT` `SS` `SS_SLOT_LV` `RIBBON_CARRY` `AVG_CRIT` `HB_TABLE` `MAGNET_POOL` `MEALS_WEEK`
 2. **引擎**：`energyF` `berryPower` `baseStats` `skillPayload` `simulate` `memberOutput` `teamContext`
 3. **食譜求解**：`buildPool` `rankSingle` `bestSingleRecipe` `proxyDish` `mealPlan` `bestPlan` `scoreTeam` `rankRecipesForTeam`
-4. **搜尋**：`combinations` `searchTeams`（＋ `FINALISTS` / `SHOWN` / `PRESCAN_LIMIT`）
+4. **搜尋**：`combinations` `searchTeams`（＋ `FINALISTS` / `SHOWN`）。一律窮舉 —— 曾經有的 `PRESCAN_LIMIT` 預篩已移除，理由見下方陷阱 4
 
 `src/app.js`（依出現順序）：
 
@@ -106,27 +114,38 @@ Google Sheet 後端在 `apps-script/Code.gs`，設定步驟見 `SETUP-google-she
 
 **任何改動 `mealPlan` / `bestPlan` 的人，必須跑單調性測試**（`tests/smoke.mjs`）。
 
-### 4. 搜尋目標與評分目標必須一致
+### 4. 候選篩選只能是「產品規則」，不能是「效能手段」
+
+`wk.strictBerry`（預設開）：樹果型必須產本週加成樹果才進候選。**這是使用者要的需求**，不是最佳化 —— 實測會讓總能量低 3.9%~6.6%，那是刻意的取捨。細節與量測見 `DECISIONS.md`。
+
+三件事不要動：
+- **`wk.fav` 為空時規則不生效** —— 否則會把所有樹果型都排除
+- **📌 固定的成員不受此限** —— 使用者的個別指定優先於通則
+- **排除名單要顯示出來**（`comboCount` 的文字與 `title`）—— 靜靜地少算候選就是「文案說謊」那類 bug
+
+**絕對不要為了加速而加新的候選篩選。** 這個 repo 已經因此踩過兩次：一次是按 roster 順序的預篩（結果隨箱子順序改變，差 16.34%，已移除），一次是「用 `specialty` 猜價值」（`specialty` 是分類標籤，不是價值來源 —— 樹果型可能因為主技能而有價值）。要壓縮搜尋空間就做**可證明的 branch-and-bound**（樂觀上界剪枝），見 `TODO.md`。
+
+### 5. 搜尋目標與評分目標必須一致
 
 搜尋階段用 `proxyDish`（便宜的樂觀上界），決賽用 `bestPlan`（真實的 21 餐排程）。兩者若脫鉤，最佳隊伍會被擠出決賽名單。
 
 `FINALISTS = 50`（進決賽）、`SHOWN = 8`（顯示）。**改動評分方式時要重新確認 `FINALISTS` 夠不夠大。**
 
-### 5. 記憶化的 context key
+### 6. 記憶化的 context key
 
 `ctxKey()` 決定 `memberOutput` 的快取粒度。加新的 team-level 效果時**一定要加進 `ctxKey`**，否則會拿到別的隊伍組成算出來的結果。`supportEnergy` / `extraHelps` 有量化（`qE` / `qH`）來控制快取爆炸。
 
-### 6. 副技能的欄位解鎖
+### 7. 副技能的欄位解鎖
 
 `SS_SLOT_LV = [10,25,50,70,80]`。`activeSubskills()` 只採計 `m.level >= SS_SLOT_LV[i]` 的欄位 —— **順序有意義**，`m.ss` 的陣列位置就是遊戲裡的欄位位置。
 
-### 7. 文案不能寫死檔名
+### 8. 文案不能寫死檔名
 
 拆檔時踩過：UI 還在教使用者「替換 `index.html` 裡的 `<script id="gamedata">`」，但那個區塊早就不存在了。README 和這份檔案也各有一處。**讀程式碼看不出來，只有截圖才會發現。**
 
-所以使用者可見文案裡的檔名與指令，一律從 `app.js` 的 `PATHS` 取（`P.data`、`C.rebuild` …），不要寫死字串。`tests/smoke.mjs` 第 10 節會斷言 `PATHS.files` 的每個路徑真的存在、`PATHS.cmds` 的每個指令真的定義在 `package.json`，並反向掃文案裡有沒有 `PATHS` 以外的硬寫路徑。
+所以使用者可見文案裡的檔名與指令，一律從 `app.js` 的 `PATHS` 取（`P.data`、`C.rebuild` …），不要寫死字串。`tests/smoke.mjs` 的「文案一致性」那一節會斷言 `PATHS.files` 的每個路徑真的存在、`PATHS.cmds` 的每個指令真的定義在 `package.json`，並反向掃文案裡有沒有 `PATHS` 以外的硬寫路徑。
 
-### 8. 資料與程式的版本偏移
+### 9. 資料與程式的版本偏移
 
 `app.js` 的 `SCHEMA` 必須等於 `data/game.json` 的 `meta.schema`。**動到資料的欄位結構時兩邊一起 +1**（純數值更新不用動），`tools/extract-data.mjs` 裡也有一份要同步。
 
@@ -157,18 +176,17 @@ node tools/extract-data.mjs        # 會印出用法
 
 ```bash
 npm i playwright-core
-npm test                         # 46 項：引擎、單調性、雙後端、Sheet 往返、Worker、文案一致性、schema 偏移
+npm test                         # smoke：引擎、單調性、窮舉不變量、雙後端、Sheet 往返、Worker、文案一致性、schema 偏移
+npm run verify                   # 慢速（數分鐘）：大箱子的順序不變性、FINALISTS 夠不夠
 ```
 
 `run()` 是**非同步**的（推演跑在 Worker 裡）。測試等結果時**不要用 `waitForTimeout`** —— 在慢一點的機器上會 flaky。用 `smoke.mjs` 裡的 `doRun()` 輔助函式，它會先清掉 `lastResults` 再等它被填回來。
 
 `tests/smoke.mjs` 會**自己起一台靜態 server**（因為資料改用 fetch 之後不能再用 `file://` 載入），所以 CI 不需要額外的 server step。
 
-Chromium 路徑：預設 `/opt/pw-browsers/chromium`（容器內），用 `CHROMIUM` 環境變數覆蓋。Windows 上例如：
+Chromium 由 `tests/chromium.mjs` **自動尋找** —— playwright-core 下載的那份、系統裝的 Chrome/Edge、容器路徑都會試。要指定才設 `CHROMIUM` 環境變數。
 
-```bash
-CHROMIUM="C:\Program Files (x86)\Google\Chrome\Application\chrome.exe" node tests/smoke.mjs
-```
+（別把 `CHROMIUM=...` 前綴當成常規用法：那會讓 `.claude/settings.json` 的 `Bash(npm test)` 允許規則匹配不到，每次都得手動確認。）
 
 CI 在 `.github/workflows/ci.yml`，push / PR 都會跑。
 
