@@ -132,39 +132,72 @@ td.n{font-family:var(--mono);font-variant-numeric:tabular-nums}
 .boxbar input[type=text]{min-width:240px}
 .boxbar .status{margin-left:auto;align-self:center;white-space:nowrap}
 
-.mon{border:1px solid var(--line);border-radius:10px;background:var(--surface-2);
-  padding:10px 12px;margin-bottom:9px;display:flex;flex-direction:column;gap:9px}
-/* 必須顯式寫：`.mon{display:flex}` 是作者樣式，會蓋掉瀏覽器預設的 [hidden]{display:none}，
-   篩選就會失效（卡片明明 hidden 卻還看得到）。 */
+/* 摺疊列（預設）：一隻一行、唯讀、密。60 隻要能一眼掃完，所以編輯用的選單
+   只在展開時才出現 —— 選單每個都要 ~150px，全部攤開一隻就吃掉半個螢幕。 */
+.mon{border:1px solid var(--line);border-radius:9px;background:var(--surface);margin-bottom:6px}
 .mon[hidden]{display:none}
-.mon-ss select.dim{opacity:.5}
-.mon.is-ex{opacity:.55}
+.mon.is-ex{opacity:.5}
 .mon.is-pin{border-color:var(--accent);box-shadow:inset 3px 0 0 var(--accent)}
+.mon.open{background:var(--surface-2);border-color:var(--line-2)}
+.mon-head{display:flex;flex-wrap:wrap;gap:5px 9px;align-items:center;padding:7px 10px;cursor:pointer}
+.mon-head:hover{background:var(--surface-2);border-radius:8px}
+.mon-head .car{font-family:var(--mono);font-size:10px;color:var(--muted);width:11px;flex:0 0 auto}
+.mon-no{font-family:var(--mono);font-size:11px;color:var(--muted);flex:0 0 auto}
+.mon-name{font-weight:700;font-size:13.5px;flex:0 0 auto;min-width:76px}
+.mon-lv{font-family:var(--mono);font-variant-numeric:tabular-nums;font-size:12px;
+  font-weight:600;color:var(--accent);flex:0 0 auto}
+.mon-nat{font-size:12px;color:var(--ink-2);flex:0 0 auto}
+.mon-nat .up{color:var(--pos)} .mon-nat .dn{color:var(--neg)}
+.mon-sum{display:flex;flex-wrap:wrap;gap:4px;align-items:center;flex:1 1 260px;min-width:0}
+.mon-acts{display:flex;gap:4px;margin-left:auto;flex:0 0 auto}
+.mon-acts .btn{padding:2px 7px;font-size:11.5px}
+/* 副技能：底色＝稀有度（金／銀／白），這是 game.json 的 subskills[].r，不是我編的 */
+.rr{font-size:11px;padding:2px 6px;border-radius:5px;border:1px solid;white-space:nowrap;
+  font-weight:600;line-height:1.5}
+.rr.gold{background:color-mix(in srgb,var(--ing) 18%,transparent);color:var(--ing);
+  border-color:color-mix(in srgb,var(--ing) 42%,transparent)}
+.rr.silver{background:color-mix(in srgb,var(--skill) 15%,transparent);color:var(--skill);
+  border-color:color-mix(in srgb,var(--skill) 36%,transparent)}
+.rr.white{background:var(--surface-3);color:var(--muted);border-color:var(--line-2)}
+.rr.lock{opacity:.42}
+.mon-i{font-family:var(--mono);font-variant-numeric:tabular-nums;font-size:11px;
+  padding:2px 6px;border-radius:5px;white-space:nowrap;
+  background:color-mix(in srgb,var(--ing) 14%,transparent);color:var(--ing)}
+.mon-sk{font-family:var(--mono);font-size:11px;color:var(--muted);flex:0 0 auto}
+/* 主技能：長的有 13 個字（新月祈禱（活力全體療癒S）），所以不設 max-width、
+   讓它整串顯示，需要時整列自己折 —— 裁掉就等於沒有。 */
+.mon-ms{font-size:11.5px;padding:2px 7px;border-radius:5px;white-space:nowrap;flex:0 0 auto;
+  background:color-mix(in srgb,var(--skill) 13%,transparent);color:var(--skill);font-weight:500}
+.mon-dup{font-size:11px;font-weight:700;padding:2px 6px;border-radius:5px;white-space:nowrap;
+  flex:0 0 auto;background:color-mix(in srgb,var(--neg) 16%,transparent);color:var(--neg);
+  border:1px solid color-mix(in srgb,var(--neg) 45%,transparent)}
+.boxbar .btn[disabled]{opacity:.45;cursor:default}
+
+/* 展開後的編輯區 */
+.mon-edit{border-top:1px solid var(--line);padding:10px;display:flex;flex-direction:column;gap:9px}
 .mon-row{display:flex;flex-wrap:wrap;gap:8px 11px;align-items:flex-end}
 .mon-lbl{font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);
   font-weight:600;align-self:center;min-width:42px;flex:0 0 auto}
-.mon label.f{gap:3px}
-.mon .w-sp select{min-width:208px}
-.mon .w-nat select{min-width:216px}
-.mon .w-num input{width:72px;text-align:center}
-.mon .w-rib select{min-width:96px}
-.mon-tags{display:flex;gap:5px;align-items:center;flex-wrap:wrap;padding-bottom:7px}
-.mon-tags .pill{max-width:190px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.mon-acts{display:flex;gap:5px;margin-left:auto;padding-bottom:5px}
-/* 副技能與食材：給足寬度完整顯示，不用 text-overflow */
-.mon-ss{display:flex;flex-wrap:wrap;gap:6px;flex:1 1 auto}
-.mon-ss select{flex:1 1 152px;min-width:146px}
-.mon-ss select:disabled{opacity:.45}
-.mon-ing{display:flex;flex-wrap:wrap;gap:6px 10px;flex:1 1 auto}
-.ingpick{display:flex;align-items:center;gap:6px;flex:1 1 176px;min-width:170px}
+/* flex-basis 一定要給。label.f 是 auto 寬度的 flex item，裡面的 select/input 又是
+   width:100% —— 百分比會回頭對到 .mon-row，結果每個欄位都撐成整行寬、一行一個。
+   實際踩過，畫面變成一隻寶可夢佔六行。 */
+.mon-edit label.f{gap:3px}
+.mon-edit .w-sp{flex:1 1 250px;min-width:200px}
+.mon-edit .w-nat{flex:0 1 232px;min-width:186px}
+.mon-edit .w-num{flex:0 0 84px}
+.mon-edit .w-rib{flex:0 0 108px}
+.mon-edit label.f select,.mon-edit label.f input{width:100%}
+.mon-edit .w-num input{text-align:center}
+.mon-grp{display:flex;flex-wrap:wrap;gap:6px;align-items:center;flex:1 1 auto;min-width:0}
+.mon-ss{display:flex;flex-wrap:wrap;gap:6px;flex:1 1 100%;min-width:0}
+.mon-ss select{flex:1 1 150px;min-width:0}
+.mon-ss select.dim{opacity:.5}
+.mon-ing{display:flex;flex-wrap:wrap;gap:6px 9px;flex:1 1 100%;min-width:0}
+.ingpick{display:flex;align-items:center;gap:5px;flex:1 1 170px;min-width:0}
 .ingpick select{flex:1 1 auto;min-width:0}
 .ingpick b{font-family:var(--mono);font-variant-numeric:tabular-nums;font-size:12.5px;
-  color:var(--ink-2);white-space:nowrap}
+  color:var(--ing);white-space:nowrap;flex:0 0 auto}
 .ingpick.locked{opacity:.4}
-@media(max-width:720px){
-  .mon-lbl{min-width:100%}
-  .mon .w-sp select,.mon .w-nat select{min-width:100%}
-}
 .ss-mini{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:4px}
 .ss-mini select{padding:4px 2px;font-size:11px;text-overflow:ellipsis}
 .notice{font-size:12.5px;padding:9px 12px;border-radius:8px;background:var(--surface-2);border:1px solid var(--line);color:var(--ink-2)}

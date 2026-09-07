@@ -8,7 +8,13 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=Noto+Sans+TC:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
 <style>html{color-scheme:light}body{margin:0;font:14px system-ui,sans-serif}img{max-width:100%}[hidden]{display:none!important}</style>
-<link rel="stylesheet" href="./src/app.css">
+<!-- ?v= 是快取破除。app.css / app.js 沒有 game.json 那種 schema 斷言，瀏覽器可能拿到
+     新的 index.html 配舊的 CSS/JS（實際踩過：篩選列出現了但版面還是舊的）。
+     動到 app.css 或 src/*.js 就把這個版本號往前推 —— **三個地方**要一致：
+     這裡、下面載入器的 ASSET_V、以及 src/app.js 的 APP_V。
+     光靠 ?v= 只是降低機率，APP_V 的斷言才會真的擋下過期的 app.js。
+     tests/smoke.mjs 第 11 節會斷言三處一致。 -->
+<link rel="stylesheet" href="./src/app.css?v=20260908c">
 </head>
 <body>
 <div class="wrap">
@@ -272,12 +278,22 @@
           <option value="pin">📌 已固定</option>
           <option value="ex">🚫 已排除</option>
           <option value="plain">未標記</option>
+          <option value="dup">⚠ 只看重複</option>
+        </select>
+      </label>
+      <label class="f">排序
+        <select id="fltSort">
+          <option value="added">加入順序</option>
+          <option value="level">等級（高→低）</option>
+          <option value="spec">專長</option>
+          <option value="ms">主技能</option>
         </select>
       </label>
       <label class="f">搜尋
         <input type="text" id="fltName" placeholder="中文名、主技能、副技能、食材" autocomplete="off">
       </label>
       <button class="btn sm ghost" id="fltClear" type="button">清除篩選</button>
+      <button class="btn sm ghost" id="boxExpand" type="button" title="展開／收起目前看得到的卡片">展開全部</button>
       <span class="status" id="boxCount"></span>
     </div>
     <div id="boxList"></div>
@@ -379,10 +395,16 @@ try {
   /* 順序有意義：engine.js 宣告 D 與所有引擎函式，import.js 用引擎的 baseStats 與
      helpInterval 做截圖反解，app.js 直接用前兩者的全域名字。
      三個都是 classic script，共用全域作用域。 */
+  /* ?v= 必須和 <head> 裡 app.css 的那個一致 —— 見上面的註解。
+     也放到 window 上：app.js 有一份自己的 APP_V，兩者不符就整頁擋下來。
+     理由和 game.json 的 SCHEMA 一樣 —— 過期的 app.js 會靜靜地畫出舊版 UI，
+     而使用者只會覺得「你根本沒改」，完全不知道是快取。 */
+  const ASSET_V = '20260908c';
+  window.ASSET_V = ASSET_V;
   for (const src of ['./src/engine.js', './src/import.js', './src/app.js']) {
     await new Promise((ok, bad) => {
       const s = document.createElement('script');
-      s.src = src;
+      s.src = src + '?v=' + ASSET_V;
       s.onload = ok;
       s.onerror = () => bad(new Error(src + ' 載入失敗'));
       document.body.appendChild(s);

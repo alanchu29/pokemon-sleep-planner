@@ -474,6 +474,24 @@ console.log('\n[11] 文案一致性 — 不能提到不存在的檔案或指令'
     .filter(p => !known.has(p));
   ok('文案裡沒有 PATHS 以外的硬寫路徑', hardcoded.length === 0, [...new Set(hardcoded)].join(', '));
   ok('文案沒有殘留已不存在的 gamedata 區塊', !/gamedata/.test(copy));
+
+  /* 資源版本一致。app.css / src/*.js 沒有 game.json 那種 schema 斷言，所以瀏覽器
+     可能拿到「新的 index.html ＋ 舊的 CSS/JS」—— 實際踩過：篩選列出現了，
+     但卡片版面和選單內容都還是舊的。兩處版本號不同步就等於沒有防護。 */
+  const html = await readFile(resolve(ROOT, 'index.html'), 'utf8');
+  const appSrc = await readFile(resolve(ROOT, 'src/app.js'), 'utf8');
+  const cssV = (html.match(/app\.css\?v=([\w-]+)/) || [])[1];
+  const assetV = (html.match(/ASSET_V\s*=\s*'([\w-]+)'/) || [])[1];
+  const appV = (appSrc.match(/^const APP_V = '([\w-]+)';/m) || [])[1];
+  ok('app.css 帶 ?v= 快取破除', !!cssV, String(cssV));
+  ok('loader 有 ASSET_V 常數', !!assetV, String(assetV));
+  ok('app.js 有 APP_V 常數', !!appV, String(appV));
+  ok('三處資源版本一致（app.css ?v= / ASSET_V / APP_V）',
+     !!cssV && cssV === assetV && assetV === appV,
+     `app.css=${cssV} ASSET_V=${assetV} APP_V=${appV}`);
+  // 跑起來的那一份也必須是同一個版本（證明斷言真的有生效，不是只有常數對得上）
+  ok('載入的 app.js 版本與 index.html 相符',
+     await page.evaluate(() => window.ASSET_V === APP_V));
 }
 
 /* 截圖匯入。這一節的 golden case 是**兩隻真實的寶可夢**（使用者 2026-09-07 提供的
@@ -689,16 +707,33 @@ console.log('\n[11d] 寶可夢箱 UI：篩選、真實索引、完整顯示');
     const fire = (id, ev) => $(id).dispatchEvent(new Event(ev, {bubbles:true}));
 
     const all = vis();
+    // 預設全部摺疊 —— 這是「一隻不要佔太多版面」的關鍵，摺疊時不該有任何編輯控制項
+    const collapsedControls = $('boxList').querySelectorAll('[data-k]').length;
+    // 摺疊列上要看得到摘要：副技能有稀有度色塊、食材有 ×N
+    const firstHead = $('boxList').querySelector('[data-i="0"] .mon-head');
+    const summary = {
+      rr: firstHead.querySelectorAll('.rr').length,
+      rrClass: firstHead.querySelector('.rr').className,
+      ing: firstHead.querySelectorAll('.mon-i').length,
+      ingText: firstHead.querySelector('.mon-i').textContent,
+    };
+
     $('fltSpec').value = 'ingredient'; fire('fltSpec', 'change');
     const ingOnly = vis();
     const countText = $('boxCount').textContent;
 
-    // 改第一張「可見」卡片的等級 → 必須落在它 data-i 指的那一隻身上
+    /* 展開第一張「可見」卡片，然後改它的等級 → 必須落在它 data-i 指的那一隻身上。
+       篩選是用 hidden 切換，所以第一張可見的是索引 1（不是 0）。 */
     const card = $('boxList').querySelector('[data-i]:not([hidden])');
     const targetIdx = +card.dataset.i;
-    const lvInput = card.querySelector('[data-k="level"]');
+    card.querySelector('.mon-head').click();
+    const openedControls = $('boxList').querySelector(`[data-i="${targetIdx}"]`).querySelectorAll('[data-k]').length;
+    const lvInput = $('boxList').querySelector(`[data-i="${targetIdx}"] [data-k="level"]`);
     lvInput.value = 41; lvInput.dispatchEvent(new Event('change', {bubbles:true}));
     const levels = roster.map(m => m.level);
+    // 再點一次要收起來
+    $('boxList').querySelector(`[data-i="${targetIdx}"] .mon-head`).click();
+    const reclosed = $('boxList').querySelectorAll('[data-k]').length;
 
     // 文字搜尋（中文名）
     $('fltSpec').value = ''; fire('fltSpec', 'change');
@@ -710,42 +745,154 @@ console.log('\n[11d] 寶可夢箱 UI：篩選、真實索引、完整顯示');
     $('fltClear').click();
     const cleared = vis();
 
-    // 新增一隻要清掉篩選，否則新的那隻（皮卡丘＝樹果型）會被篩掉、看起來像沒反應
+    // 新增一隻要清掉篩選並自動展開，否則新的那隻（皮卡丘＝樹果型）會被篩掉、看起來像沒反應
     $('fltSpec').value = 'skill'; fire('fltSpec', 'change');
     $('addBtn').click();
     const newIdx = roster.length - 1;
+    const newCard = $('boxList').querySelector(`[data-i="${newIdx}"]`);
     const afterAdd = {n: roster.length, spec: $('fltSpec').value,
-      newVisible: !$('boxList').querySelector(`[data-i="${newIdx}"]`).hidden};
+      newVisible: !newCard.hidden, newOpen: !!newCard.querySelector('.mon-edit')};
 
     // 完整顯示：副技能選項是全名（不是 Help M 這種縮寫）、食材選項只放名稱、數量在旁邊
-    const ssSel = $('boxList').querySelector('[data-k="ss"]');
+    const ssSel = newCard.querySelector('[data-k="ss"]');
     const ssText = [...ssSel.options].find(o => o.value === 'Helping Speed M').text;
-    const ingSel = $('boxList').querySelector('[data-k="ingSet"]');
+    const ingSel = newCard.querySelector('[data-k="ingSet"]');
     const ingText = ingSel.options[0].text;
     const amount = ingSel.closest('.ingpick').querySelector('b').textContent;
 
+    /* 刪除會讓後面的索引整批位移 → 展開狀態必須清掉，
+       不然會展開到「原本是下一隻」的那一隻身上。 */
+    monOpen.clear(); monOpen.add(2);
+    renderBox();
+    $('boxList').querySelector('[data-i="0"] [data-act="del"]').click();
+    const afterDel = {n: roster.length, open: monOpen.size,
+      anyEdit: $('boxList').querySelectorAll('.mon-edit').length};
+
     // regression：夢幻／達克萊伊的 [null,0] 空欄位以前會顯示成 "undefined×0"
     deserialize({roster: [mk('MEW')]});
-    clearBoxFilter(); renderBox();
+    clearBoxFilter(); monOpen.clear(); monOpen.add(0); renderBox();
     const mewSlot3 = [...$('boxList').querySelectorAll('[data-k="ingSet"]')][2].options[0].text;
 
-    return {all, ingOnly, countText, targetIdx, levels, searched, bySs, cleared, afterAdd,
+    return {all, collapsedControls, summary, ingOnly, countText, targetIdx, openedControls,
+            levels, reclosed, searched, bySs, cleared, afterAdd, afterDel,
             ssText, ingText, amount, mewSlot3};
   });
   ok('未篩選時四隻都看得到', r.all.join(',') === '0,1,2,3', r.all.join(','));
+  ok('預設摺疊：完全沒有編輯控制項（這才省得下版面）', r.collapsedControls === 0, String(r.collapsedControls));
+  ok('摺疊列有副技能摘要，且底色帶稀有度',
+     r.summary.rr === 1 && /\b(gold|silver|white)\b/.test(r.summary.rrClass), JSON.stringify(r.summary));
+  ok('摺疊列有食材摘要（含 ×N）', r.summary.ing === 3 && /×\d/.test(r.summary.ingText),
+     JSON.stringify(r.summary));
   ok('依專長篩選（食材型是索引 1 和 3）', r.ingOnly.join(',') === '1,3', r.ingOnly.join(','));
   ok('會顯示篩選後的數量', /顯示 2 \/ 4/.test(r.countText), r.countText);
-  ok('篩選後改欄位會落在正確的那一隻（data-i 是真實索引）',
+  ok('點摺疊列會展開出編輯控制項', r.openedControls > 8, String(r.openedControls));
+  ok('篩選＋展開後改欄位會落在正確的那一隻（data-i 是真實索引）',
      r.targetIdx === 1 && r.levels.join(',') === '60,41,60,60', `idx=${r.targetIdx} levels=${r.levels.join(',')}`);
+  ok('再點一次會收起來', r.reclosed === 0, String(r.reclosed));
   ok('文字搜尋中文名', r.searched.join(',') === '3', r.searched.join(','));
   ok('文字搜尋也能搜副技能', r.bySs === 4, String(r.bySs));
   ok('清除篩選會全部顯示', r.cleared.join(',') === '0,1,2,3', r.cleared.join(','));
-  ok('新增一隻會清掉篩選並且看得到新的那隻',
-     r.afterAdd.n === 5 && r.afterAdd.spec === '' && r.afterAdd.newVisible, JSON.stringify(r.afterAdd));
+  ok('新增一隻會清篩選、看得到、而且自動展開',
+     r.afterAdd.n === 5 && r.afterAdd.spec === '' && r.afterAdd.newVisible && r.afterAdd.newOpen,
+     JSON.stringify(r.afterAdd));
   ok('副技能選項顯示全名', r.ssText === '幫忙速度M', r.ssText);
   ok('食材選項只放名稱，數量顯示在旁邊', r.ingText === '特選蘋果' && r.amount === '×1',
      `「${r.ingText}」 / 「${r.amount}」`);
+  ok('刪除後清掉展開狀態（否則會展開到別隻身上）',
+     r.afterDel.n === 4 && r.afterDel.open === 0 && r.afterDel.anyEdit === 0, JSON.stringify(r.afterDel));
   ok('空食材欄位顯示「（無）」而不是 undefined', r.mewSlot3 === '（無）', r.mewSlot3);
+}
+
+/* 排序、展開／收起全部、重複偵測、主技能顯示。
+   排序最要守住的是「只改渲染順序，data-i 仍是真實索引」—— 和篩選同一個坑。 */
+console.log('\n[11e] 寶可夢箱：排序、展開全部、重複偵測');
+{
+  const r = await page.evaluate(() => {
+    const mk = (n, lv, ss) => ({sp:n, level:lv, nature:'Bashful',
+      ss:[...(ss||[]), ...Array(5-(ss||[]).length).fill(null)], ingSet:[0,0,0], skillLv:1, ribbon:0});
+    // RAICHU=樹果 SLOWKING=技能 VICTREEBEL=食材 ；等級刻意亂序
+    deserialize({roster: [mk('RAICHU',30), mk('SLOWKING',60), mk('VICTREEBEL',45)]});
+    clearBoxFilter(); monOpen.clear(); renderBox();
+    const order = () => [...$('boxList').querySelectorAll('[data-i]')].map(e => +e.dataset.i);
+    const fire = (id, ev) => $(id).dispatchEvent(new Event(ev, {bubbles:true}));
+
+    const added = order();
+    $('fltSort').value = 'level'; fire('fltSort', 'change');
+    const byLevel = order();
+    $('fltSort').value = 'spec'; fire('fltSort', 'change');
+    const bySpec = [...$('boxList').querySelectorAll('[data-i]')]
+      .map(e => D.dex[roster[+e.dataset.i].sp].sp);
+    // 排序後改欄位仍必須落在正確的那一隻
+    const firstCard = $('boxList').querySelector('[data-i]');
+    const sortedFirstIdx = +firstCard.dataset.i;
+    firstCard.querySelector('.mon-head').click();
+    const lv = $('boxList').querySelector(`[data-i="${sortedFirstIdx}"] [data-k="level"]`);
+    lv.value = 7; lv.dispatchEvent(new Event('change', {bubbles:true}));
+    const levelsAfter = roster.map(m => m.level);
+    $('fltSort').value = 'added'; fire('fltSort', 'change');
+    monOpen.clear(); renderBox();
+
+    // 主技能要顯示在摺疊列上
+    const msTexts = [...$('boxList').querySelectorAll('.mon-ms')].map(e => e.textContent);
+
+    // 展開全部 / 收起全部
+    const before = $('boxExpand').textContent;
+    $('boxExpand').click();
+    const openedAll = {n: monOpen.size, edits: $('boxList').querySelectorAll('.mon-edit').length,
+      label: $('boxExpand').textContent};
+    $('boxExpand').click();
+    const closedAll = {n: monOpen.size, edits: $('boxList').querySelectorAll('.mon-edit').length,
+      label: $('boxExpand').textContent};
+    // 有篩選時只展開看得到的那些
+    $('fltSpec').value = 'ingredient'; fire('fltSpec', 'change');
+    $('boxExpand').click();
+    const openedFiltered = {n: monOpen.size, only: [...monOpen].every(i => D.dex[roster[i].sp].sp === 'ingredient')};
+    monOpen.clear(); clearBoxFilter(); renderBox();
+
+    // 重複偵測：完全一樣的兩隻才算；同物種同等級但副技能不同不算
+    deserialize({roster: [
+      mk('RAICHU', 30, ['Helping Speed M']),
+      mk('RAICHU', 30, ['Helping Speed M']),      // ← 和上一隻完全相同
+      mk('RAICHU', 30, ['Berry Finding S']),      // ← 副技能不同，不算重複
+      mk('SLOWKING', 60),
+    ]});
+    clearBoxFilter(); renderBox();
+    const dup = {set: [...monDup].sort((a,b)=>a-b), badges: $('boxList').querySelectorAll('.mon-dup').length,
+      count: $('boxCount').textContent};
+    $('fltState').value = 'dup'; fire('fltState', 'change');
+    const dupOnly = [...$('boxList').querySelectorAll('[data-i]')].filter(e=>!e.hidden).map(e=>+e.dataset.i);
+    // 改掉其中一隻的等級 → 不再重複
+    monOpen.clear(); monOpen.add(1); clearBoxFilter(); renderBox();
+    const lv2 = $('boxList').querySelector('[data-i="1"] [data-k="level"]');
+    lv2.value = 31; lv2.dispatchEvent(new Event('change', {bubbles:true}));
+    const dupGone = {set: monDup.size, badges: $('boxList').querySelectorAll('.mon-dup').length};
+    monOpen.clear();
+    return {added, byLevel, bySpec, sortedFirstIdx, levelsAfter, msTexts,
+            before, openedAll, closedAll, openedFiltered, dup, dupOnly, dupGone};
+  });
+  ok('預設是加入順序', r.added.join(',') === '0,1,2', r.added.join(','));
+  ok('等級高→低排序（60,45,30 → 索引 1,2,0）', r.byLevel.join(',') === '1,2,0', r.byLevel.join(','));
+  ok('專長排序（樹果→食材→技能）', r.bySpec.join(',') === 'berry,ingredient,skill', r.bySpec.join(','));
+  ok('排序只改顯示順序，data-i 仍是真實索引',
+     r.sortedFirstIdx === 0 && r.levelsAfter.join(',') === '7,60,45',
+     `first=${r.sortedFirstIdx} levels=${r.levelsAfter.join(',')}`);
+  ok('摺疊列顯示主技能', r.msTexts.length === 3 && r.msTexts.includes('活力療癒S'), r.msTexts.join(' / '));
+  ok('按鈕初始是「展開全部」', r.before === '展開全部', r.before);
+  ok('展開全部：三隻都展開、按鈕變「收起全部」',
+     r.openedAll.n === 3 && r.openedAll.edits === 3 && r.openedAll.label === '收起全部',
+     JSON.stringify(r.openedAll));
+  ok('收起全部：編輯區全部消失',
+     r.closedAll.n === 0 && r.closedAll.edits === 0 && r.closedAll.label === '展開全部',
+     JSON.stringify(r.closedAll));
+  ok('有篩選時只展開看得到的那些', r.openedFiltered.n === 1 && r.openedFiltered.only,
+     JSON.stringify(r.openedFiltered));
+  ok('重複偵測：只有完全相同的兩隻被標記（索引 0,1）',
+     r.dup.set.join(',') === '0,1' && r.dup.badges === 2, JSON.stringify(r.dup));
+  ok('同物種同等級但副技能不同不算重複', !r.dup.set.includes(2), r.dup.set.join(','));
+  ok('數量列會提示重複數', /⚠ 2 隻重複/.test(r.dup.count), r.dup.count);
+  ok('「只看重複」篩選有效', r.dupOnly.join(',') === '0,1', r.dupOnly.join(','));
+  ok('改掉其中一隻之後重複標記就消失', r.dupGone.set === 0 && r.dupGone.badges === 0,
+     JSON.stringify(r.dupGone));
 }
 
 /* 用另開的頁面跑 —— 這一節刻意觸發致命錯誤，不能污染上面的 errors 收集。 */

@@ -43,11 +43,27 @@ const code = s => `<code>${s}</code>`;
    數字或直接壞掉 —— 而使用者只會看到壞頁面，不知道重新整理就好。 */
 const SCHEMA = 1;
 
+/* 這一份 app.js 的資源版本。必須等於 index.html 裡的 ASSET_V（以及 app.css 的 ?v=）。
+   動到 app.css 或 src/*.js 就三個地方一起往前推。
+
+   為什麼需要：app.css / app.js 沒有 game.json 那種資料版本可以比對，實際踩過兩次
+   「新的 index.html ＋ 舊的 app.js」—— 畫面畫出舊版 UI，而使用者只會覺得
+   「你根本沒改」，完全不知道是快取。有了這個斷言，過期的 app.js 會直接被擋下來
+   並要求強制重新整理。tests/smoke.mjs 第 11 節會斷言三處一致。 */
+const APP_V = '20260908c';
+
 /** 致命錯誤：整頁換成一段說明。這種狀況下繼續跑只會產生錯的數字。 */
 function fatal(html){
   const w = document.querySelector('.wrap');
   if (w) w.innerHTML = `<section><h1 style="margin:0 0 10px">無法啟動</h1><p class="muted">${html}</p></section>`;
   throw new Error('fatal: ' + html.replace(/<[^>]*>/g, ''));
+}
+/* 只有 window.ASSET_V 存在（＝新版載入器）時才比對。舊的載入器沒有設這個，
+   那種情況下 index.html 本身也是舊的，跟著它的 app.js 就是對的一組。 */
+if (window.ASSET_V && window.ASSET_V !== APP_V){
+  fatal(`程式檔的版本不一致（<code>index.html</code> 要 <code>${window.ASSET_V}</code>，`
+      + `但載到的 ${code(P.app)} 是 <code>${APP_V}</code>）。`
+      + `這是瀏覽器快取到舊的程式檔 —— 請<b>強制重新整理</b>（Ctrl+Shift+R，Mac 是 Cmd+Shift+R）。`);
 }
 if (!D || !D.meta || D.meta.schema !== SCHEMA){
   fatal(`遊戲資料的版本和程式不符（資料 <code>schema=${D && D.meta ? D.meta.schema : '?'}</code>，程式預期 <code>${SCHEMA}</code>）。`
@@ -386,52 +402,98 @@ function ingSetOpts(m, slot){
     `<option value="${i}">${x && x[0]!=null ? iz(ING_NAME[x[0]]) : '（無）'}</option>`).join('');
 }
 
-/** 一隻寶可夢的可編輯卡片。寶可夢箱與截圖校對區**共用這一份**。
- *  兩邊各寫一份的話，改了一邊另一邊就會不一樣 —— 而校對區看到的必須就是進箱子的東西。
- *  `idx == null` 代表校對區用（不放操作按鈕、不放 data-i）。 */
-function monCard(m, idx, o){
-  o = o || {};
+/* 展開中的卡片（roster 索引）。純檢視狀態，不進 serialize()。
+   刪除會讓後面的索引整批位移，所以 del 之後一律清空 —— 留著會展開到別隻身上。 */
+const monOpen = new Set();
+/* 重複的 roster 索引（每個欄位都相同的那些）。由 findDups() 在 renderBox 開頭重算。
+   宣告放在 monHead 之前是刻意的 —— monHead 會讀它，`let` 沒有提升，
+   宣告放後面就是 CLAUDE.md 陷阱 1 那種 TDZ。 */
+let monDup = new Set();
+/** 目前解鎖的食材格數。 */
+const ingSlots = m => Math.min(Math.floor(m.level/30)+1, 3);
+/** 性格摘要：「頑皮 +速度 −技能」，加減用顏色分開。 */
+function natBrief(m){
+  const n = NAT[m.nature] || NAT.Bashful;
+  return n.p
+    ? `${natZ(n)} <span class="up">+${NAT_AB[n.p]}</span> <span class="dn">−${NAT_AB[n.m]}</span>`
+    : `${natZ(n)} <span class="muted">無修正</span>`;
+}
+/** 摺疊列：唯讀、一行、密。
+ *  副技能的底色就是**稀有度**（`game.json` 的 `subskills[].r`：gold／silver／white）——
+ *  這是資料裡本來就有的分級，不是我編的配色。未解鎖的那幾格會變淡。 */
+function monHead(m, idx, open){
   const p = D.dex[m.sp];
-  const slots = Math.min(Math.floor(m.level/30)+1, 3);
-  const amb = o.amb || {};
-  const ambCls = k => amb[k] ? ' class="amb"' : '';
-  const ambIng = s => (amb.ing && amb.ing[s] && amb.ing[s].length>1) ? ' class="amb"' : '';
-  const acts = idx == null ? '' : `<span class="mon-acts">
+  const ss = [0,1,2,3,4].filter(s=>m.ss[s]).map(s=>{
+    const lock = m.level < SS_SLOT_LV[s];
+    return `<span class="rr ${(SS[m.ss[s]]||{}).r||'white'}${lock?' lock':''}"`
+         + ` title="第 ${s+1} 格${lock?` — Lv${SS_SLOT_LV[s]} 才解鎖，目前不生效`:''}">${ssz(m.ss[s])}</span>`;
+  }).join('');
+  const ing = [0,1,2].filter(s=>s<ingSlots(m)).map(s=>{
+    const k = ingPick(m, s);
+    return k ? `<span class="mon-i">${k[0]!=null?iz(ING_NAME[k[0]]):'（無）'}×${k[1]}</span>` : '';
+  }).join('');
+  return `<div class="mon-head" data-act="toggle" title="點一下展開／收起">
+      <span class="car">${open?'▼':'▶'}</span>
+      ${monDup.has(idx) ? '<span class="mon-dup" title="有另一隻的每一個欄位都和牠完全相同 —— 可能是重複輸入">⚠ 重複</span>' : ''}
+      <span class="mon-no">#${p.no}</span>
+      <span class="mon-name">${pz(p)}</span>
+      <span class="tag ${SPEC_TAG[p.sp]}" title="專長">${SPEC_ZH[p.sp]}</span>
+      <span class="mon-ms" title="主技能（由種類決定）">${msz(p.ms)}</span>
+      <span class="mon-lv">Lv${m.level}</span>
+      <span class="mon-nat">${natBrief(m)}</span>
+      <span class="mon-sum">${ss}${ing}</span>
+      <span class="mon-sk" title="主技能 ${msz(p.ms)} 的基礎等級（副技能加成另計）">技Lv${m.skillLv}</span>
+      <span class="mon-acts">
         <button class="btn sm ghost" data-act="pin" title="固定在隊上（一定入選）">${m.pin?'📌':'📍'}</button>
         <button class="btn sm ghost" data-act="ex" title="從推演中排除">${m.ex?'🚫':'○'}</button>
-        <button class="btn sm ghost" data-act="del" title="刪除">✕</button></span>`;
-  return `<div class="mon${m.ex?' is-ex':''}${m.pin?' is-pin':''}"${idx==null?'':` data-i="${idx}"`}>
+        <button class="btn sm ghost" data-act="del" title="刪除">✕</button>
+      </span>
+    </div>`;
+}
+/** 展開後的編輯區。兩列：①種類／專長／等級/性格 ②食材、副技能、技能Lv、緞帶。 */
+function monEdit(m, o){
+  const p = D.dex[m.sp];
+  const slots = ingSlots(m);
+  const amb = (o && o.amb) || {};
+  const ambCls = k => amb[k] ? ' class="amb"' : '';
+  const ambIng = s => (amb.ing && amb.ing[s] && amb.ing[s].length>1) ? ' class="amb"' : '';
+  return `<div class="mon-edit">
       <div class="mon-row">
         <label class="f w-sp">種類<select data-k="sp"${ambCls('sp')}>${SPECIES_OPTS}</select></label>
-        <span class="mon-tags">
-          <span class="tag ${SPEC_TAG[p.sp]}" title="專長">${SPEC_ZH[p.sp]}</span>
-          <span class="pill" title="樹果">${bz(p.b)}</span>
-          <span class="pill" title="主技能：${msz(p.ms)}">${msz(p.ms)}</span>
-        </span>
+        <span class="tag ${SPEC_TAG[p.sp]}" title="專長（由種類決定）" style="align-self:center">${SPEC_ZH[p.sp]}</span>
         <label class="f w-num">等級<input type="number" data-k="level" min="1" max="70" value="${m.level}"></label>
         <label class="f w-nat">性格<select data-k="nature">${NATURE_OPTS}</select></label>
-        ${acts}
       </div>
+      <div class="mon-row"><span class="mon-lbl">食材</span><div class="mon-ing">${[0,1,2].map(s=>{
+        const pick = ingPick(m, s);
+        return `<span class="ingpick${s>=slots?' locked':''}" title="第 ${s+1} 格 — Lv${[1,30,60][s]} 解鎖">`
+             + `<select data-k="ingSet" data-s="${s}"${s>=slots?' disabled':ambIng(s)}>${ingSetOpts(m,s)}</select>`
+             + `<b>${s>=slots ? '未解鎖' : (pick ? '×'+pick[1] : '—')}</b></span>`;
+      }).join('')}</div></div>
       <div class="mon-row"><span class="mon-lbl">副技能</span><div class="mon-ss">${[0,1,2,3,4].map(s=>
         /* 未解鎖的欄位只是變淡，**不 disable** —— 遊戲畫面上看得到（🔒Lv.70），
            先記下來是對的，引擎會自己依等級判斷要不要採計。 */
-        `<select data-k="ss" data-s="${s}"${m.level<SS_SLOT_LV[s]?' class="dim"':''} title="第 ${s+1} 格 — Lv${SS_SLOT_LV[s]} 解鎖${m.level<SS_SLOT_LV[s]?'（尚未解鎖，可以先記）':''}">${SS_OPTS}</select>`).join('')}</div></div>
-      <div class="mon-row"><span class="mon-lbl">食材</span><div class="mon-ing">${[0,1,2].map(s=>{
-        const pick = ingPick(m, s);
-        const lv = [1,30,60][s];
-        return `<span class="ingpick${s>=slots?' locked':''}" title="第 ${s+1} 格 — Lv${lv} 解鎖">`
-             + `<select data-k="ingSet" data-s="${s}"${s>=slots?' disabled':ambIng(s)}>${ingSetOpts(m,s)}</select>`
-             + `<b>${s>=slots ? '未解鎖' : (pick ? '×'+pick[1] : '—')}</b></span>`;
-      }).join('')}</div>
+        `<select data-k="ss" data-s="${s}"${m.level<SS_SLOT_LV[s]?' class="dim"':''} title="第 ${s+1} 格 — Lv${SS_SLOT_LV[s]} 解鎖${m.level<SS_SLOT_LV[s]?'（尚未解鎖，可以先記）':''}">${SS_OPTS}</select>`).join('')}</div>
         <label class="f w-num">技能Lv<input type="number" data-k="skillLv" min="1" max="8" value="${m.skillLv}"></label>
         <label class="f w-rib">緞帶<select data-k="ribbon"${ambCls('rb')} title="睡眠緞帶：提升攜帶上限，未進化的還會縮短幫手間隔。遊戲畫面上看不到，是由持有上限反解出來的">${
           RIBBON_LABEL.map((t,i)=>`<option value="${i}">${t}</option>`).join('')}</select></label>
       </div>
     </div>`;
 }
+/** 一隻寶可夢的卡片。寶可夢箱與截圖校對區**共用這一份** ——
+ *  兩邊各寫一份的話，改了一邊另一邊就會不一樣，而校對區看到的必須就是進箱子的東西。
+ *  `idx == null` 代表校對區用：沒有摺疊列、永遠展開、沒有 data-i。 */
+function monCard(m, idx, o){
+  if (idx == null) return `<div class="mon open">${monEdit(m, o)}</div>`;
+  const open = monOpen.has(idx);
+  return `<div class="mon${m.ex?' is-ex':''}${m.pin?' is-pin':''}${open?' open':''}" data-i="${idx}">`
+       + monHead(m, idx, open) + (open ? monEdit(m, o) : '') + `</div>`;
+}
 /** 把 m 的值套進一張已經渲染好的卡片。select 的 value 不能寫在 HTML 字串裡。 */
 function setMonValues(el, m){
-  el.querySelector('[data-k="sp"]').value = m.sp;
+  const sp = el.querySelector('[data-k="sp"]');
+  if (!sp) return;              // 摺疊中的卡片沒有編輯控制項
+  sp.value = m.sp;
   el.querySelector('[data-k="nature"]').value = m.nature;
   el.querySelectorAll('[data-k="ss"]').forEach(s=>{ s.value = m.ss[+s.dataset.s] || ''; });
   el.querySelectorAll('[data-k="ingSet"]').forEach(s=>{ s.value = String(m.ingSet[+s.dataset.s]||0); });
@@ -443,13 +505,50 @@ function setMonValues(el, m){
 
    實作用 `hidden` 切換而不是重建 innerHTML：一張卡有 246 個種類選項，60 隻就是
    一萬多個 <option>，每次打字都重建會卡。 */
-let boxFlt = {spec:'', state:'', q:''};
-function monMatch(m){
+let boxFlt = {spec:'', state:'', q:'', sort:'added'};
+
+/* ---- 重複偵測 ----
+   簽章用**每一個會影響計算的欄位**。兩隻同物種同等級但副技能不同是完全合法的
+   （很常見），所以只有全部欄位都一樣才算重複 —— 那幾乎一定是輸入兩次。
+   在大量建箱子的時候很容易發生（同一隻的截圖看了兩遍）。 */
+const dupKey = m => [D.dex[m.sp].n, m.level, m.nature, m.ss.join('|'),
+                     m.ingSet.join(','), m.skillLv, m.ribbon||0].join('/');
+function findDups(){
+  const seen = new Map();
+  roster.forEach((m,i)=>{
+    const k = dupKey(m);
+    if (!seen.has(k)) seen.set(k, []);
+    seen.get(k).push(i);
+  });
+  monDup = new Set();
+  for (const arr of seen.values()) if (arr.length > 1) for (const i of arr) monDup.add(i);
+}
+
+/* ---- 排序 ----
+   只改**顯示順序**，不動 roster。roster 的順序會進 serialize()／Sheet，
+   而且 monOpen 存的是真實索引 —— 動 roster 會讓兩者都跟著位移。
+   （引擎本身對順序不敏感，那是 tests/verify.mjs 證過的，但沒必要動它。） */
+const SPEC_ORD = ['berry','ingredient','skill','all'];
+const BOX_SORTS = {
+  added: null,
+  level: (a,b)=> roster[b].level - roster[a].level,
+  spec:  (a,b)=> SPEC_ORD.indexOf(D.dex[roster[a].sp].sp) - SPEC_ORD.indexOf(D.dex[roster[b].sp].sp),
+  ms:    (a,b)=> msz(D.dex[roster[a].sp].ms).localeCompare(msz(D.dex[roster[b].sp].ms), 'zh-Hant'),
+};
+function boxOrder(){
+  const idx = roster.map((_,i)=>i);
+  const cmp = BOX_SORTS[boxFlt.sort];
+  // `|| a-b`：同鍵時回到加入順序，結果才是穩定且可預測的
+  return cmp ? idx.sort((a,b)=> cmp(a,b) || a-b) : idx;
+}
+
+function monMatch(m, idx){
   const p = D.dex[m.sp];
   if (boxFlt.spec && p.sp !== boxFlt.spec) return false;
   if (boxFlt.state === 'pin' && !m.pin) return false;
   if (boxFlt.state === 'ex' && !m.ex) return false;
   if (boxFlt.state === 'plain' && (m.pin || m.ex)) return false;
+  if (boxFlt.state === 'dup' && !monDup.has(idx)) return false;
   if (boxFlt.q){
     const hay = [pz(p), p.d, '#'+p.no, SPEC_ZH[p.sp], bz(p.b), msz(p.ms),
       ...m.ss.filter(Boolean).map(ssz),
@@ -459,24 +558,32 @@ function monMatch(m){
   }
   return true;
 }
+/** 目前篩選下看得到的真實索引。 */
+const visibleIdx = () => roster.map((m,i)=>i).filter(i=> monMatch(roster[i], i));
 function applyBoxFilter(){
   let shown = 0;
   for (const el of $('boxList').querySelectorAll('[data-i]')){
-    const ok = monMatch(roster[+el.dataset.i]);
+    const i = +el.dataset.i;
+    const ok = monMatch(roster[i], i);
     el.hidden = !ok;
     if (ok) shown++;
   }
   const on = !!(boxFlt.spec || boxFlt.state || boxFlt.q);
   $('boxNone').hidden = !(roster.length && !shown);
+  const dup = monDup.size ? `　⚠ ${monDup.size} 隻重複` : '';
   $('boxCount').textContent = !roster.length ? ''
-    : on ? `顯示 ${shown} / ${roster.length} 隻` : `共 ${roster.length} 隻`;
+    : (on ? `顯示 ${shown} / ${roster.length} 隻` : `共 ${roster.length} 隻`) + dup;
+  // 展開／收起全部的按鈕文字要跟著目前狀態走
+  $('boxExpand').textContent = monOpen.size ? '收起全部' : '展開全部';
+  $('boxExpand').disabled = !roster.length;
 }
 function renderBox(){
   const host = $('boxList');
   $('boxEmpty').style.display = roster.length ? 'none' : 'block';
-  /* data-i 一律是**真實的 roster 索引**。用篩選後的序號當索引，
-     改一格就會改到別隻身上 —— 這是這一段最容易寫錯的地方。 */
-  host.innerHTML = roster.map((m, idx)=> monCard(m, idx)).join('');
+  findDups();                 // 排序與篩選都可能用到，而且摘要列要顯示 ⚠
+  /* data-i 一律是**真實的 roster 索引**，排序只改渲染順序。
+     用篩選／排序後的序號當索引，改一格就會改到別隻身上 —— 這裡最容易寫錯。 */
+  host.innerHTML = boxOrder().map(idx => monCard(roster[idx], idx)).join('');
   for (const el of host.querySelectorAll('[data-i]')) setMonValues(el, roster[+el.dataset.i]);
   applyBoxFilter();
 }
@@ -484,31 +591,50 @@ $('boxList').addEventListener('change', e=>{
   const row = e.target.closest('[data-i]'); if (!row) return;
   const m = roster[+row.dataset.i], k = e.target.dataset.k;
   if (!k) return;
-  /* sp / level / ingSet 會改變卡片本身（標籤、解鎖格數、×N 數量）→ 要重畫。
-     其餘只是存值，重畫會白白弄掉焦點。改完都要 applyBoxFilter()：
-     改了種類或標記之後，這一隻可能已經不符合目前的篩選了。 */
-  if (k==='sp'){ m.sp = +e.target.value; m.ingSet = [0,0,0]; m.skillLv = 1; renderBox(); }
-  else if (k==='ss'){ m.ss[+e.target.dataset.s] = e.target.value || null; applyBoxFilter(); }
-  else if (k==='ingSet'){ m.ingSet[+e.target.dataset.s] = +e.target.value; renderBox(); }
-  else if (k==='level'){ m.level = Math.max(1, Math.min(70, +e.target.value||1)); renderBox(); }
+  if (k==='sp'){ m.sp = +e.target.value; m.ingSet = [0,0,0]; m.skillLv = 1; }
+  else if (k==='ss') m.ss[+e.target.dataset.s] = e.target.value || null;
+  else if (k==='ingSet') m.ingSet[+e.target.dataset.s] = +e.target.value;
+  else if (k==='level') m.level = Math.max(1, Math.min(70, +e.target.value||1));
   else if (k==='skillLv') m.skillLv = Math.max(1, Math.min(8, +e.target.value||1));
   else if (k==='nature') m.nature = e.target.value;
   else if (k==='ribbon') m.ribbon = +e.target.value;
+  /* 一律重畫。展開時摺疊列還在上面，而摺疊列顯示的就是副技能／食材／等級／
+     性格／⚠重複 —— 只改值不重畫，摘要就會和下面的選單不一致。
+     代價是 select 的焦點會掉，但 change 是「選完才觸發」，可以接受。 */
+  renderBox();
   save();
 });
 /* ---- 篩選列 ---- */
 for (const [id, key] of [['fltSpec','spec'], ['fltState','state']])
   $(id).addEventListener('change', e=>{ boxFlt[key] = e.target.value; applyBoxFilter(); });
 $('fltName').addEventListener('input', e=>{ boxFlt.q = e.target.value.trim(); applyBoxFilter(); });
+// 排序會改渲染順序 → 必須重畫，不能只切 hidden
+$('fltSort').addEventListener('change', e=>{ boxFlt.sort = e.target.value; renderBox(); });
+/** 清掉篩選與排序（排序也算，否則新增的那隻會跑到中間去）。 */
 function clearBoxFilter(){
-  boxFlt = {spec:'', state:'', q:''};
+  boxFlt = {spec:'', state:'', q:'', sort:'added'};
   $('fltSpec').value = ''; $('fltState').value = ''; $('fltName').value = '';
+  $('fltSort').value = 'added';
 }
-$('fltClear').addEventListener('click', ()=>{ clearBoxFilter(); applyBoxFilter(); });
+$('fltClear').addEventListener('click', ()=>{ clearBoxFilter(); renderBox(); });
+/* 展開／收起全部。只展開「目前看得到的」—— 一次攤開 60 隻要建一萬多個
+   <option>，而且使用者要的本來就是「把我正在看的這幾隻打開」。 */
+$('boxExpand').addEventListener('click', ()=>{
+  if (monOpen.size) monOpen.clear();
+  else for (const i of visibleIdx()) monOpen.add(i);
+  renderBox();
+});
 $('boxList').addEventListener('click', e=>{
+  /* closest 會先找到最內層 —— 點按鈕拿到按鈕，點列的空白處才拿到 mon-head 的 toggle。 */
   const btn = e.target.closest('[data-act]'); if (!btn) return;
-  const i = +btn.closest('[data-i]').dataset.i, a = btn.dataset.act;
-  if (a==='del') roster.splice(i,1);
+  const card = btn.closest('[data-i]'); if (!card) return;
+  const i = +card.dataset.i, a = btn.dataset.act;
+  if (a==='toggle'){
+    if (monOpen.has(i)) monOpen.delete(i); else monOpen.add(i);
+    renderBox();              // 展開狀態是檢視偏好，不必 save()
+    return;
+  }
+  if (a==='del'){ roster.splice(i,1); monOpen.clear(); }   // 索引整批位移，全收起最安全
   else if (a==='pin'){ roster[i].pin = !roster[i].pin; if (roster[i].pin) roster[i].ex = false; }
   else if (a==='ex'){ roster[i].ex = !roster[i].ex; if (roster[i].ex) roster[i].pin = false; }
   renderBox(); save();
@@ -517,9 +643,13 @@ $('boxList').addEventListener('click', e=>{
    結果按了「新增一隻」卻什麼都沒出現。 */
 $('addBtn').addEventListener('click', ()=>{
   roster.push(BLANK());
-  clearBoxFilter(); renderBox(); save();
-  const rows = $('boxList').querySelectorAll('[data-i]');
-  rows[rows.length-1].scrollIntoView({block:'nearest'});
+  clearBoxFilter();
+  const at = roster.length - 1;
+  monOpen.clear(); monOpen.add(at);      // 新的那隻直接展開好編輯
+  renderBox(); save();
+  // 用 data-i 找，不要用「最後一張」—— 排序模式下新的那隻不一定在最後
+  const card = $('boxList').querySelector(`[data-i="${at}"]`);
+  if (card) card.scrollIntoView({block:'nearest'});
 });
 $('exportBtn').addEventListener('click', async ()=>{
   const t = JSON.stringify(serialize());
