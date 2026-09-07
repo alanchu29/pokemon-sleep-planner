@@ -26,6 +26,8 @@ const ok = (name, cond, detail = '') => {
 
 /* ---- mock Apps Script endpoint ---- */
 let store = null, lastTable = null;
+// 設成 true 時下一個 POST 回錯誤 —— 用來驗「上傳失敗會重試」（見第 8 節）
+let failNextPost = false;
 const server = http.createServer((req, res) => {
   const send = (o) => { res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }); res.end(JSON.stringify(o)); };
   if (req.method === 'GET') {
@@ -37,6 +39,7 @@ const server = http.createServer((req, res) => {
   req.on('end', () => {
     let j; try { j = JSON.parse(body); } catch { return send({ error: 'malformed json body' }); }
     if (j.token !== TOKEN) return send({ error: 'unauthorized' });
+    if (failNextPost) { failNextPost = false; return send({ error: 'simulated upstream failure' }); }
     store = j.data; lastTable = j.table;
     send({ ok: true, updatedAt: new Date().toISOString() });
   });
@@ -291,6 +294,33 @@ console.log('\n[8] Google Sheet 同步往返');
   ok('清空本機後從雲端還原', back.n === 8, JSON.stringify(back));
   ok('緞帶與個別食譜等級都保住', back.rib === 2 && back.lv === 42, JSON.stringify(back));
 
+  /* regression：改完立刻關分頁／切到背景。以前那次上傳還在等 900ms 防抖，
+     就永遠不會送出 —— localStorage 有、雲端停在上一版。 */
+  store = null;
+  await page.evaluate(() => {
+    roster[0].level = 47;
+    save();                                                  // 進入 900ms 防抖
+    document.dispatchEvent(new Event('visibilitychange'));    // 立刻沖出去
+  });
+  await page.waitForTimeout(450);                             // 遠小於 900ms
+  ok('切到背景會把還在防抖的上傳立刻沖出去',
+     !!(store && store.roster && store.roster[0].level === 47),
+     store ? 'level=' + (store.roster && store.roster[0] && store.roster[0].level) : 'store 還是空的');
+
+  /* regression：上傳失敗以前會停在那不動，除非使用者又改了什麼。 */
+  failNextPost = true;
+  store = null;
+  await page.evaluate(() => { roster[0].level = 48; save(); });
+  await page.waitForTimeout(1400);                            // 等防抖觸發並失敗
+  const failed = await page.evaluate(() => $('saveStatus').textContent);
+  ok('上傳失敗有明確狀態', /失敗/.test(failed), failed);
+  ok('失敗時雲端沒有被寫入', store === null, JSON.stringify(store && store.roster && store.roster[0]));
+  await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));  // 回到分頁
+  await page.waitForTimeout(600);
+  ok('回到分頁會重試失敗的那次上傳',
+     !!(store && store.roster && store.roster[0].level === 48),
+     store ? 'level=' + (store.roster && store.roster[0] && store.roster[0].level) : 'store 還是空的');
+
   await page.evaluate(() => { showView('box'); $('syncToken').value = 'wrong'; });
   await page.click('#syncPull');
   await page.waitForTimeout(900);
@@ -444,6 +474,204 @@ console.log('\n[11] 文案一致性 — 不能提到不存在的檔案或指令'
     .filter(p => !known.has(p));
   ok('文案裡沒有 PATHS 以外的硬寫路徑', hardcoded.length === 0, [...new Set(hardcoded)].join(', '));
   ok('文案沒有殘留已不存在的 gamedata 區塊', !/gamedata/.test(copy));
+}
+
+/* 截圖匯入。這一節的 golden case 是**兩隻真實的寶可夢**（使用者 2026-09-07 提供的
+   遊戲截圖），期望值是逐欄手算對照過的 —— 不是程式自己算出來再存回去，所以動到
+   baseStats / helpInterval / impSolve 的係數時這裡會紅。 */
+console.log('\n[11b] 截圖匯入：反解物種／緞帶／食材欄位');
+const IMP_CASES = [
+  { label: '大食花 Lv60 頑皮',
+    obs: { level:60, specialty:'ingredient', mainSkill:'Charge Energy S',
+           skillDisplayLv:6, skillPayload:43, nature:'Naughty',
+           ss:['Skill Level Up M','Ingredient Finder M','Helping Speed M','Ingredient Finder S','Helping Speed S'],
+           ingCounts:[2,4,6], intervalSec:1911, carry:35, camp:false },
+    want: { sp:'VICTREEBEL', ribbon:4, ingSet:'0,1,1', skillLv:4, amb:'' } },
+  { label: '水箭龜 Lv62 馬虎',
+    obs: { level:62, specialty:'ingredient', mainSkill:'Ingredient Magnet S',
+           skillDisplayLv:3, skillPayload:11, nature:'Rash',
+           ss:['Inventory Up M','Helping Bonus','Inventory Up L','Ingredient Finder S','Skill Trigger S'],
+           ingCounts:[2,3,7], intervalSec:2458, carry:65, camp:false },
+    // i60 是 牛奶×7 / 可可×5 / 豆製肉×7 —— ×7 有兩個選項，所以第 3 格一定是歧義
+    want: { sp:'BLASTOISE', ribbon:4, ingSet:'0,1,0', skillLv:3, amb:'3' } },
+];
+{
+  for (const c of IMP_CASES) {
+    const r = await page.evaluate(obs => {
+      const res = impSolve(obs);
+      if (!res.cands.length) return { n: 0 };
+      const t = res.cands[0], v = impVerify(t.m, obs);
+      return { n: res.cands.length, sp: D.dex[t.m.sp].n, ribbon: t.m.ribbon,
+        ingSet: t.m.ingSet.join(','), skillLv: t.m.skillLv, eff: t.skill.effective,
+        src: t.skill.source, iv: t.interval, cr: t.carry,
+        amb: [0,1,2].filter(s => t.amb[s] && t.amb[s].length > 1).map(s => s+1).join(','),
+        vOk: v.interval.ok === true && v.carry.ok === true };
+    }, c.obs);
+    ok(`${c.label}：唯一解`, r.n === 1, `得到 ${r.n} 組`);
+    ok(`${c.label}：反解出 ${c.want.sp}`, r.sp === c.want.sp, `得到 ${r.sp}`);
+    ok(`${c.label}：反解出緞帶 ${c.want.ribbon}（截圖上看不到）`, r.ribbon === c.want.ribbon, `得到 ${r.ribbon}`);
+    ok(`${c.label}：食材欄位 [${c.want.ingSet}]`, r.ingSet === c.want.ingSet, `得到 [${r.ingSet}]`);
+    ok(`${c.label}：主技能基礎等級 ${c.want.skillLv}（畫面顯示的是加成後）`,
+       r.skillLv === c.want.skillLv, `得到 ${r.skillLv}，有效 ${r.eff}，來源 ${r.src}`);
+    ok(`${c.label}：有效等級是從技能說明的數字反查`, r.src === 'payload', r.src);
+    ok(`${c.label}：兩個校驗碼都重算得回截圖上的值`,
+       r.iv === c.obs.intervalSec && r.cr === c.obs.carry && r.vOk,
+       `${r.iv}s / ${r.cr}個`);
+    ok(`${c.label}：歧義欄位標示正確（第 ${c.want.amb || '無'} 格）`, r.amb === c.want.amb, `得到「${r.amb}」`);
+  }
+
+  // 中文反向查表（含全形 Ｍ —— 遊戲字型可能是全形，zh 表裡是半形）
+  const rev = await page.evaluate(() => ({
+    ssHalf: impSubskill('幫忙速度M'), ssFull: impSubskill('幫忙速度Ｍ'),
+    hb: impSubskill('幫手獎勵'), nat: impNature('頑皮'),
+    ms: impMainSkill('活力填充S'), ing: ING_NAME[impIngIndex('好眠番茄')],
+    junk: impSubskill('不存在的副技能'),
+  }));
+  ok('副技能中文反查（半形／全形都要通）',
+     rev.ssHalf === 'Helping Speed M' && rev.ssFull === 'Helping Speed M', JSON.stringify(rev));
+  ok('性格／主技能／食材中文反查',
+     rev.nat === 'Naughty' && rev.ms === 'Charge Energy S' && rev.ing === 'Tomato', JSON.stringify(rev));
+  ok('認不出來的字串回 null（不亂猜）', rev.junk === null, String(rev.junk));
+
+  /* 這是整個功能的價值所在：讀錯一欄，校驗碼就對不起來，寧可無解也不要給錯答案。 */
+  const corrupt = await page.evaluate(base => {
+    const muts = [
+      ['等級 60→59', {level:59}],
+      ['性格頑皮→認真', {nature:'Serious'}],
+      ['漏看幫忙速度M', {ss:['Skill Level Up M','Ingredient Finder M',null,'Ingredient Finder S','Helping Speed S']}],
+      ['持有上限 35→34', {carry:34}],
+      ['幫忙間隔差 1 秒', {intervalSec:1912}],
+    ];
+    return muts.map(([name, patch]) => {
+      const res = impSolve(Object.assign({}, base, patch));
+      const same = res.cands.length && D.dex[res.cands[0].m.sp].n === 'VICTREEBEL' && res.cands[0].m.ribbon === 4;
+      return {name, leaked: !!same, n: res.cands.length};
+    });
+  }, IMP_CASES[0].obs);
+  for (const c of corrupt)
+    ok(`讀錯「${c.name}」不會靜靜地解出原答案`, !c.leaked, `候選 ${c.n} 組`);
+
+  /* 反過來：欄位缺得多就該老實變成多解並講出來，不能挑一個看起來確定的答案。 */
+  const degrade = await page.evaluate(base => {
+    const noCk = impSolve(Object.assign({}, base, {intervalSec:null, carry:null}));
+    const ivOnly = impSolve(Object.assign({}, base, {carry:null}));
+    return { noCkN: noCk.cands.length, warned: noCk.notes.some(n => /無法反解/.test(n)),
+      ivOnlyN: ivOnly.cands.length,
+      ivOnlySp: [...new Set(ivOnly.cands.map(c => D.dex[c.m.sp].n))].join('/') };
+  }, IMP_CASES[0].obs);
+  ok('兩個校驗碼都沒填 → 退化成多解並警告', degrade.noCkN > 1 && degrade.warned, `${degrade.noCkN} 組`);
+  ok('只有幫忙間隔 → 物種鎖定但緞帶仍多解',
+     degrade.ivOnlyN > 1 && degrade.ivOnlySp === 'VICTREEBEL',
+     `${degrade.ivOnlyN} 組 / ${degrade.ivOnlySp}`);
+
+  /* 使用者明確要求的行為：自動判斷完只是草稿，每欄都還能改，確認了才進箱子。 */
+  const flow = await page.evaluate(obs => {
+    const before = roster.length;
+    $('impLevel').value = obs.level; $('impIvMin').value = 31; $('impIvSec').value = 51;
+    $('impCarry').value = obs.carry; $('impSpec').value = obs.specialty;
+    $('impCamp').value = '0'; $('impMs').value = obs.mainSkill;
+    $('impSkillLv').value = obs.skillDisplayLv; $('impPayload').value = obs.skillPayload;
+    $('impNature').value = obs.nature;
+    [...$('impSs').querySelectorAll('[data-s]')].forEach((s, i) => { s.value = obs.ss[i] || ''; });
+    $('impIng0').value = 2; $('impIng1').value = 4; $('impIng2').value = 6;
+    $('impSolveBtn').click();
+
+    const reviewShown = !$('impReview').hidden;
+    const rowFields = [...$('impRow').querySelectorAll('[data-k]')].map(e => e.dataset.k);
+    const notWritten = roster.length === before;      // 還沒按確認 → 箱子不能變
+    const solvedSp = D.dex[impDraft.sp].n, solvedRb = impDraft.ribbon;
+
+    // 手動改一欄（等級）→ 校驗碼必須立刻變紅
+    const lv = $('impRow').querySelector('[data-k="level"]');
+    lv.value = 55; lv.dispatchEvent(new Event('change', {bubbles:true}));
+    const wentBad = $('impChecks').innerHTML.includes('impck bad');
+    // 改回去 → 恢復
+    lv.value = 60; lv.dispatchEvent(new Event('change', {bubbles:true}));
+    const backOk = !$('impChecks').innerHTML.includes('impck bad');
+
+    $('impSave').click();
+    const added = roster.length === before + 1;
+    const last = roster[roster.length - 1];
+    return { reviewShown, rowFields, notWritten, solvedSp, solvedRb, wentBad, backOk,
+             added, savedSp: last && D.dex[last.sp].n, savedRb: last && last.ribbon,
+             formCleared: $('impLevel').value === '' && $('impReview').hidden };
+  }, IMP_CASES[0].obs);
+  ok('按「自動判斷」會開出校對區', flow.reviewShown);
+  ok('校對區反解出正確的物種與緞帶', flow.solvedSp === 'VICTREEBEL' && flow.solvedRb === 4,
+     `${flow.solvedSp} / 緞帶${flow.solvedRb}`);
+  ok('每個原本可選的欄位都還能改（種類／等級／性格／副技能／食材／技能Lv／緞帶）',
+     ['sp','level','nature','ss','ingSet','skillLv','ribbon'].every(k => flow.rowFields.includes(k)),
+     flow.rowFields.join(','));
+  ok('確認之前絕對不會寫進箱子', flow.notWritten);
+  ok('手動改壞欄位 → 校驗碼立刻標紅', flow.wentBad);
+  ok('改回正確值 → 校驗碼恢復', flow.backOk);
+  ok('按「存入箱子」才真的加進 roster', flow.added && flow.savedSp === 'VICTREEBEL' && flow.savedRb === 4,
+     `${flow.savedSp} / 緞帶${flow.savedRb}`);
+  ok('存入後表單與草稿都清空', flow.formCleared);
+
+  /* regression：露營券留「未指定」時 impSolve 會兩種都試，重新校驗必須用
+     **這組解實際採用的那一種**。用 obs.camp（未指定→false）去算的話，
+     camp=true 才成立的解會被誤報成「和畫面不符」。
+
+     用的數字是同一隻大食花在**有開露營券**時畫面會顯示的值（26分32秒／42個，
+     頻率與容量都 ×1.2）。這組只有 camp=true 成立 —— 舊做法會把兩個校驗碼
+     都標紅，所以這條測試真的守得住那個 bug。 */
+  const campless = await page.evaluate(obs => {
+    const before = roster.length;
+    $('impLevel').value = obs.level; $('impIvMin').value = 26; $('impIvSec').value = 32;
+    $('impCarry').value = 42; $('impSpec').value = obs.specialty;
+    $('impCamp').value = '';                      // ← 未指定
+    $('impMs').value = obs.mainSkill;
+    $('impSkillLv').value = obs.skillDisplayLv; $('impPayload').value = obs.skillPayload;
+    $('impNature').value = obs.nature;
+    [...$('impSs').querySelectorAll('[data-s]')].forEach((s, i) => { s.value = obs.ss[i] || ''; });
+    $('impIng0').value = 2; $('impIng1').value = 4; $('impIng2').value = 6;
+    $('impSolveBtn').click();
+    const r = { sp: impDraft && D.dex[impDraft.sp].n,
+      ribbon: impDraft && impDraft.ribbon,
+      campUsed: impCampUsed,
+      bad: $('impChecks').innerHTML.includes('impck bad'),
+      saysCamp: /好露營券/.test($('impNotes').innerHTML),
+      notWritten: roster.length === before };
+    impResetForm();
+    return r;
+  }, IMP_CASES[0].obs);
+  ok('露營券未指定時仍解出正確物種與緞帶',
+     campless.sp === 'VICTREEBEL' && campless.ribbon === 4, `${campless.sp} / 緞帶${campless.ribbon}`);
+  ok('這組數字確實是靠 camp=true 解出來的（否則測不到那個 bug）', campless.campUsed === true);
+  ok('露營券未指定時校驗碼不會誤報不符', !campless.bad);
+  ok('會講出這組解假設的露營券前提', campless.saysCamp);
+  ok('這一輪也沒有偷偷寫進箱子', campless.notWritten);
+}
+
+/* 分批建箱子（我讀截圖 → 給 JSON → 使用者貼上）時，一次貼一隻卻把整箱換掉
+   會吃掉前面輸入的全部資料。雲端同步與開機還原走的是「整份取代」，不能受影響。 */
+console.log('\n[11c] JSON 匯入：追加 vs 取代');
+{
+  const r = await page.evaluate(() => {
+    const mk = n => ({sp:n, level:30, nature:'Bashful', ss:[null,null,null,null,null],
+                      ingSet:[0,0,0], skillLv:1, ribbon:0});
+    const names = () => roster.map(m => D.dex[m.sp].n).join(',');
+    deserialize({roster: [mk('PIKACHU'), mk('RAICHU')]});
+    const start = names();
+    deserialize({roster: [mk('GENGAR')]}, {append: true});
+    const appended = names();
+    deserialize({roster: [mk('MEW')]});
+    const replaced = names();
+
+    wk.areaBonus = 35;
+    deserialize({roster: [mk('EEVEE')], wk: {areaBonus: 5}}, {append: true});
+    const keptWk = wk.areaBonus;
+    deserialize({roster: [mk('EEVEE')], wk: {areaBonus: 5}});
+    const tookWk = wk.areaBonus;
+    wk.areaBonus = 15;
+    return {start, appended, replaced, keptWk, tookWk};
+  });
+  ok('起始兩隻', r.start === 'PIKACHU,RAICHU', r.start);
+  ok('追加會接在現有的後面', r.appended === 'PIKACHU,RAICHU,GENGAR', r.appended);
+  ok('取代會換掉整箱（備份還原用的）', r.replaced === 'MEW', r.replaced);
+  ok('追加不會動到本週條件', r.keptWk === 35, String(r.keptWk));
+  ok('取代會套用 JSON 裡的本週條件', r.tookWk === 5, String(r.tookWk));
 }
 
 /* 用另開的頁面跑 —— 這一節刻意觸發致命錯誤，不能污染上面的 errors 收集。 */

@@ -22,6 +22,7 @@ const PATHS = {
     app:    'src/app.js',
     engine: 'src/engine.js',
     worker: 'src/engine.worker.js',
+    import: 'src/import.js',
     html:   'index.html',
   },
   cmds: {
@@ -62,6 +63,8 @@ const msz = n => (Z.ms        && Z.ms[n])        || n;
 const ssz = n => (Z.subskills && Z.subskills[n]) || n;
 const sss = n => (Z.ssShort   && Z.ssShort[n])   || (SS[n] ? SS[n].s : n);
 const SPEC_ZH = {berry:"樹果",ingredient:"食材",skill:"技能",all:"全能"};
+/** 睡眠緞帶的標籤。索引就是 m.ribbon，對應 engine.js 的 RIBBON_CARRY。 */
+const RIBBON_LABEL = ['無','200h','500h','1000h','2000h'];
 const NAT_AB = {speed:"速度",ingredient:"食材",skill:"技能",energy:"活力",exp:"EXP"};
 const natZ = n => (Z.natures && Z.natures[n.n]) || n.n;
 const natLabel = n => natZ(n) + (n.p ? " +"+NAT_AB[n.p]+" −"+NAT_AB[n.m] : " 無修正");
@@ -91,18 +94,29 @@ function serialize(){
   return {roster: roster.map(m=>({sp:D.dex[m.sp].n, level:m.level, nature:m.nature, ss:m.ss, ingSet:m.ingSet, skillLv:m.skillLv, ribbon:m.ribbon, pin:!!m.pin, ex:!!m.ex})),
           wk: {...wk, fav:[...wk.fav], recipe:undefined}, updatedAt: new Date().toISOString(), v:1};
 }
-function deserialize(o){
+/** 還原一份 serialize() 的輸出。
+ *
+ *  `opts.append`：只把 roster **接在現有的後面**，不動 wk。分批建箱子時要的是這個
+ *  —— 一次貼一隻卻把整箱換掉，會把前面輸入的都吃掉。雲端同步與開機還原走的是
+ *  預設的「整份取代」，不要改。 */
+function deserialize(o, opts){
   if (!o) return;
-  if (Array.isArray(o.roster)) roster = o.roster.map(r=>{
+  const revive = r => {
     const sp = D.dex.findIndex(p=>p.n===r.sp);
     return {...BLANK(), ...r, sp: sp<0?0:sp, ss:(r.ss||[null,null,null,null,null]).slice(0,5), ingSet:(r.ingSet||[0,0,0]).slice(0,3)};
-  });
-  if (o.wk){ const f = o.wk.fav||[]; wk = {...wk, ...o.wk, fav:new Set(f), recipeLevels:o.wk.recipeLevels||{}}; }
+  };
+  if (Array.isArray(o.roster)){
+    const incoming = o.roster.map(revive);
+    roster = (opts && opts.append) ? roster.concat(incoming) : incoming;
+  }
+  if (o.wk && !(opts && opts.append)){
+    const f = o.wk.fav||[];
+    wk = {...wk, ...o.wk, fav:new Set(f), recipeLevels:o.wk.recipeLevels||{}};
+  }
 }
 /** A human-readable mirror of the roster, so the Sheet is worth opening. */
 function rosterTable(){
   const head = ['種類','圖鑑','等級','性格','副技能1','副技能2','副技能3','副技能4','副技能5','食材1','食材2','食材3','技能Lv','主技能','緞帶','固定','排除'];
-  const RIB = ['無','200h','500h','1000h','2000h'];
   const rows = roster.map(m=>{
     const p = D.dex[m.sp], opts = [p.i0, p.i30, p.i60];
     const ings = [0,1,2].map(k=>{
@@ -112,7 +126,7 @@ function rosterTable(){
     });
     return [pz(p), p.no, m.level, natZ(NAT[m.nature]||NAT.Bashful),
             ...[0,1,2,3,4].map(i=>m.ss[i] ? ssz(m.ss[i]) : ''),
-            ...ings, m.skillLv, msz(p.ms), RIB[m.ribbon||0], m.pin?'是':'', m.ex?'是':''];
+            ...ings, m.skillLv, msz(p.ms), RIBBON_LABEL[m.ribbon||0], m.pin?'是':'', m.ex?'是':''];
   });
   return [head, ...rows];
 }
@@ -150,22 +164,50 @@ async function sheetPut(payload){
   return j;
 }
 
-let saveTimer = null;
+/* 自動同步：改任何一格就寫 localStorage（同步、不會失敗），再防抖 900ms 上傳雲端。
+   900ms 是刻意的 —— 連續改五格只上傳一次，不會打 Apps Script 五次。
+
+   `dirty` / `pending` 存在的理由是兩個真實的漏洞：
+   1. 改完立刻關分頁：那次上傳還在等防抖，就永遠不會送出 —— localStorage 有、
+      雲端停在上一版。所以 `pagehide` 與 `visibilitychange` 會把它立刻沖出去。
+   2. 上傳失敗不會自己好：以前失敗就停在那，除非使用者又改了什麼。現在 `dirty`
+      會留著，回到這個分頁（visibilitychange）或下一次 save 都會重試。
+   上傳的是**完整快照**，所以重試不需要合併，最後一次寫入就是正確結果。 */
+let saveTimer = null, savePending = null, saveDirty = false;
 function save(){
   const payload = serialize();
   try { localStorage.setItem('psleep-box', JSON.stringify(payload)); } catch(e){}
+  savePending = payload;
+  saveDirty = true;
   clearTimeout(saveTimer);
-  saveTimer = setTimeout(async ()=>{
-    if (dbRef){
-      try { await dbRef.set(payload); setStatus('已同步'); }
-      catch(e){ setStatus('同步失敗（本機已存）'); }
-    } else if (sync.on){
-      setStatus('上傳中…');
-      try { await sheetPut(payload); setStatus('已同步 Sheet'); setSyncStatus('已上傳 ' + new Date().toLocaleTimeString('zh-TW')); }
-      catch(e){ setStatus('Sheet 同步失敗（本機已存）'); setSyncStatus('上傳失敗：' + e.message); }
-    }
-  }, 900);
+  saveTimer = setTimeout(flushSave, 900);
 }
+async function flushSave(){
+  clearTimeout(saveTimer); saveTimer = null;
+  if (!saveDirty || !savePending) return;
+  const payload = savePending;
+  if (dbRef){
+    try { await dbRef.set(payload); saveDirty = false; setStatus('已同步'); }
+    catch(e){ setStatus('同步失敗（本機已存）'); }
+  } else if (sync.on){
+    setStatus('上傳中…');
+    try {
+      await sheetPut(payload);
+      saveDirty = false;
+      setStatus('已同步 Sheet');
+      setSyncStatus('已上傳 ' + new Date().toLocaleTimeString('zh-TW'));
+    } catch(e){
+      setStatus('Sheet 同步失敗（本機已存）');
+      setSyncStatus('上傳失敗：' + e.message + '（回到這個分頁時會重試）');
+    }
+  } else {
+    saveDirty = false;   // 沒有任何後端，localStorage 就是全部
+  }
+}
+/* 刻意不檢查 visibilityState：切到背景要沖出去，切回來要重試失敗的那次，
+   兩件事都想要。`pagehide` 覆蓋關閉分頁與手機切換 app。 */
+document.addEventListener('visibilitychange', flushSave);
+window.addEventListener('pagehide', flushSave);
 
 async function boot(){
   loadSyncConfig();
@@ -340,7 +382,7 @@ function renderBox(){
         `<select data-k="ingSet" data-s="${s}"${s>=slots?' disabled style="opacity:.35"':''}>${ingSetOpts(m,s)}</select>`).join('')}</div></div>
       <div data-lbl="技能Lv"><input type="number" data-k="skillLv" min="1" max="8" value="${m.skillLv}"></div>
       <div data-lbl="緞帶"><select data-k="ribbon" title="睡眠緞帶：縮短未進化寶可夢的幫手間隔並提升攜帶上限">${
-        ['無','200h','500h','1000h','2000h'].map((t,i)=>`<option value="${i}">${t}</option>`).join('')}</select></div>
+        RIBBON_LABEL.map((t,i)=>`<option value="${i}">${t}</option>`).join('')}</select></div>
       <div data-lbl="" style="display:flex;gap:5px;justify-content:flex-end">
         <button class="btn sm ghost" data-act="pin" title="固定在隊上">${m.pin?'📌':'📍'}</button>
         <button class="btn sm ghost" data-act="ex" title="排除">${m.ex?'🚫':'○'}</button>
@@ -387,11 +429,327 @@ $('exportBtn').addEventListener('click', async ()=>{
   catch(e){ window.prompt('複製下面的 JSON：', t); }
 });
 $('importBtn').addEventListener('click', ()=>{
-  const t = window.prompt('把先前複製的 JSON 貼在這裡：');
+  const t = window.prompt('把 JSON 貼在這裡：');
   if (!t) return;
-  try { deserialize(JSON.parse(t)); renderAll(); save(); setStatus('已匯入'); }
-  catch(e){ setStatus('JSON 格式不正確'); }
+  let o;
+  try { o = JSON.parse(t); }
+  catch(e){ setStatus('JSON 格式不正確'); return; }
+  const n = Array.isArray(o.roster) ? o.roster.length : 0;
+  /* 箱子裡已經有東西時一定要問 —— 分批建箱子的人要的是「追加」，
+     而還原備份的人要的是「取代」。默默選一邊就會吃掉別人的資料。 */
+  let append = false;
+  if (roster.length && n){
+    append = confirm(`要把這 ${n} 隻**追加**到現有的 ${roster.length} 隻後面嗎？\n\n`
+                   + `確定＝追加（變成 ${roster.length + n} 隻）\n`
+                   + `取消＝取代整箱（現有的 ${roster.length} 隻會被丟掉）`);
+  }
+  try {
+    deserialize(o, {append});
+    renderAll(); save();
+    setStatus(append ? `已追加 ${n} 隻（共 ${roster.length} 隻）` : `已匯入 ${roster.length} 隻`);
+  } catch(e){ setStatus('匯入失敗：' + e.message); }
 });
+
+/* ================= UI: 從截圖建立 =================
+   為什麼一定要有「確認」這一步：讀錯一個等級或一個副技能，推演結果就會被靜靜地
+   污染，而使用者不會知道 —— 頁面只會顯示一個看起來很確定的錯數字。所以自動判斷
+   只產生一份**草稿**，附上兩個校驗碼的結果，每一欄都還是可編輯的控制項，按下
+   「存入箱子」才寫進 roster。這和 index.html 的「已知簡化」是同一個原則。
+
+   反解在 src/import.js（純函式，用引擎的 baseStats/helpInterval，不複製公式）。 */
+
+/* 注意命名：草稿物件叫 impDraft，裝它的 DOM 容器 id 是 impRow（不是 impDraft）。
+   瀏覽器會為每個 id 在 window 上建同名屬性，兩者同名時 `let` 雖然會正確遮蔽，
+   但那正是 CLAUDE.md 陷阱 1 那類讀不出來的坑 —— 直接避開。 */
+let impDraft = null;    // 校對中的成員（roster 形狀）—— 確認前不進 roster
+let impLast  = null;    // {obs, res} 上次求解的輸入與結果
+let impPick  = 0;       // 目前選的是第幾組解
+let impAmbIng = [null,null,null];  // 食材各格反解不出唯一值時的候選
+let impAmbSp = false, impAmbRb = false;
+let impIngBad = false;  // 改過物種／等級後，×N 數字對不上任何選項
+let impSkill = null;    // 主技能等級的推導結果（含說明文字）
+/* 這一組解是在「有／沒有好露營券」哪一種下成立的。
+   使用者把露營券留成「未指定」時 impSolve 會兩種都試，所以重新校驗一定要用
+   **這組解實際採用的那一種** —— 不然拿 obs.camp（未指定→false）去算，
+   camp=true 才成立的解會被誤報成不符。 */
+let impCampUsed = false;
+let impFiles = [];      // 對照用的截圖（object URL，不儲存也不上傳）
+
+const impNum = id => { const v = $(id).value.trim(); return v === '' ? null : Number(v); };
+const impSecFmt = s => `${Math.floor(s/60)}分${String(s%60).padStart(2,'0')}秒`;
+
+function buildImport(){
+  $('impNature').innerHTML = `<option value="">未指定</option>` + NATURE_OPTS;
+  $('impMs').innerHTML = `<option value="">未指定</option>` +
+    Object.keys(D.ms).map(n=>({n, z:msz(n)})).sort((a,b)=>a.z.localeCompare(b.z,'zh-Hant'))
+      .map(x=>`<option value="${x.n}">${x.z}</option>`).join('');
+  $('impSs').innerHTML = [0,1,2,3,4].map(s=>
+    `<select data-s="${s}" title="第 ${s+1} 格 — Lv${SS_SLOT_LV[s]} 解鎖">${SS_OPTS}</select>`).join('');
+
+  // 圖片：點選、拖進、Ctrl+V
+  const drop = $('impDrop');
+  drop.addEventListener('click', ()=> $('impFile').click());
+  drop.addEventListener('keydown', e=>{ if (e.key==='Enter'||e.key===' '){ e.preventDefault(); $('impFile').click(); } });
+  $('impFile').addEventListener('change', e=>{ impAddFiles(e.target.files); e.target.value=''; });
+  for (const ev of ['dragenter','dragover']) drop.addEventListener(ev, e=>{ e.preventDefault(); drop.classList.add('over'); });
+  for (const ev of ['dragleave','drop']) drop.addEventListener(ev, ()=> drop.classList.remove('over'));
+  drop.addEventListener('drop', e=>{ e.preventDefault(); impAddFiles(e.dataTransfer && e.dataTransfer.files); });
+  /* 全域貼上：只在寶可夢箱這個 view、而且剪貼簿裡真的有圖片時才接手，
+     否則會搶走輸入框的正常貼上。
+     兩個來源都要看：截圖有時只出現在 items（DataTransferItem）而不在 files。
+     只讀一邊的話會變成「按了 Ctrl+V 沒反應」這種找不到原因的 bug。 */
+  document.addEventListener('paste', e=>{
+    if ($('view-box').hidden || !e.clipboardData) return;
+    const cd = e.clipboardData;
+    const imgs = [...(cd.files || [])].filter(f=>f && /^image\//.test(f.type));
+    if (!imgs.length) for (const it of cd.items || []){
+      if (it.kind !== 'file' || !/^image\//.test(it.type)) continue;
+      const f = it.getAsFile();
+      if (f) imgs.push(f);
+    }
+    if (!imgs.length) return;
+    e.preventDefault();
+    impAddFiles(imgs);
+  });
+
+  $('impSolveBtn').addEventListener('click', impRunSolve);
+  $('impReset').addEventListener('click', impResetForm);
+  $('impDiscard').addEventListener('click', impClearDraft);
+  $('impSave').addEventListener('click', impSaveDraft);
+
+  // 校對表：任何欄位改動 → 更新草稿 → 立刻重新校驗
+  $('impRow').addEventListener('change', e=>{
+    if (!impDraft) return;
+    const k = e.target.dataset.k; if (!k) return;
+    const m = impDraft;
+    if (k==='sp'){ m.sp = +e.target.value; impAmbSp = false; impReResolveIng(); impReDeriveSkillLv(); }
+    else if (k==='level'){ m.level = Math.max(1, Math.min(70, +e.target.value||1)); impReResolveIng(); impReDeriveSkillLv(); }
+    else if (k==='ss'){ m.ss[+e.target.dataset.s] = e.target.value || null; impReDeriveSkillLv(); }
+    else if (k==='ingSet'){ const s = +e.target.dataset.s; m.ingSet[s] = +e.target.value; impAmbIng[s] = null; }
+    else if (k==='skillLv') m.skillLv = Math.max(1, Math.min(8, +e.target.value||1));
+    else if (k==='nature') m.nature = e.target.value;
+    else if (k==='ribbon'){ m.ribbon = +e.target.value; impAmbRb = false; }
+    renderImpReview();
+  });
+  // 「其他可能」列表：點一列就換成那一組解
+  $('impAlts').addEventListener('click', e=>{
+    const tr = e.target.closest('[data-alt]'); if (!tr || !impLast) return;
+    impSelectCand(+tr.dataset.alt);
+  });
+}
+
+/* ---- 對照用的截圖 ---- */
+function impAddFiles(files){
+  for (const f of files || []){
+    if (!f || !/^image\//.test(f.type)) continue;
+    impFiles.push({url: URL.createObjectURL(f), name: f.name || '貼上的圖片'});
+  }
+  renderImpShots();
+}
+function renderImpShots(){
+  $('impShots').innerHTML = impFiles.map((f,i)=>
+    `<div class="impshot" data-shot="${i}"><img src="${f.url}" alt="${f.name}" title="${f.name}"><button type="button" data-rm="${i}" title="移除">✕</button></div>`).join('');
+}
+$('impShots').addEventListener('click', e=>{
+  const rm = e.target.closest('[data-rm]');
+  if (rm){
+    const i = +rm.dataset.rm;
+    URL.revokeObjectURL(impFiles[i].url);
+    impFiles.splice(i,1); renderImpShots(); return;
+  }
+  const shot = e.target.closest('[data-shot]');
+  if (shot) shot.classList.toggle('big');
+});
+
+/* ---- 讀取觀測值 ---- */
+function impObs(){
+  const iv = impSecs(impNum('impIvMin') || 0, impNum('impIvSec') || 0);
+  const camp = $('impCamp').value;
+  return {
+    level: impNum('impLevel'),
+    specialty: $('impSpec').value || null,
+    mainSkill: $('impMs').value || null,
+    skillDisplayLv: impNum('impSkillLv'),
+    skillPayload: impNum('impPayload'),
+    nature: $('impNature').value || null,
+    ss: [...$('impSs').querySelectorAll('[data-s]')].map(s=>s.value || null),
+    ingCounts: [impNum('impIng0'), impNum('impIng1'), impNum('impIng2')],
+    intervalSec: iv > 0 ? iv : null,
+    carry: impNum('impCarry'),
+    camp: camp === '' ? null : camp === '1',
+  };
+}
+/** 丟掉草稿與求解狀態（保留輸入的觀測值）。 */
+function impClearDraft(){
+  impDraft = null; impLast = null; impPick = 0; impSkill = null;
+  impAmbIng = [null,null,null]; impAmbSp = false; impAmbRb = false;
+  impIngBad = false; impCampUsed = false;
+  $('impReview').hidden = true;
+  $('impChecks').innerHTML = ''; $('impRow').innerHTML = '';
+  $('impNotes').innerHTML = ''; $('impAlts').innerHTML = '';
+  $('impStatus').textContent = ''; $('impSaveStatus').textContent = '';
+}
+function impResetForm(){
+  for (const id of ['impLevel','impIvMin','impIvSec','impCarry','impSkillLv','impPayload','impIng0','impIng1','impIng2'])
+    $(id).value = '';
+  $('impSpec').value = ''; $('impCamp').value = ''; $('impMs').value = ''; $('impNature').value = '';
+  for (const s of $('impSs').querySelectorAll('[data-s]')) s.value = '';
+  impClearDraft();
+}
+
+/* ---- 求解 ---- */
+function impRunSolve(){
+  const obs = impObs();
+  const res = impSolve(obs);
+  impClearDraft();            // 先歸零，免得上一次的歧義標記／備註留在畫面上
+  impLast = {obs, res};
+  $('impReview').hidden = false;
+  if (!res.cands.length){
+    renderImpNotes();         // 無解時只顯示原因，不留一份猜的草稿
+    $('impStatus').textContent = '找不到符合的組合';
+    return;
+  }
+  $('impStatus').textContent = res.cands.length === 1 ? '唯一解 ✓' : `${res.cands.length} 組解`;
+  impSelectCand(0);
+}
+function impSelectCand(i){
+  const res = impLast.res, c = res.cands[i]; if (!c) return;
+  impPick = i;
+  impDraft = {...c.m, ss: c.m.ss.slice(), ingSet: c.m.ingSet.slice()};
+  impAmbIng = c.amb.slice();
+  impIngBad = false;
+  impSkill = c.skill;
+  impCampUsed = !!c.camp;
+  impAmbSp = new Set(res.cands.map(x=>x.m.sp)).size > 1;
+  impAmbRb = new Set(res.cands.filter(x=>x.m.sp === c.m.sp).map(x=>x.m.ribbon)).size > 1;
+  renderImpReview();
+}
+/** 使用者手動改了物種或等級 —— 用同一組 ×N 數字重新收斂食材欄位。
+ *  對不上的時候**不要**默默填第一個選項就算了：把 impIngBad 立起來讓 UI 講出來。 */
+function impReResolveIng(){
+  if (!impDraft || !impLast) return;
+  const r = impIngSets(impDraft.sp, impDraft.level, impLast.obs.ingCounts);
+  impIngBad = !!r.impossible;
+  if (r.impossible){ impDraft.ingSet = [0,0,0]; impAmbIng = [null,null,null]; return; }
+  impDraft.ingSet = r.pick.slice();
+  impAmbIng = r.amb.slice();
+}
+/** 改了副技能／等級／物種之後，主技能的基礎等級要重新推導 ——
+ *  「技能等級提升」的加成變了，或換成上限不同的主技能，基礎值就不一樣。
+ *  沒有技能說明數字也沒有顯示等級時什麼都不做（不要把使用者的值改掉）。 */
+function impReDeriveSkillLv(){
+  if (!impDraft || !impLast) return;
+  const o = impLast.obs;
+  if (o.skillPayload == null && o.skillDisplayLv == null) return;
+  const bonus = impSkillBonus(impDraft.ss, impDraft.level);
+  impSkill = impSkillLv(D.dex[impDraft.sp].ms, o.skillDisplayLv, o.skillPayload, bonus);
+  impDraft.skillLv = impSkill.base;
+}
+
+/* ---- 校對區 ---- */
+function renderImpReview(){ renderImpChecks(); renderImpDraft(); renderImpNotes(); renderImpAlts(); }
+
+/** 重新校驗用的觀測值：露營券一律用「這組解實際採用的那一種」。 */
+const impObsForVerify = () => ({...impLast.obs, camp: impCampUsed});
+
+function renderImpChecks(){
+  if (!impDraft || !impLast){ $('impChecks').innerHTML = ''; return; }
+  const v = impVerify(impDraft, impObsForVerify());
+  const cell = (label, got, want, ok, f) => {
+    const cls = ok === null ? '' : ok ? ' ok' : ' bad';
+    const tail = ok === null ? '沒填，未校驗' : ok ? '＝畫面 ✓' : `畫面是 ${f(want)} ✗`;
+    return `<div class="impck${cls}"><span>${label}</span><b>${f(got)}</b><span class="muted">${tail}</span></div>`;
+  };
+  const p = D.dex[impDraft.sp];
+  $('impChecks').innerHTML =
+    cell('幫忙間隔', v.interval.got, v.interval.want, v.interval.ok, impSecFmt) +
+    cell('持有上限', v.carry.got, v.carry.want, v.carry.ok, n=>n+'個') +
+    `<div class="impck"><span>反解物種</span><b>${pz(p)}</b>` +
+      `<span class="muted">#${p.no} · ${SPEC_ZH[p.sp]} · ${bz(p.b)} · ${msz(p.ms)}</span></div>`;
+}
+
+function renderImpDraft(){
+  const m = impDraft;
+  if (!m){ $('impRow').innerHTML = ''; return; }
+  const slots = Math.min(Math.floor(m.level/30)+1, 3);
+  const ambIng = s => (impAmbIng[s] && impAmbIng[s].length > 1) ? ' class="amb"' : '';
+  $('impRow').innerHTML = `<div class="boxrow">
+    <div data-lbl="種類"><select data-k="sp"${impAmbSp?' class="amb"':''}>${SPECIES_OPTS}</select></div>
+    <div data-lbl="等級"><input type="number" data-k="level" min="1" max="70" value="${m.level}"></div>
+    <div data-lbl="性格"><select data-k="nature">${NATURE_OPTS}</select></div>
+    <div data-lbl="副技能"><div class="ss-mini">${[0,1,2,3,4].map(s=>
+      `<select data-k="ss" data-s="${s}" title="第 ${s+1} 格 — Lv${SS_SLOT_LV[s]} 解鎖${m.ss[s]?'：'+ssz(m.ss[s]):''}"${m.level<SS_SLOT_LV[s]?' style="opacity:.45"':''}>${SS_OPTS}</select>`).join('')}</div></div>
+    <div data-lbl="食材組合"><div class="ss-mini" style="grid-template-columns:repeat(3,1fr)">${[0,1,2].map(s=>
+      s>=slots
+        ? `<select data-k="ingSet" data-s="${s}" disabled style="opacity:.35">${ingSetOpts(m,s)}</select>`
+        : `<select data-k="ingSet" data-s="${s}"${ambIng(s)}>${ingSetOpts(m,s)}</select>`).join('')}</div></div>
+    <div data-lbl="技能Lv"><input type="number" data-k="skillLv" min="1" max="8" value="${m.skillLv}"></div>
+    <div data-lbl="緞帶"><select data-k="ribbon"${impAmbRb?' class="amb"':''} title="截圖上看不到，由持有上限反解">${
+      RIBBON_LABEL.map((t,i)=>`<option value="${i}">${t}</option>`).join('')}</select></div>
+    <div></div>
+  </div>`;
+  const row = $('impRow').querySelector('.boxrow');
+  row.querySelector('[data-k="sp"]').value = m.sp;
+  row.querySelector('[data-k="nature"]').value = m.nature;
+  row.querySelectorAll('[data-k="ss"]').forEach(s=>{ s.value = m.ss[+s.dataset.s] || ''; });
+  row.querySelectorAll('[data-k="ingSet"]').forEach(s=>{ s.value = String(m.ingSet[+s.dataset.s]||0); });
+  row.querySelector('[data-k="ribbon"]').value = String(m.ribbon||0);
+}
+
+function renderImpNotes(){
+  if (!impLast){ $('impNotes').innerHTML = ''; return; }
+  const out = [];
+  const bad = !impLast.res.cands.length;
+  for (const n of impLast.res.notes) out.push(`<div class="impnote${bad?' bad':''}">${n}</div>`);
+  if (bad) out.push(`<div class="impnote bad">先確認<b>幫忙間隔</b>、<b>持有上限</b>、<b>等級</b>、<b>性格</b>、<b>幫忙速度</b>類副技能有沒有看錯 —— 這五項任何一項錯，等式就對不起來。也確認一下截圖時是否開著<b>好露營券</b>。</div>`);
+  if (impSkill) for (const n of impSkill.notes) out.push(`<div class="impnote">主技能等級：${n}</div>`);
+  /* 露營券留「未指定」時兩種都會試。camp=true 的解算出來的數字不一樣，
+     所以一定要講出這組解是在哪個前提下成立的，不然使用者無從判斷對不對。 */
+  if (impLast.obs.camp == null && impDraft)
+    out.push(`<div class="impnote">你沒指定好露營券，這組解是在<b>${impCampUsed?'有開':'沒開'}</b>露營券的前提下成立的（${impCampUsed?'頻率與容量 ×1.2':'無加成'}）。如果不對，把上面的「好露營券」選起來再按一次自動判斷。</div>`);
+  if (impIngBad) out.push(`<div class="impnote bad">你填的 ×N 數字（${impLast.obs.ingCounts.map(x=>x==null?'—':x).join('／')}）在這隻身上找不到對應的食材選項 —— 三格已重設成第一個選項，<b>請自己對著截圖選</b>。</div>`);
+  const ambSlots = [0,1,2].filter(s=>impAmbIng[s] && impAmbIng[s].length > 1);
+  if (ambSlots.length) out.push(`<div class="impnote">食材第 ${ambSlots.map(s=>s+1).join('、')} 格光靠 ×N 的數字分不出來（有數量相同的選項）—— 請對著截圖的圖示自己選一下，已標橘框。</div>`);
+  if (impAmbSp) out.push(`<div class="impnote">有多個物種都符合，已標橘框 —— 請對著截圖的圖像確認。</div>`);
+  if (impAmbRb) out.push(`<div class="impnote">緞帶反解不出唯一值，已標橘框。</div>`);
+  $('impNotes').innerHTML = out.join('');
+}
+
+function renderImpAlts(){
+  const cands = impLast ? impLast.res.cands : [];
+  if (cands.length < 2){ $('impAlts').innerHTML = ''; return; }
+  const rows = cands.slice(0,20).map((c,i)=>{
+    const p = D.dex[c.m.sp];
+    return `<tr class="alt${i===impPick?' on':''}" data-alt="${i}">
+      <td>${pz(p)}</td><td class="n">#${p.no}</td><td>${SPEC_ZH[p.sp]}</td>
+      <td>${RIBBON_LABEL[c.m.ribbon]}</td><td>${c.camp?'有':'無'}</td>
+      <td class="n">${impSecFmt(c.interval)}</td><td class="n">${c.carry}個</td></tr>`;
+  }).join('');
+  $('impAlts').innerHTML = `<div class="impalts">
+    <div class="eyebrow" style="margin-bottom:6px">其他符合的組合（點一列切換）</div>
+    <div class="scroll"><table><thead><tr>
+      <th>種類</th><th>圖鑑</th><th>專長</th><th>緞帶</th><th>露營券</th><th>幫忙間隔</th><th>持有上限</th>
+    </tr></thead><tbody>${rows}</tbody></table></div></div>`;
+}
+
+/* ---- 存入箱子 ---- */
+function impSaveDraft(){
+  if (!impDraft){ $('impSaveStatus').textContent = '沒有可存的草稿'; return; }
+  const v = impVerify(impDraft, impObsForVerify());
+  const failed = [];
+  if (v.interval.ok === false) failed.push('幫忙間隔');
+  if (v.carry.ok === false) failed.push('持有上限');
+  if (failed.length && !confirm(`${failed.join('、')}和截圖上的數字不一致 —— 這通常表示有欄位讀錯了，存進去會讓推演結果不準。\n\n還是要存入嗎？`))
+    return;
+  roster.push({...impDraft, ss: impDraft.ss.slice(), ingSet: impDraft.ingSet.slice(), pin:false, ex:false});
+  renderBox(); save();
+  const p = D.dex[impDraft.sp];
+  impResetForm();
+  for (const f of impFiles) URL.revokeObjectURL(f.url);
+  impFiles = []; renderImpShots();
+  $('impSaveStatus').textContent = `已存入 ${pz(p)}，箱子現在 ${roster.length} 隻`;
+  $('impStatus').textContent = '';
+}
 
 /* ---- Worker 池 ----
    引擎在 engine.js，主執行緒和每個 worker 都載入同一份，所以數值一定一致。
@@ -862,5 +1220,6 @@ $('themeBtn').addEventListener('click', ()=>{
 /* ================= INIT ================= */
 function renderAll(){ syncWeeklyUI(); renderBox(); renderResults(); renderVersion(); if (!$('view-recipes').hidden) renderRecipeLevels(); }
 buildWeekly();
+buildImport();
 if (!wk.fav.size) wk.fav = new Set(['ORAN','PAMTRE','PECHA']);
 boot().then(()=>{ if (roster.length>=5) run(); });

@@ -126,11 +126,22 @@ function rawPayload(msName, lv){
   if (s.chance)           o.critChance = at(s.chance);
   return o;
 }
+/** Helper interval in seconds.
+ *
+ *  Split out of `simulate` so the screenshot importer (`src/import.js`) can reuse
+ *  the *same* expression instead of keeping a second copy — the in-game Pokémon
+ *  detail screen shows exactly this number, which makes it a checksum on an
+ *  imported member. Two copies of this formula would drift; one would then be
+ *  silently wrong. `nHB` is the number of teammates carrying Helping Bonus, so
+ *  the solo value the game displays is `nHB = 0`. */
+function helpInterval(bs, m, wk, nHB){
+  const helpSS = Math.max(0.65, 1 - (bs.h('Helping Speed M')?0.14:0) - (bs.h('Helping Speed S')?0.07:0) - 0.05*Math.min(5, nHB));
+  const levelFactor = 1 - 0.002*(m.level-1);
+  return Math.floor(round4(bs.natureFreqMul * helpSS * levelFactor * bs.ribbonMul) * bs.p.f / (wk.camp?1.2:1));
+}
 /** Simulate one member's day. ctx = {nHB,nERB,supportEnergy (per day, to each member), extraHelps} */
 function simulate(bs, m, wk, ctx){
-  const helpSS = Math.max(0.65, 1 - (bs.h('Helping Speed M')?0.14:0) - (bs.h('Helping Speed S')?0.07:0) - 0.05*Math.min(5, ctx.nHB));
-  const levelFactor = 1 - 0.002*(m.level-1);
-  const freqBase = Math.floor(round4(bs.natureFreqMul * helpSS * levelFactor * bs.ribbonMul) * bs.p.f / (wk.camp?1.2:1));
+  const freqBase = helpInterval(bs, m, wk, ctx.nHB);
   const sleepMin = Math.round(wk.sleepH*60), wakeMin = 1440 - sleepMin;
   const cap = bs.hasERB ? 105 : 100;
   const nSteps = Math.floor(wakeMin/10);

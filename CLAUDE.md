@@ -8,15 +8,16 @@ Pokémon Sleep 每週最佳隊伍推演工具。零依賴、無 build step、純
 
 ## 架構
 
-五個檔案，都是**真實來源**，不是產出物 —— 直接編輯：
+六個檔案，都是**真實來源**，不是產出物 —— 直接編輯：
 
 | 檔案 | 內容 |
 |---|---|
 | `index.html` | 骨架：`<head>`（字型、`app.css`）＋ markup（三個 `.view`：`view-plan` / `view-box` / `view-recipes`，加「資料版本」footer）＋ 尾端的載入器 |
 | `src/app.css` | CSS 變數（三種主題狀態）與版面 |
-| `src/engine.js` | **純引擎**，約 490 行。window 與 Worker 兩邊都載入同一份 |
+| `src/engine.js` | **純引擎**，約 500 行。window 與 Worker 兩邊都載入同一份 |
 | `src/engine.worker.js` | 薄薄一層 Worker 外殼，約 50 行 |
-| `src/app.js` | UI 與持久層，約 700 行 |
+| `src/import.js` | **截圖匯入的反解層**，約 210 行。純函式，只在主執行緒載入（Worker 不需要） |
+| `src/app.js` | UI 與持久層，約 950 行 |
 | `data/game.json` | 遊戲資料快照。246 隻寶可夢、78 道食譜、性格／副技能／主技能數值、`zh` 繁中對照表、`meta` 版本戳。**indent-2 pretty-print，一個欄位一行** |
 
 ### 載入順序（重要）
@@ -24,9 +25,9 @@ Pokémon Sleep 每週最佳隊伍推演工具。零依賴、無 build step、純
 `index.html` 尾端的 `<script type="module">`：
 
 1. `await fetch('./data/game.json', {cache:'no-cache'})`，檢查必要的頂層鍵都在 → 放到 `window.GAMEDATA`
-2. 依序動態插入 `./src/engine.js`、`./src/app.js`（**classic script，不是 `import()`**）
+2. 依序動態插入 `./src/engine.js`、`./src/import.js`、`./src/app.js`（**classic script，不是 `import()`**）
 
-`engine.js` 宣告 `D` 和所有引擎函式；`app.js` 直接用那些全域名字，**自己不要再宣告 `D`**（同名 `const` 會撞成 SyntaxError）。
+`engine.js` 宣告 `D` 和所有引擎函式；`import.js` 用 `engine.js` 的 `baseStats` / `helpInterval` 做截圖反解；`app.js` 直接用前兩者的全域名字，**自己不要再宣告 `D`**（同名 `const` 會撞成 SyntaxError）。
 
 **為什麼是動態插入 classic script 而不是 `import()`**：頂層宣告必須留在全域。`tests/smoke.mjs` 靠 `page.evaluate` 直接驅動內部狀態（`roster = [...]`、`run()`、`scoreTeam()`、`buildPool(wk)`），改成 module 會把這些關進模組作用域，整套測試會全滅。**不要「順手」改成 module。**
 
@@ -60,6 +61,31 @@ app.js  run()   ──{init, data:D}──▶  engine.worker.js × N
 
 **加速只有約 2x，而且瓶頸不在程式碼**：分片是平衡的（各分片耗時差 1.06~1.11x），編排開銷 27~46ms，飽和點在 6 個 worker。量測與「為什麼不做動態工作竊取」見 `DECISIONS.md`。
 
+### 截圖匯入（`src/import.js` ＋ 寶可夢箱的「從截圖建立」）
+
+遊戲的寶可夢詳細頁上**沒有物種名**（只有使用者取的暱稱和糖果名），也**沒有睡眠緞帶**。但畫面上有兩個衍生數字：
+
+```
+幫忙間隔 每31分51秒        持有上限 35個
+```
+
+兩個都是 `(物種, 等級, 性格, 副技能, 緞帶, 露營券)` 的封閉式函數，而引擎已經有那兩條公式。所以不辨識物種名，反過來**掃 246 隻 × 5 種緞帶求解**：哪一組能同時算出畫面上那兩個數字。
+
+實測兩隻真實寶可夢（大食花 Lv60 頑皮、水箭龜 Lv62 馬虎）都是**唯一解**，而且任何單一欄位讀錯（等級 ±1、性格、漏看一個幫忙速度副技能、持有上限 ±1、幫忙間隔 ±1 秒、食材數量 ±1）都會變成**無解**，不會變成錯的答案。
+
+三個附帶好處：
+
+1. **它驗證整筆讀取。** 校驗通過幾乎等於整筆正確。
+2. **它反解出畫面上看不到的緞帶。** 只靠 `RIBBON_CARRY = [0,1,3,6,8]` 的差異。
+3. **它自動決定進化階段。** 喇叭芽／口呆花／大食花的食材組合、主技能、樹果、糖果名全都相同，但基礎頻率是 5200／3800／2800 —— 只有 2800 能算出 1911 秒。
+
+四條規則：
+
+1. **絕對不要在 `import.js` 複製引擎的公式。** `impInterval` 呼叫 `helpInterval`、`impCarry` 呼叫 `baseStats().carry`。`helpInterval` 就是為此從 `simulate` 抽出來的具名函式 —— 兩份公式一定會走鐘，而走鐘的那份會靜靜地算錯。
+2. **自動判斷只產生草稿，不寫 `roster`。** 校對表的每一欄都是可編輯的控制項（種類／等級／性格／五格副技能／三格食材／技能Lv／緞帶），改動會即時重跑 `impVerify`，按「存入箱子」才 `roster.push`。`tests/smoke.mjs` 第 11b 節會斷言「確認之前 `roster.length` 不變」。
+3. **反解不出唯一值的欄位一定要標出來**（`.amb` 橘框 ＋ 備註）。靜靜地填一個猜的值就是「文案說謊」那類 bug。
+4. **缺欄位要老實變成多解。** 沒填兩個校驗碼就會列出幾十組候選並警告，不准挑一個看起來確定的。
+
 ### 程式碼分區
 
 `src/engine.js`（依出現順序）：
@@ -68,6 +94,14 @@ app.js  run()   ──{init, data:D}──▶  engine.worker.js × N
 2. **引擎**：`energyF` `berryPower` `baseStats` `skillPayload` `simulate` `memberOutput` `teamContext`
 3. **食譜求解**：`buildPool` `rankSingle` `bestSingleRecipe` `proxyDish` `mealPlan` `bestPlan` `scoreTeam` `rankRecipesForTeam`
 4. **搜尋**：`combinations` `searchTeams`（＋ `FINALISTS` / `SHOWN`）。一律窮舉 —— 曾經有的 `PRESCAN_LIMIT` 預篩已移除，理由見下方陷阱 4
+
+`src/import.js`（依出現順序）：
+
+1. `impNorm`（全形→半形正規化）＋ `impRev` 反向索引，及 `impNature` / `impSubskill` / `impMainSkill` / `impIngIndex`
+2. **校驗碼**：`impInterval` `impCarry` `impSecs` —— 都是**呼叫引擎那一份公式**，不自己算
+3. **主技能等級**：`impSkillBonus` `impEffFromPayload` `impSkillLv`
+4. **食材欄位**：`impIngSets`
+5. **求解**：`impSolve`（掃 246 隻 × 5 種緞帶）、`impVerify`（UI 改欄位後即時重驗）
 
 `src/app.js`（依出現順序）：
 
@@ -151,6 +185,21 @@ Google Sheet 後端在 `apps-script/Code.gs`，設定步驟見 `SETUP-google-she
 
 理由：拆檔後 `app.js` 與 `game.json` 是兩個獨立快取的資源，GitHub Pages 送 `max-age=600`，所以更新後有最多 10 分鐘的窗口會拿到「新程式 ＋ 舊資料」。不擋的話使用者只會看到壞頁面或錯的數字，不知道重新整理就好。
 
+### 10. 遊戲顯示的主技能等級是「加成後」，`m.skillLv` 是「基礎值」
+
+`baseStats` 算的是 `skillLv = clamp(m.skillLv + (Skill Level Up M?2:0) + (Skill Level Up S?1:0))`，所以 `m.skillLv` 存的是**基礎值**。但遊戲的技能卡顯示的是**加成後**的等級 —— 大食花畫面上是 `Lv.6` 且帶「技能等級提升M」，基礎值其實是 **4**。直接把畫面數字存進 `m.skillLv` 會讓技能產出高估兩級。
+
+而且**不能靠「假設遊戲顯示的是加成後」來反推** —— 那是猜的。真憑據是技能說明裡的數字：
+
+| 畫面 | 資料 | 結論 |
+|---|---|---|
+| 活力填充S Lv.6「回復活力43」 | `ms['Charge Energy S'].energy[5] = 43.4` | 有效等級 = 6 |
+| 食材獲取S Lv.3「隨機獲得11個食材」 | `ms['Ingredient Magnet S'].ingredient[2] = 11` | 有效等級 = 3 |
+
+所以 `impEffFromPayload` 用說明數字**反查**有效等級，再減掉副技能加成得到基礎值。有效等級已達上限時基礎值只能推到下界，但那時候再高也一樣（`clamp` 會壓回上限），不影響計算 —— UI 會把這件事寫出來。
+
+**改動 `import.js` 的主技能等級推導時，兩隻 golden case 都要重跑。**
+
 ## 資料重建
 
 遊戲資料是靜態快照（見頁面「資料版本」的 commit 與日期）。重建：
@@ -176,7 +225,7 @@ node tools/extract-data.mjs        # 會印出用法
 
 ```bash
 npm i playwright-core
-npm test                         # smoke：引擎、單調性、窮舉不變量、雙後端、Sheet 往返、Worker、文案一致性、schema 偏移
+npm test                         # smoke：引擎、單調性、窮舉不變量、雙後端、Sheet 往返、Worker、截圖匯入、文案一致性、schema 偏移
 npm run verify                   # 慢速（數分鐘）：大箱子的順序不變性、FINALISTS 夠不夠
 ```
 
@@ -190,6 +239,14 @@ Chromium 由 `tests/chromium.mjs` **自動尋找** —— playwright-core 下載
 
 CI 在 `.github/workflows/ci.yml`，push / PR 都會跑。
 
-**注意：目前的測試全是結構性／相對性斷言，抓不到公式係數的改動。** 實測把 `energyF` 的 `0.45` 改成 `0.50`，全部依然通過。要擋住這類迴歸還缺**引擎輸出的快照測試（golden file）**，見 `TODO.md` 的「引擎輸出的快照測試」。
+**測試對公式係數的覆蓋是「一半」，要知道缺哪一半。**
+
+截圖匯入那一節（第 11b）是目前唯一有**絕對數值**的斷言 —— 兩隻真實寶可夢的 `幫忙間隔 = 1911 / 2458 秒`、`持有上限 = 35 / 65 個` 是逐欄手算對照過的期望值，不是程式算完存回去的。所以動到這些會紅：
+
+- `helpInterval` 的 `1 - 0.002*(level-1)`、`2 - nat.f`、幫忙速度副技能的 `0.14 / 0.07`、`ribbonFreqMul`
+- `baseStats` 的 `carry` 算式、`RIBBON_CARRY`、`Inventory Up S/M/L` 的 `6/12/18`
+- 性格與副技能的數值表
+
+**但能量／模擬／料理那一側還是沒有絕對基準。** 把 `energyF` 的 `0.45` 改成 `0.50` 依然全過 —— 那條路徑不影響幫忙間隔也不影響持有上限。要擋住那一半還是得做**引擎輸出的快照測試（golden file）**，見 `TODO.md` 第 2 項。
 
 動引擎時的臨時替代做法：改之前先跑一次固定 seed、記下 `lastResults[0].total`，改完再比。Worker 重構就是這樣驗證數值等價的（`804479.78`，前後完全一致）。

@@ -141,6 +141,114 @@
   </div></div>
 </section>
 
+<!-- ============ IMPORT FROM SCREENSHOT ============ -->
+<section>
+  <div class="sechead">
+    <h2>從截圖建立</h2>
+    <span class="muted" style="font-size:12.5px">填畫面上看得到的，<b>物種／緞帶／食材欄位由程式反解</b></span>
+  </div>
+  <div class="panel"><div class="pbody">
+
+    <div class="impdrop" id="impDrop" tabindex="0" role="button"
+         aria-label="上傳或貼上寶可夢截圖">
+      <b>把截圖拖進來、點這裡選檔，或直接 Ctrl+V 貼上</b>
+      <span class="muted">每隻需要兩張：<b>上半</b>（等級＋食材 ×N）和<b>下半</b>（副技能＋性格＋主技能）。圖片只在這個頁面顯示當對照用，不會被儲存或上傳。</span>
+      <input type="file" id="impFile" accept="image/*" multiple hidden>
+    </div>
+    <div class="impshots" id="impShots"></div>
+
+    <div class="notice" style="margin:14px 0 12px">
+      <b>幫忙間隔</b>和<b>持有上限</b>是反解的關鍵 —— 這兩個數字能算出物種、進化階段和睡眠緞帶，
+      並且驗證其他欄位有沒有讀錯。<b>務必填這兩個。</b>
+    </div>
+
+    <div class="wk">
+      <label class="f">等級
+        <input type="number" id="impLevel" min="1" max="70" placeholder="60">
+      </label>
+      <label class="f">幫忙間隔　分
+        <input type="number" id="impIvMin" min="0" max="120" placeholder="31">
+      </label>
+      <label class="f">幫忙間隔　秒
+        <input type="number" id="impIvSec" min="0" max="59" placeholder="51">
+      </label>
+      <label class="f">持有上限
+        <input type="number" id="impCarry" min="1" max="200" placeholder="35">
+      </label>
+      <label class="f">專長
+        <select id="impSpec">
+          <option value="">未指定</option>
+          <option value="berry">樹果</option>
+          <option value="ingredient">食材</option>
+          <option value="skill">技能</option>
+          <option value="all">全能</option>
+        </select>
+      </label>
+      <label class="f">好露營券
+        <select id="impCamp">
+          <option value="">未指定（兩種都試）</option>
+          <option value="0">沒有</option>
+          <option value="1">有</option>
+        </select>
+      </label>
+      <label class="f span2">主技能
+        <select id="impMs"></select>
+      </label>
+      <label class="f">主技能顯示 Lv
+        <input type="number" id="impSkillLv" min="1" max="8" placeholder="6">
+      </label>
+      <label class="f">技能說明的數字
+        <input type="number" id="impPayload" min="0" placeholder="43">
+      </label>
+      <label class="f span2">性格
+        <select id="impNature"></select>
+      </label>
+      <label class="f span2">副技能（1→5 格，依畫面上的排列順序：左→右、上→下）
+        <div class="ss-mini" id="impSs"></div>
+      </label>
+      <label class="f span2">食材 ×N 的數字（三格，由左到右）
+        <div class="ss-mini" style="grid-template-columns:repeat(3,1fr)">
+          <input type="number" id="impIng0" min="1" max="30" placeholder="×2">
+          <input type="number" id="impIng1" min="1" max="30" placeholder="×4">
+          <input type="number" id="impIng2" min="1" max="30" placeholder="×6">
+        </div>
+      </label>
+    </div>
+
+    <div style="display:flex;flex-wrap:wrap;gap:9px;align-items:center;margin-top:16px">
+      <button class="btn primary" id="impSolveBtn" type="button">自動判斷</button>
+      <button class="btn ghost" id="impReset" type="button">清空</button>
+      <span class="status" id="impStatus"></span>
+    </div>
+
+    <!-- 校對區：自動判斷完的結果，每一欄都還能改，確認了才進箱子 -->
+    <div id="impReview" hidden>
+      <div class="impsep"></div>
+      <div class="sechead" style="margin-bottom:10px">
+        <h3>確認自動判斷的結果</h3>
+        <span class="muted" style="font-size:12px">每一欄都可以改；改完會立刻重新校驗</span>
+      </div>
+      <div id="impChecks" class="impchecks"></div>
+      <div id="impNotes"></div>
+      <div class="panel" style="margin-top:12px;box-shadow:none">
+        <div class="pbody" style="padding:10px">
+          <div class="boxrow head">
+            <div>種類</div><div>等級</div><div>性格</div><div>副技能（1→5 格）</div><div>食材組合</div><div>技能Lv</div><div>緞帶</div><div></div>
+          </div>
+          <div id="impRow"></div>
+        </div>
+      </div>
+      <div id="impAlts"></div>
+      <div style="display:flex;flex-wrap:wrap;gap:9px;align-items:center;margin-top:14px">
+        <button class="btn primary" id="impSave" type="button">存入箱子</button>
+        <button class="btn ghost" id="impDiscard" type="button">捨棄</button>
+        <span class="status" id="impSaveStatus"></span>
+      </div>
+    </div>
+
+  </div></div>
+</section>
+
 <!-- ============ BOX ============ -->
 <section>
   <div class="sechead">
@@ -158,8 +266,8 @@
     <div id="boxList"></div>
     <div class="empty" id="boxEmpty">
       <div style="font-weight:700;color:var(--ink);font-size:15px;margin-bottom:6px">箱子還是空的</div>
-      按「＋ 新增一隻」逐隻建立（點開種類選單後打中文名可跳選），或用「貼上 JSON」還原備份。<br>
-      也可以直接把持有清單的截圖丟給 Claude 代建 —— 每隻需要看到等級、性格、五格副技能、三格食材。
+      用上面的<b>「從截圖建立」</b>最快 —— 填畫面上看得到的數字，物種、進化階段、睡眠緞帶和食材欄位由程式反解，還會驗算對不對。<br>
+      也可以按「＋ 新增一隻」逐隻建立（點開種類選單後打中文名可跳選），或用「貼上 JSON」還原備份。
     </div>
   </div></div>
 </section>
@@ -250,9 +358,10 @@ try {
   for (const k of ['ings', 'berries', 'dex', 'recipes', 'ms', 'natures', 'subskills', 'islands', 'meta'])
     if (!data[k]) throw new Error(`data/game.json 缺少 "${k}" —— 檔案不完整`);
   window.GAMEDATA = data;
-  /* 順序有意義：engine.js 宣告 D 與所有引擎函式，app.js 直接用那些全域名字。
-     兩個都是 classic script，共用全域作用域。 */
-  for (const src of ['./src/engine.js', './src/app.js']) {
+  /* 順序有意義：engine.js 宣告 D 與所有引擎函式，import.js 用引擎的 baseStats 與
+     helpInterval 做截圖反解，app.js 直接用前兩者的全域名字。
+     三個都是 classic script，共用全域作用域。 */
+  for (const src of ['./src/engine.js', './src/import.js', './src/app.js']) {
     await new Promise((ok, bad) => {
       const s = document.createElement('script');
       s.src = src;
