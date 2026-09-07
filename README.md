@@ -1,24 +1,63 @@
-卡比獸週隊推演台 (Pokémon Sleep Weekly Team Planner)
+# 卡比獸週隊推演台
 
-This product includes game data and formula constants derived from:
+Pokémon Sleep 每週最佳隊伍推演工具。輸入本週的加成樹果與目標料理，從你的寶可夢箱**窮舉**出週能量最高的 5 隻組合。
 
-  Neroli's Lab (SleepAPI)
-  Copyright The Neroli's Lab Authors
-  https://github.com/nerolis-lab/nerolis-lab
-  Licensed under the Apache License, Version 2.0 (see LICENSE)
+單一 HTML 檔、零依賴、沒有 build step。
 
-Extracted at commit 7814857 (2026-08-30). The data was reshaped into a
-compact JSON form and embedded in index.html; the simulation logic in this
-project is an independent re-implementation of the documented formulas and
-is NOT the upstream code. Known simplifications are listed in the page
-itself under "計算方式與已知簡化".
+## 功能
 
-Traditional Chinese terminology (Pokémon, research areas, berries,
-ingredients, natures, sub-skills, main skills, recipes) comes from the
-game's own localisation strings as surfaced by RaenonX Pokémon Sleep Wiki
-(https://pks.raenonx.cc), cross-checked against 神奇寶貝百科 / 52poke
-(https://wiki.52poke.com).
+- **隊伍 × 食譜聯合最佳化** — 對每一組隊伍試遍所有候選食譜，取最佳搭配再排名，而不是先選食譜再挑隊伍
+- **完整模擬引擎** — 幫手頻率、活力分段（10 分鐘一格模擬 24 小時並疊代至穩態）、食材機率與欄位輪替、攜帶上限與偷吃、主技能發動（含 pity）
+- **隊伍互動** — 幫手獎勵按人數疊加、活力回復獎勵、補能量回饋收斂、幫手加速依同樹果種類數放大（5→11 次幫手）、負電需正電夥伴
+- **21 餐排程** — 同一個食材池貪婪填滿一週 21 餐，多重起點避免貪婪陷阱
+- **個別食譜等級** — 每道分別設定（Lv1 ×1.00 → Lv70 ×3.58）
+- **完整繁體中文** — 246 隻寶可夢、78 道食譜、性格／副技能／主技能／樹果／食材／研究區域
+- 深色／淺色主題、手機版面
 
-Pokémon and Pokémon character names are trademarks of Nintendo, Creatures
-Inc. and GAME FREAK Inc. This is an unofficial fan-made tool with no
-affiliation to, endorsement by, or sponsorship from any of them.
+## 資料儲存
+
+一份程式碼，兩種後端，自動判斷：
+
+| 環境 | 後端 |
+|---|---|
+| 自架（GitHub Pages 等） | **你的 Google Sheet**，透過 Apps Script — 見 [SETUP-google-sheet.md](SETUP-google-sheet.md) |
+| claude.ai artifact | 該 artifact 內建的資料庫 |
+| 都沒設定 | 只存 `localStorage`（單一裝置） |
+
+`localStorage` 在任何情況下都會寫一份離線副本。另外「寶可夢箱」頁有「複製 JSON／貼上 JSON」可以手動備份搬移。
+
+## 發布到 GitHub Pages
+
+```bash
+git clone <你的 repo>
+# 把 index.html / README.md / SETUP-google-sheet.md / LICENSE / NOTICE / apps-script 放進去
+git add -A && git commit -m "init" && git push
+```
+
+Settings → Pages → Source 選 `main` 分支根目錄。幾分鐘後 `https://<帳號>.github.io/<repo>/` 上線。
+
+## 資料版本
+
+遊戲數值是**靜態快照**（頁面底部「資料版本」有 commit 與日期）。遊戲改版後不會自己更新。
+
+更新方式：從 [Neroli's Lab](https://github.com/nerolis-lab/nerolis-lab) 重新萃取，替換 `index.html` 裡 `<script id="gamedata">` 的內容，`meta` 欄位改成新的 commit／日期。`zh` 那個區塊是繁中對照表，**上游沒有，要保留**。
+
+## 已知簡化
+
+頁面底部「計算方式與已知簡化」分成 **有算 / 近似處理 / 還沒做** 三類。摘要：
+
+- 補能量以每日總量平均攤到白天，不是隨機時點的逐次事件（對補師略微樂觀）
+- 揮指／技能複製／十項全能以全部基礎主技能的平均值近似
+- 食材精選（Ingredient Draw）的專屬食材池未實作 — 數量對、種類不對
+- 專家模式喜好樹果頻率修正、期間限定活動加成、週日單獨最佳化、薰香：均未納入
+- 上游資料落後遊戲：脂紅火山、活力回復提升 S／M、超夢尚未收錄
+
+絕對數值會有誤差，但**隊伍之間的排序可靠** —— 那才是這個工具要回答的問題。
+
+## 授權
+
+程式碼與繁中對照表：自由使用。
+
+遊戲數值取自 [Neroli's Lab / SleepAPI](https://github.com/nerolis-lab/nerolis-lab)，Apache-2.0 — 詳見 [LICENSE](LICENSE) 與 [NOTICE](NOTICE)。**公開發布請保留這兩個檔案。**
+
+Pokémon 為 Nintendo / Creatures Inc. / GAME FREAK Inc. 商標。非官方同人工具。

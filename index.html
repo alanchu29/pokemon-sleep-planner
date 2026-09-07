@@ -1,4 +1,1387 @@
-.DS_Store
-node_modules/
-*.log
-.clasp.json
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="description" content="Pokémon Sleep 每週最佳隊伍推演工具 — 依本週加成樹果與目標料理，從你的寶可夢箱窮舉最高週能量的 5 隻組合。">
+<style>html{color-scheme:light}body{margin:0;font:14px system-ui,sans-serif}img{max-width:100%}[hidden]{display:none!important}</style>
+</head>
+<body>
+<title>卡比獸週隊推演台</title>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=Noto+Sans+TC:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+:root{
+  --bg:#EDF0F6; --surface:#FFFFFF; --surface-2:#F4F6FB; --surface-3:#E7EBF4;
+  --ink:#171A2B; --ink-2:#39405C; --muted:#5A6280; --line:#D9DFEC; --line-2:#C6CEE0;
+  --berry:#D2456B; --ing:#C87D14; --skill:#2E8DA6; --pos:#3B8F5E; --neg:#C4453A;
+  --accent:#B4690E; --accent-ink:#FFFFFF; --chip-on-ink:#FFFFFF; --shadow:0 1px 2px rgba(23,26,43,.06),0 8px 24px -12px rgba(23,26,43,.18);
+  --mono:"IBM Plex Mono",ui-monospace,monospace;
+  --body:"Noto Sans TC","Helvetica Neue",system-ui,sans-serif;
+  --display:"Bricolage Grotesque","Noto Sans TC",system-ui,sans-serif;
+  color-scheme:light;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#0E1023; --surface:#181B34; --surface-2:#1F2342; --surface-3:#272C51;
+  --ink:#E9EBF6; --ink-2:#C3C8E0; --muted:#949CBE; --line:#2B3059; --line-2:#3A4070;
+  --berry:#F0819D; --ing:#E9AE4B; --skill:#5FC0D6; --pos:#63C48D; --neg:#EE7A6E;
+  --accent:#E9AE4B; --accent-ink:#1A1405; --chip-on-ink:#2A0710; --shadow:0 1px 2px rgba(0,0,0,.4),0 10px 30px -14px rgba(0,0,0,.7);
+  color-scheme:dark;
+}}
+:root[data-theme="dark"]{
+  --bg:#0E1023; --surface:#181B34; --surface-2:#1F2342; --surface-3:#272C51;
+  --ink:#E9EBF6; --ink-2:#C3C8E0; --muted:#949CBE; --line:#2B3059; --line-2:#3A4070;
+  --berry:#F0819D; --ing:#E9AE4B; --skill:#5FC0D6; --pos:#63C48D; --neg:#EE7A6E;
+  --accent:#E9AE4B; --accent-ink:#1A1405; --chip-on-ink:#2A0710; --shadow:0 1px 2px rgba(0,0,0,.4),0 10px 30px -14px rgba(0,0,0,.7);
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font-family:var(--body);line-height:1.6;-webkit-font-smoothing:antialiased}
+.wrap{max-width:1180px;margin:0 auto;padding:24px 20px 80px}
+h1,h2,h3{font-family:var(--display);font-weight:800;text-wrap:balance;margin:0;letter-spacing:-.01em}
+h1{font-size:clamp(24px,3.4vw,34px);line-height:1.15}
+h2{font-size:19px;line-height:1.25}
+h3{font-size:15px;font-weight:600}
+.eyebrow{font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);font-weight:600;font-family:var(--mono)}
+.num{font-family:var(--mono);font-variant-numeric:tabular-nums}
+.muted{color:var(--muted)}
+a{color:var(--accent)}
+
+/* ---- header ---- */
+header.top{display:flex;flex-wrap:wrap;gap:14px 20px;align-items:flex-end;justify-content:space-between;padding-bottom:18px;border-bottom:1px solid var(--line)}
+header.top p{margin:4px 0 0;color:var(--muted);font-size:13.5px;max-width:60ch}
+.viewnav{display:flex;gap:2px;padding:3px;background:var(--surface-2);border:1px solid var(--line);border-radius:999px}
+.viewnav button{font-family:var(--body);font-size:12.5px;padding:5px 14px;border:0;border-radius:999px;background:none;color:var(--muted);cursor:pointer;font-weight:500}
+.viewnav button[aria-pressed="true"]{background:var(--surface);color:var(--ink);font-weight:700;box-shadow:0 1px 2px rgba(0,0,0,.08)}
+.rlvbar{display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end;margin-bottom:14px}
+.rlvtable input[type=number]{width:62px;padding:4px 6px;text-align:center}
+.rlvtable td,.rlvtable th{padding:5px 9px}
+.themebtn{background:none;border:1px solid var(--line-2);color:var(--ink-2);border-radius:999px;padding:5px 13px;font-size:12px;cursor:pointer;font-family:var(--body)}
+.themebtn:hover{background:var(--surface-2)}
+
+/* ---- panels ---- */
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:12px;box-shadow:var(--shadow)}
+.panel > .phead{display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between;padding:13px 16px;border-bottom:1px solid var(--line)}
+.panel > .pbody{padding:16px}
+section{margin-top:26px}
+.sechead{display:flex;flex-wrap:wrap;gap:8px 16px;align-items:baseline;justify-content:space-between;margin-bottom:12px}
+
+/* ---- form controls ---- */
+.grid{display:grid;gap:14px}
+label.f{display:flex;flex-direction:column;gap:5px;font-size:12px;color:var(--muted);font-weight:500}
+select,input[type=text],input[type=number]{font-family:var(--body);font-size:13.5px;color:var(--ink);background:var(--surface-2);border:1px solid var(--line-2);border-radius:7px;padding:7px 9px;width:100%}
+input[type=number]{font-family:var(--mono);font-variant-numeric:tabular-nums}
+select:focus-visible,input:focus-visible,button:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+input[type=range]{width:100%;accent-color:var(--accent)}
+.btn{font-family:var(--body);font-size:13px;font-weight:500;border-radius:8px;padding:8px 15px;cursor:pointer;border:1px solid var(--line-2);background:var(--surface-2);color:var(--ink)}
+.btn:hover{background:var(--surface-3)}
+.btn.primary{background:var(--accent);color:var(--accent-ink);border-color:transparent;font-weight:700}
+.btn.primary:hover{filter:brightness(1.07)}
+.btn.sm{padding:4px 9px;font-size:12px}
+.btn.ghost{background:none}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chip{font-size:12px;padding:4px 10px;border-radius:999px;border:1px solid var(--line-2);background:var(--surface-2);color:var(--ink-2);cursor:pointer;font-family:var(--body)}
+.chip[aria-pressed="true"]{background:var(--berry);border-color:transparent;color:var(--chip-on-ink);font-weight:600}
+
+/* ---- weekly settings layout ---- */
+.wk{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:14px}
+.wk .span2{grid-column:span 2}
+@media(max-width:640px){.wk .span2{grid-column:span 1}}
+
+/* ---- result hero ---- */
+.hero{display:grid;grid-template-columns:minmax(0,1fr) 280px;gap:0}
+@media(max-width:860px){.hero{grid-template-columns:1fr}}
+.hero .roster{padding:16px;display:flex;flex-direction:column;gap:9px}
+.hero .totals{padding:16px;border-left:1px solid var(--line);background:var(--surface-2);display:flex;flex-direction:column;gap:14px}
+@media(max-width:860px){.hero .totals{border-left:0;border-top:1px solid var(--line)}}
+.bigfig{font-family:var(--mono);font-variant-numeric:tabular-nums;font-size:30px;font-weight:600;line-height:1;letter-spacing:-.02em}
+.subfig{display:flex;justify-content:space-between;gap:10px;font-size:12.5px;padding:5px 0;border-bottom:1px dotted var(--line-2)}
+.subfig:last-child{border-bottom:0}
+.subfig b{font-family:var(--mono);font-weight:600}
+
+/* ---- member row ---- */
+.mem{display:grid;grid-template-columns:22px minmax(0,1fr) auto;gap:12px;align-items:center;padding:9px 11px;border-radius:9px;background:var(--surface-2);border:1px solid var(--line)}
+.mem .rank{font-family:var(--mono);font-size:12px;color:var(--muted);text-align:center}
+.mem .nm{font-weight:700;font-size:14px;display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.mem .meta{font-size:11.5px;color:var(--muted);font-family:var(--mono);margin-top:1px}
+.mem .out{text-align:right;font-family:var(--mono);font-size:12px;white-space:nowrap}
+.tag{font-size:10.5px;font-weight:700;padding:1px 6px;border-radius:4px;letter-spacing:.03em;font-family:var(--mono)}
+.tag.berry{background:color-mix(in srgb,var(--berry) 16%,transparent);color:var(--berry)}
+.tag.ing{background:color-mix(in srgb,var(--ing) 20%,transparent);color:var(--ing)}
+.tag.skill{background:color-mix(in srgb,var(--skill) 18%,transparent);color:var(--skill)}
+.tag.all{background:color-mix(in srgb,var(--pos) 18%,transparent);color:var(--pos)}
+.tag.fav{background:color-mix(in srgb,var(--berry) 90%,var(--ink));color:#fff}
+.tag.pin{background:var(--surface-3);color:var(--ink-2)}
+
+/* ---- bars ---- */
+.barrow{display:grid;grid-template-columns:88px minmax(0,1fr) 74px;gap:10px;align-items:center;font-size:12px;padding:3px 0}
+.bar{height:9px;border-radius:3px;background:var(--surface-3);overflow:hidden;position:relative}
+.bar > i{display:block;height:100%;border-radius:3px}
+.barrow .v{text-align:right;font-family:var(--mono);font-variant-numeric:tabular-nums}
+.lack .v{color:var(--neg);font-weight:600}
+
+/* ---- tables ---- */
+.scroll{overflow-x:auto;border-radius:9px;border:1px solid var(--line)}
+table{border-collapse:collapse;width:100%;font-size:13px}
+th,td{text-align:left;padding:7px 9px;border-bottom:1px solid var(--line);white-space:nowrap}
+th{font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);font-weight:600;background:var(--surface-2);position:sticky;top:0}
+tbody tr:last-child td{border-bottom:0}
+tbody tr:hover{background:var(--surface-2)}
+td.n{font-family:var(--mono);font-variant-numeric:tabular-nums}
+.alt{cursor:pointer}
+.alt.on{background:color-mix(in srgb,var(--accent) 12%,transparent)}
+
+/* ---- box editor ---- */
+.boxrow{display:grid;grid-template-columns:minmax(112px,1fr) 44px 100px minmax(225px,2.4fr) minmax(190px,2.1fr) 44px 74px 84px;gap:8px;align-items:center;padding:8px;border-bottom:1px solid var(--line)}
+.boxrow:last-of-type{border-bottom:0}
+.boxrow.head{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:600;background:var(--surface-2);border-radius:8px 8px 0 0}
+@media(max-width:900px){
+  .boxrow{grid-template-columns:1fr 1fr;gap:8px 10px}
+  .boxrow.head{display:none}
+  .boxrow{border:1px solid var(--line);border-radius:9px;margin-bottom:8px;padding:11px}
+  .boxrow > *[data-lbl]::before{content:attr(data-lbl);display:block;font-size:10.5px;color:var(--muted);letter-spacing:.06em;text-transform:uppercase;margin-bottom:3px}
+}
+.ss-mini{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:4px}
+.ss-mini select{padding:4px 2px;font-size:11px;text-overflow:ellipsis}
+.notice{font-size:12.5px;padding:9px 12px;border-radius:8px;background:var(--surface-2);border:1px solid var(--line);color:var(--ink-2)}
+.notice.warn{border-color:color-mix(in srgb,var(--neg) 45%,var(--line));background:color-mix(in srgb,var(--neg) 8%,var(--surface))}
+.empty{padding:34px 16px;text-align:center;color:var(--muted);font-size:13.5px}
+details.notes{margin-top:26px;font-size:13px;color:var(--ink-2)}
+details.notes summary{cursor:pointer;font-family:var(--display);font-weight:600;font-size:14px;color:var(--ink)}
+details.notes ul{padding-left:1.1em;margin:10px 0}
+details.notes li{margin:5px 0;max-width:74ch}
+.status{font-size:12px;color:var(--muted);font-family:var(--mono)}
+.verwrap{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:20px;align-items:start;font-size:12.5px}
+.verwrap .eyebrow{margin-bottom:3px}
+.verwrap .num,.verwrap code{font-family:var(--mono);font-size:12px;color:var(--ink-2)}
+.pillrow{display:flex;flex-wrap:wrap;gap:7px;align-items:center}
+.pill{font-size:11.5px;font-family:var(--mono);padding:3px 9px;border-radius:999px;background:var(--surface-3);color:var(--ink-2)}
+@media(max-width:820px){.grid[style*="1.1fr"]{grid-template-columns:1fr!important}}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+</style>
+
+<div class="wrap">
+<header class="top">
+  <div>
+    <div class="eyebrow">Pokémon Sleep · 週隊伍最佳化</div>
+    <h1>卡比獸週隊推演台</h1>
+    <p>輸入本週的加成樹果與目標料理，從你的寶可夢箱窮舉出週能量最高的 5 隻組合。計算式取自 Neroli's Lab 開源模擬器。</p>
+  </div>
+  <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+    <nav class="viewnav" id="viewNav">
+      <button type="button" data-view="plan" aria-pressed="true">推演</button>
+      <button type="button" data-view="box" aria-pressed="false">寶可夢箱</button>
+      <button type="button" data-view="recipes" aria-pressed="false">食譜等級</button>
+    </nav>
+    <span class="status" id="saveStatus"></span>
+    <button class="themebtn" id="themeBtn" type="button">切換主題</button>
+  </div>
+</header>
+
+<div class="view" id="view-plan">
+<!-- ============ WEEKLY SETTINGS ============ -->
+<section>
+  <div class="sechead">
+    <h2>本週條件</h2>
+    <span class="muted" style="font-size:12.5px">每週一重置後更新這一區</span>
+  </div>
+  <div class="panel"><div class="pbody">
+    <div class="wk">
+      <label class="f">研究區域
+        <select id="island"></select>
+      </label>
+      <label class="f">地區加成 %
+        <input type="number" id="areaBonus" min="0" max="85" step="5" value="15">
+      </label>
+      <label class="f">鍋子容量
+        <input type="number" id="pot" min="21" max="81" step="1" value="57">
+      </label>
+      <label class="f">睡眠時數
+        <input type="number" id="sleepH" min="1.5" max="13" step="0.5" value="8.5">
+      </label>
+      <label class="f">好露營券
+        <select id="camp"><option value="0">沒有</option><option value="1">有（頻率/容量 ×1.2、鍋 ×1.5）</option></select>
+      </label>
+      <label class="f">最佳化目標
+        <select id="mode">
+          <option value="total">綜合週能量（樹果＋料理＋技能）</option>
+          <option value="dish">衝料理：最大化目標食譜產出</option>
+          <option value="berry">衝樹果：最大化樹果能量</option>
+        </select>
+      </label>
+      <label class="f span2">本週加成樹果（萌綠之島／專家模式自選 3 種）
+        <div class="chips" id="favBerries" style="padding-top:2px"></div>
+      </label>
+      <label class="f">料理類型
+        <select id="dishType"><option value="curry">咖哩／燉菜</option><option value="salad">沙拉</option><option value="dessert">甜點／飲料</option></select>
+      </label>
+      <label class="f">食譜選擇
+        <select id="recipePick">
+          <option value="auto">自動配對 — 隊伍與食譜一起算</option>
+          <option value="manual">手動指定一道</option>
+        </select>
+      </label>
+      <label class="f">考慮範圍
+        <select id="recipeScope">
+          <option value="type">只限本週料理類型</option>
+          <option value="all">三類都納入比較</option>
+        </select>
+      </label>
+      <label class="f span2">目標食譜<span id="recipeAutoNote" class="muted" style="font-weight:400"></span>
+        <select id="recipe"></select>
+      </label>
+      <label class="f">預設食譜等級<span class="muted" style="font-weight:400" id="rlvCount"></span>
+        <input type="number" id="recipeLv" min="1" max="70" step="1" value="20">
+      </label>
+    </div>
+    <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-top:16px">
+      <button class="btn primary" id="runBtn" type="button">推演最佳隊伍</button>
+      <span class="status" id="runStatus"></span>
+    </div>
+  </div></div>
+</section>
+
+<!-- ============ RESULTS ============ -->
+<section id="resultSec">
+  <div class="sechead">
+    <h2>推演結果</h2>
+    <span class="muted" style="font-size:12.5px" id="comboCount"></span>
+  </div>
+  <div id="results"></div>
+</section>
+
+</div><!-- /view-plan -->
+
+<div class="view" id="view-box" hidden>
+<section id="syncSection" hidden>
+  <div class="sechead"><h2>雲端同步</h2><span class="muted" style="font-size:12.5px">用你自己的 Google Sheet 存寶可夢箱</span></div>
+  <div class="panel"><div class="pbody">
+    <div class="wk">
+      <label class="f span2">Apps Script Web App 網址
+        <input type="text" id="syncUrl" placeholder="https://script.google.com/macros/s/AKfy.../exec" autocomplete="off" spellcheck="false">
+      </label>
+      <label class="f">存取金鑰
+        <input type="text" id="syncToken" placeholder="與 Code.gs 裡的 TOKEN 相同" autocomplete="off" spellcheck="false">
+      </label>
+    </div>
+    <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:14px">
+      <button class="btn primary" id="syncPull" type="button">連線並下載</button>
+      <button class="btn" id="syncPush" type="button">立即上傳</button>
+      <button class="btn ghost" id="syncOff" type="button">停用同步</button>
+      <span class="status" id="syncStatus"></span>
+    </div>
+    <div class="notice" style="margin-top:12px">網址與金鑰只存在<b>這台瀏覽器</b>，不會上傳到任何地方。設定步驟見 repo 裡的 <code>SETUP-google-sheet.md</code>。</div>
+  </div></div>
+</section>
+
+<!-- ============ BOX ============ -->
+<section>
+  <div class="sechead">
+    <h2>我的寶可夢箱</h2>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <button class="btn sm" id="addBtn" type="button">＋ 新增一隻</button>
+      <button class="btn sm ghost" id="exportBtn" type="button">複製 JSON</button>
+      <button class="btn sm ghost" id="importBtn" type="button">貼上 JSON</button>
+    </div>
+  </div>
+  <div class="panel"><div class="pbody" style="padding:10px">
+    <div class="boxrow head">
+      <div>種類（點開後打中文名可跳選）</div><div>等級</div><div>性格</div><div>副技能（1→5 格）</div><div>食材組合</div><div>技能Lv</div><div>緞帶</div><div></div>
+    </div>
+    <div id="boxList"></div>
+    <div class="empty" id="boxEmpty">
+      <div style="font-weight:700;color:var(--ink);font-size:15px;margin-bottom:6px">箱子還是空的</div>
+      按「＋ 新增一隻」逐隻建立（種類欄位打圖鑑編號最快），或用「貼上 JSON」還原備份。<br>
+      也可以直接把持有清單的截圖丟給 Claude 代建 —— 每隻需要看到等級、性格、五格副技能、三格食材。
+    </div>
+  </div></div>
+</section>
+
+</div><!-- /view-box -->
+
+<div class="view" id="view-recipes" hidden>
+<section>
+  <div class="sechead">
+    <h2>食譜等級</h2>
+    <span class="muted" style="font-size:12.5px">重複煮同一道會升級，等級加成從 Lv1 的 1.00× 到 Lv70 的 3.58×</span>
+  </div>
+  <div class="panel"><div class="pbody">
+    <div class="rlvbar">
+      <label class="f">篩選類型
+        <select id="rlvType"><option value="all">全部</option><option value="curry">咖哩／濃湯</option><option value="salad">沙拉</option><option value="dessert">甜點／飲品</option></select>
+      </label>
+      <label class="f">搜尋食譜
+        <input type="text" id="rlvSearch" placeholder="打中文名或食材">
+      </label>
+      <label class="f">排序
+        <select id="rlvSort"><option value="value">單道能量（高→低）</option><option value="lv">等級（高→低）</option><option value="cnt">食材數（少→多）</option><option value="name">名稱</option></select>
+      </label>
+      <button class="btn sm" id="rlvClear" type="button">清除全部個別設定</button>
+    </div>
+    <div class="notice" style="margin-bottom:12px">留空的食譜會套用「本週條件」裡的<b>預設食譜等級</b>。只需要填你真的煮過的那幾道 —— 其他留空就好。</div>
+    <div class="scroll"><table class="rlvtable"><thead><tr>
+      <th>食譜</th><th>類型</th><th style="text-align:right">食材數</th><th style="text-align:center">等級</th><th style="text-align:right">倍率</th><th style="text-align:right">單道能量</th>
+    </tr></thead><tbody id="rlvBody"></tbody></table></div>
+  </div></div>
+</section>
+</div><!-- /view-recipes -->
+
+<section>
+  <div class="sechead"><h2>資料版本</h2><span class="muted" style="font-size:12.5px">遊戲改版後需要更新這裡</span></div>
+  <div class="panel"><div class="pbody">
+    <div class="verwrap">
+      <div>
+        <div class="eyebrow">遊戲數值來源</div>
+        <div class="num" id="verSrc">—</div>
+        <div class="eyebrow" style="margin-top:11px">中文名稱來源</div>
+        <div id="verZh">—</div>
+      </div>
+      <div>
+        <div class="eyebrow">收錄範圍</div>
+        <div id="verCounts">—</div>
+        <div class="eyebrow" style="margin-top:11px">上次檢查</div>
+        <div id="verStatus">—</div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:9px;align-items:flex-start">
+        <button class="btn" id="refreshBtn" type="button">請求更新資料</button>
+        <div id="refreshNote" class="muted" style="font-size:11.5px;line-height:1.5">頁面本身不能連網，所以這顆按鈕是<b>把請求排入佇列</b> —— Claude 每週一早上會收單，比對上游與官網公告後更新。想立刻更新，直接在對話裡說一句最快。</div>
+      </div>
+    </div>
+  </div></div>
+</section>
+
+<details class="notes">
+  <summary>計算方式與已知簡化</summary>
+  <ul>
+    <li><b>幫手頻率</b>：<code class="num">floor(round((2−性格速度)×副技能×(1−0.002×(Lv−1))×緞帶,4) × 種族頻率 ÷ 露營加成)</code>，副技能折扣硬上限 35%。幫手獎勵（HB）按隊上持有人數 ×5% 計入，最多 5 人。</li>
+    <li><b>能量</b>：以 10 分鐘為一格模擬 24 小時並疊代至穩態。頻率倍率採 0.45／0.52／0.58／0.66／1.00（能量 ≥80／≥60／≥40／≥1／0）。能量超過 80 沒有額外好處，所以推演會把「能量支援過剩」視為浪費。</li>
+    <li><b>食材</b>：每次幫手以 <code class="num">(種族食材%×性格×(1+食材加成))</code> 判定，命中後在已解鎖的欄位間<b>等機率</b>取一格。欄位在 Lv 1／30／60 解鎖。</li>
+    <li><b>攜帶上限</b>：只在睡眠時段生效。裝滿之後進入「偷吃」——只產樹果、食材歸零、且不觸發主技能。</li>
+    <li><b>料理</b>：以「本週能煮成幾次目標食譜」計分，一週上限 21 餐，暴擊採週平均 <code class="num">1.171</code>。星期日的鍋子 ×2 與暴擊 ×3 已含在平均裡，但<b>沒有</b>單獨最佳化週日那一餐。</li>
+    <li><b>隊伍互動（有算）</b>：幫手獎勵按隊上人數疊加；活力回復獎勵影響全隊睡眠回復；活力全體療癒／活力療癒的補能量會回饋進模擬並疊代收斂；幫手支援／幫手加速的額外幫手計入；<b>幫手加速會依隊上與牠同樹果的不同種類數放大</b>（2→11 次幫手）；負電只有在隊上有正電夥伴時才給能量。</li>
+    <li><b>活力檔位</b>：最快檔位是 <code class="num">活力 ≥ 80 → ×0.45</code>，而且 80 到 150 是<b>同一格</b> —— 超過 80 不會更快。追高活力的價值在於「掉回 80 以下要更久」：起床 100 只撐 3.3 小時，起床 150 撐 11.7 小時，一天多約 8 小時跑在最快檔。每隻的「最快檔位 Xh／日」就是這個數字，也是判斷要不要帶補師的依據。睡眠回復上限 100（活力回復獎勵 105），只有活力全體療癒／活力枕頭／料理／薰香能推到 150。</li>
+    <li><b>近似處理</b>：補能量以「每日總量平均攤到白天」計算，不是隨機時點的逐次事件 —— 能量超過 80 沒有加成這件事有算，所以補過頭會被視為浪費。揮指／技能複製／十項全能每次發動會變成別的技能，以<b>全部基礎主技能的平均值</b>近似。</li>
+    <li><b>還沒做</b>：食材精選（Ingredient Draw）的專屬食材池 —— 目前當成平均撒在所有食材上，種類會不準；專家模式的主／副喜好樹果頻率修正；期間限定活動加成；週日單獨最佳化（暴擊已用週平均 1.171 折算）；薰香。</li>
+    <li>遊戲資料（246 隻寶可夢、78 道食譜、性格／副技能／主技能數值）取自 <a href="https://github.com/SleepAPI/SleepAPI" target="_blank" rel="noopener">Neroli's Lab / SleepAPI</a>（Apache-2.0）。</li>
+  </ul>
+</details>
+</div>
+
+<script id="gamedata" type="application/json">{"ings":[["Apple",90],["Milk",98],["Soybean",100],["Honey",101],["Sausage",103],["Ginger",109],["Tomato",110],["Egg",115],["Oil",121],["Potato",124],["Herb",130],["Corn",140],["Cacao",151],["Coffee",153],["Avocado",162],["Mushroom",167],["Leek",185],["Pumpkin",250],["Tail",342]],"berries":[["PAMTRE",24],["LUM",24],["GREPA",25],["BLUK",26],["PECHA",26],["MAGO",26],["LEPPA",27],["CHERI",27],["PERSIM",28],["FIGY",29],["DURIN",30],["SITRUS",30],["ORAN",31],["WIKI",31],["CHESTO",32],["RAWST",32],["BELUE",33],["YACHE",35]],"dex":[{"n":"BULBASAUR","d":"Bulbasaur","no":1,"sp":"ingredient","f":4400,"ip":25.7,"sk":1.9,"b":"DURIN","cs":11,"pe":0,"re":2,"ms":"Ingredient Magnet S","i0":[[3,2]],"i30":[[3,5],[6,4]],"i60":[[3,7],[6,7],[9,6]]},{"n":"IVYSAUR","d":"Ivysaur","no":2,"sp":"ingredient","f":3300,"ip":25.5,"sk":1.9,"b":"DURIN","cs":14,"pe":1,"re":1,"ms":"Ingredient Magnet S","i0":[[3,2]],"i30":[[3,5],[6,4]],"i60":[[3,7],[6,7],[9,6]]},{"n":"VENUSAUR","d":"Venusaur","no":3,"sp":"ingredient","f":2800,"ip":26.6,"sk":2.1,"b":"DURIN","cs":17,"pe":2,"re":0,"ms":"Ingredient Magnet S","i0":[[3,2]],"i30":[[3,5],[6,4]],"i60":[[3,7],[6,7],[9,6]]},{"n":"CHARMANDER","d":"Charmander","no":4,"sp":"ingredient","f":3500,"ip":20.1,"sk":1.1,"b":"LEPPA","cs":12,"pe":0,"re":2,"ms":"Ingredient Magnet S","i0":[[4,2]],"i30":[[4,5],[5,4]],"i60":[[4,7],[5,7],[10,6]]},{"n":"CHARMELEON","d":"Charmeleon","no":5,"sp":"ingredient","f":3000,"ip":22.7,"sk":1.6,"b":"LEPPA","cs":15,"pe":1,"re":1,"ms":"Ingredient Magnet S","i0":[[4,2]],"i30":[[4,5],[5,4]],"i60":[[4,7],[5,7],[10,6]]},{"n":"CHARIZARD","d":"Charizard","no":6,"sp":"ingredient","f":2400,"ip":22.4,"sk":1.6,"b":"LEPPA","cs":19,"pe":2,"re":0,"ms":"Ingredient Magnet S","i0":[[4,2]],"i30":[[4,5],[5,4]],"i60":[[4,7],[5,7],[10,6]]},{"n":"SQUIRTLE","d":"Squirtle","no":7,"sp":"ingredient","f":4500,"ip":27.1,"sk":2,"b":"ORAN","cs":10,"pe":0,"re":2,"ms":"Ingredient Magnet S","i0":[[1,2]],"i30":[[1,5],[12,3]],"i60":[[1,7],[12,5],[4,7]]},{"n":"WARTORTLE","d":"Wartortle","no":8,"sp":"ingredient","f":3400,"ip":27.1,"sk":2,"b":"ORAN","cs":14,"pe":1,"re":1,"ms":"Ingredient Magnet S","i0":[[1,2]],"i30":[[1,5],[12,3]],"i60":[[1,7],[12,5],[4,7]]},{"n":"BLASTOISE","d":"Blastoise","no":9,"sp":"ingredient","f":2800,"ip":27.5,"sk":2.1,"b":"ORAN","cs":17,"pe":2,"re":0,"ms":"Ingredient Magnet S","i0":[[1,2]],"i30":[[1,5],[12,3]],"i60":[[1,7],[12,5],[4,7]]},{"n":"CATERPIE","d":"Caterpie","no":10,"sp":"berry","f":4400,"ip":17.9,"sk":0.8,"b":"LUM","cs":11,"pe":0,"re":2,"ms":"Ingredient Magnet S","i0":[[3,1]],"i30":[[3,2],[6,2]],"i60":[[3,4],[6,3],[2,4]]},{"n":"METAPOD","d":"Metapod","no":11,"sp":"berry","f":4200,"ip":20.8,"sk":1.8,"b":"LUM","cs":13,"pe":1,"re":1,"ms":"Ingredient Magnet S","i0":[[3,1]],"i30":[[3,2],[6,2]],"i60":[[3,4],[6,3],[2,4]]},{"n":"BUTTERFREE","d":"Butterfree","no":12,"sp":"berry","f":2500,"ip":19.7,"sk":1.4,"b":"LUM","cs":21,"pe":2,"re":0,"ms":"Ingredient Magnet S","i0":[[3,1]],"i30":[[3,2],[6,2]],"i60":[[3,4],[6,3],[2,4]]},{"n":"RATTATA","d":"Rattata","no":19,"sp":"berry","f":4900,"ip":23.7,"sk":3,"b":"PERSIM","cs":10,"pe":0,"re":1,"ms":"Charge Energy S","i0":[[0,1]],"i30":[[0,2],[2,2]],"i60":[[0,4],[2,3],[4,3]]},{"n":"RATICATE","d":"Raticate","no":20,"sp":"berry","f":2950,"ip":23.7,"sk":3,"b":"PERSIM","cs":16,"pe":1,"re":0,"ms":"Charge Energy S","i0":[[0,1]],"i30":[[0,2],[2,2]],"i60":[[0,4],[2,3],[4,3]]},{"n":"EKANS","d":"Ekans","no":23,"sp":"berry","f":5000,"ip":23.5,"sk":3.3,"b":"CHESTO","cs":10,"pe":0,"re":1,"ms":"Charge Energy S","i0":[[4,1]],"i30":[[4,2],[7,2]],"i60":[[4,4],[7,3],[10,3]]},{"n":"ARBOK","d":"Arbok","no":24,"sp":"berry","f":3400,"ip":26.4,"sk":5.7,"b":"CHESTO","cs":14,"pe":1,"re":0,"ms":"Charge Energy S","i0":[[4,1]],"i30":[[4,2],[7,2]],"i60":[[4,4],[7,3],[10,3]]},{"n":"PIKACHU","d":"Pikachu","no":25,"sp":"berry","f":2700,"ip":20.7,"sk":2.1,"b":"GREPA","cs":17,"pe":1,"re":1,"ms":"Charge Strength S","i0":[[0,1]],"i30":[[0,2],[5,2]],"i60":[[0,4],[5,3],[7,3]]},{"n":"PIKACHU_CAPTAIN","d":"Pikachu (Captain)","no":25,"sp":"berry","f":2500,"ip":17.5,"sk":1.8,"b":"GREPA","cs":21,"pe":0,"re":0,"ms":"Ingredient Magnet S","i0":[[0,1]],"i30":[[0,2],[5,2]],"i60":[[0,4],[5,3],[7,3]]},{"n":"PIKACHU_HALLOWEEN","d":"Pikachu (Halloween)","no":25,"sp":"berry","f":2500,"ip":21.8,"sk":2.8,"b":"GREPA","cs":18,"pe":0,"re":0,"ms":"Charge Strength S","i0":[[0,1]],"i30":[[0,2],[5,2]],"i60":[[0,4],[5,3],[7,3]]},{"n":"PIKACHU_HOLIDAY","d":"Pikachu (Holiday)","no":25,"sp":"skill","f":2500,"ip":13.1,"sk":4.2,"b":"GREPA","cs":16,"pe":0,"re":0,"ms":"Dream Shard Magnet S","i0":[[0,1]],"i30":[[0,2],[5,2]],"i60":[[0,4],[5,3],[7,3]]},{"n":"RAICHU","d":"Raichu","no":26,"sp":"berry","f":2200,"ip":22.4,"sk":3.2,"b":"GREPA","cs":21,"pe":2,"re":0,"ms":"Charge Strength S","i0":[[0,1]],"i30":[[0,2],[5,2]],"i60":[[0,4],[5,3],[7,3]]},{"n":"SANDSHREW","d":"Sandshrew","no":27,"sp":"skill","f":5300,"ip":10,"sk":4.6,"b":"FIGY","cs":11,"pe":0,"re":1,"ms":"Ingredient Draw S","i0":[[17,1]],"i30":[[17,2],[11,4]],"i60":[[17,4],[11,6],[9,7]]},{"n":"SANDSLASH","d":"Sandslash","no":28,"sp":"skill","f":2800,"ip":10.8,"sk":4.3,"b":"FIGY","cs":17,"pe":1,"re":0,"ms":"Ingredient Draw S","i0":[[17,1]],"i30":[[17,2],[11,4]],"i60":[[17,4],[11,6],[9,7]]},{"n":"CLEFAIRY","d":"Clefairy","no":35,"sp":"berry","f":4000,"ip":16.8,"sk":3.6,"b":"PECHA","cs":16,"pe":1,"re":1,"ms":"Metronome","i0":[[0,1]],"i30":[[0,2],[3,2]],"i60":[[0,4],[3,3],[2,3]]},{"n":"CLEFABLE","d":"Clefable","no":36,"sp":"berry","f":2800,"ip":16.8,"sk":4,"b":"PECHA","cs":24,"pe":2,"re":0,"ms":"Metronome","i0":[[0,1]],"i30":[[0,2],[3,2]],"i60":[[0,4],[3,3],[2,3]]},{"n":"VULPIX","d":"Vulpix","no":37,"sp":"berry","f":4700,"ip":16.8,"sk":3.2,"b":"LEPPA","cs":13,"pe":0,"re":1,"ms":"Energizing Cheer S","i0":[[2,1]],"i30":[[2,2],[11,2]],"i60":[[2,4],[11,3],[9,3]]},{"n":"VULPIX_ALOLAN","d":"Vulpix (Alolan Form)","no":37,"sp":"berry","f":5600,"ip":23,"sk":2.8,"b":"RAWST","cs":10,"pe":0,"re":1,"ms":"Extra Helpful S","i0":[[2,1]],"i30":[[2,2],[11,2]],"i60":[[2,4],[11,3],[9,3]]},{"n":"NINETALES","d":"Ninetales","no":38,"sp":"berry","f":2600,"ip":16.4,"sk":2.9,"b":"LEPPA","cs":23,"pe":1,"re":0,"ms":"Energizing Cheer S","i0":[[2,1]],"i30":[[2,2],[11,2]],"i60":[[2,4],[11,3],[9,3]]},{"n":"NINETALES_ALOLAN","d":"Ninetales (Alolan Form)","no":38,"sp":"berry","f":2900,"ip":23.1,"sk":2.8,"b":"RAWST","cs":20,"pe":1,"re":0,"ms":"Extra Helpful S","i0":[[2,1]],"i30":[[2,2],[11,2]],"i60":[[2,4],[11,3],[9,3]]},{"n":"JIGGLYPUFF","d":"Jigglypuff","no":39,"sp":"skill","f":3900,"ip":18.2,"sk":4.3,"b":"PECHA","cs":9,"pe":1,"re":1,"ms":"Energy For Everyone S","i0":[[3,1]],"i30":[[3,2],[8,2]],"i60":[[3,4],[8,3],[12,2]]},{"n":"WIGGLYTUFF","d":"Wigglytuff","no":40,"sp":"skill","f":2750,"ip":19.1,"sk":4,"b":"PECHA","cs":22,"pe":2,"re":0,"ms":"Energy For Everyone S","i0":[[3,1]],"i30":[[3,2],[8,2]],"i60":[[3,4],[8,3],[12,2]]},{"n":"DIGLETT","d":"Diglett","no":50,"sp":"ingredient","f":4300,"ip":19.2,"sk":2.1,"b":"FIGY","cs":10,"pe":0,"re":1,"ms":"Charge Strength S","i0":[[6,2]],"i30":[[6,5],[16,3]],"i60":[[6,7],[16,4],[2,8]]},{"n":"DUGTRIO","d":"Dugtrio","no":51,"sp":"ingredient","f":2650,"ip":19,"sk":2,"b":"FIGY","cs":16,"pe":1,"re":0,"ms":"Charge Strength S","i0":[[6,2]],"i30":[[6,5],[16,3]],"i60":[[6,7],[16,4],[2,8]]},{"n":"MEOWTH","d":"Meowth","no":52,"sp":"skill","f":4400,"ip":16.3,"sk":4.2,"b":"PERSIM","cs":9,"pe":0,"re":1,"ms":"Dream Shard Magnet S","i0":[[1,1]],"i30":[[1,2],[4,2]],"i60":[[1,4],[4,3]]},{"n":"PERSIAN","d":"Persian","no":53,"sp":"skill","f":2800,"ip":16.9,"sk":4.4,"b":"PERSIM","cs":12,"pe":1,"re":0,"ms":"Dream Shard Magnet S","i0":[[1,1]],"i30":[[1,2],[4,2]],"i60":[[1,4],[4,3]]},{"n":"PSYDUCK","d":"Psyduck","no":54,"sp":"skill","f":5400,"ip":13.6,"sk":12.6,"b":"ORAN","cs":8,"pe":0,"re":1,"ms":"Charge Strength S","i0":[[12,1]],"i30":[[12,2],[0,4]],"i60":[[12,4],[0,6],[4,5]]},{"n":"GOLDUCK","d":"Golduck","no":55,"sp":"skill","f":3400,"ip":16.2,"sk":12.5,"b":"ORAN","cs":14,"pe":1,"re":0,"ms":"Charge Strength S","i0":[[12,1]],"i30":[[12,2],[0,4]],"i60":[[12,4],[0,6],[4,5]]},{"n":"MANKEY","d":"Mankey","no":56,"sp":"berry","f":4200,"ip":19.7,"sk":2.2,"b":"CHERI","cs":7,"pe":0,"re":1,"ms":"Charge Strength S","i0":[[4,1]],"i30":[[4,2],[15,1]],"i60":[[4,4],[15,2],[3,4]]},{"n":"PRIMEAPE","d":"Primeape","no":57,"sp":"berry","f":2800,"ip":20,"sk":2.4,"b":"CHERI","cs":17,"pe":1,"re":0,"ms":"Charge Strength S","i0":[[4,1]],"i30":[[4,2],[15,1]],"i60":[[4,4],[15,2],[3,4]]},{"n":"GROWLITHE","d":"Growlithe","no":58,"sp":"skill","f":4300,"ip":13.8,"sk":5,"b":"LEPPA","cs":8,"pe":0,"re":1,"ms":"Extra Helpful S","i0":[[10,1]],"i30":[[10,2],[4,3]],"i60":[[10,4],[4,5],[1,5]]},{"n":"ARCANINE","d":"Arcanine","no":59,"sp":"skill","f":2500,"ip":13.6,"sk":4.9,"b":"LEPPA","cs":16,"pe":1,"re":0,"ms":"Extra Helpful S","i0":[[10,1]],"i30":[[10,2],[4,3]],"i60":[[10,4],[4,5],[1,5]]},{"n":"BELLSPROUT","d":"Bellsprout","no":69,"sp":"ingredient","f":5200,"ip":23.3,"sk":3.9,"b":"DURIN","cs":8,"pe":0,"re":2,"ms":"Charge Energy S","i0":[[6,2]],"i30":[[6,5],[9,4]],"i60":[[6,7],[9,6],[16,4]]},{"n":"WEEPINBELL","d":"Weepinbell","no":70,"sp":"ingredient","f":3800,"ip":23.5,"sk":4,"b":"DURIN","cs":12,"pe":1,"re":1,"ms":"Charge Energy S","i0":[[6,2]],"i30":[[6,5],[9,4]],"i60":[[6,7],[9,6],[16,4]]},{"n":"VICTREEBEL","d":"Victreebel","no":71,"sp":"ingredient","f":2800,"ip":23.3,"sk":3.9,"b":"DURIN","cs":17,"pe":2,"re":0,"ms":"Charge Energy S","i0":[[6,2]],"i30":[[6,5],[9,4]],"i60":[[6,7],[9,6],[16,4]]},{"n":"GEODUDE","d":"Geodude","no":74,"sp":"ingredient","f":5700,"ip":28.1,"sk":5.2,"b":"SITRUS","cs":9,"pe":0,"re":2,"ms":"Charge Strength S","i0":[[2,2]],"i30":[[2,5],[9,4]],"i60":[[2,7],[9,6],[15,4]]},{"n":"GRAVELER","d":"Graveler","no":75,"sp":"ingredient","f":4000,"ip":27.2,"sk":4.8,"b":"SITRUS","cs":12,"pe":1,"re":1,"ms":"Charge Strength S","i0":[[2,2]],"i30":[[2,5],[9,4]],"i60":[[2,7],[9,6],[15,4]]},{"n":"GOLEM","d":"Golem","no":76,"sp":"ingredient","f":3100,"ip":28,"sk":5.2,"b":"SITRUS","cs":16,"pe":2,"re":0,"ms":"Charge Strength S","i0":[[2,2]],"i30":[[2,5],[9,4]],"i60":[[2,7],[9,6],[15,4]]},{"n":"SLOWPOKE","d":"Slowpoke","no":79,"sp":"skill","f":5700,"ip":15.1,"sk":7.8,"b":"ORAN","cs":9,"pe":0,"re":1,"ms":"Energizing Cheer S","i0":[[12,1]],"i30":[[12,2],[18,1]],"i60":[[12,4],[18,2],[6,5]]},{"n":"SLOWBRO","d":"Slowbro","no":80,"sp":"skill","f":3800,"ip":19.7,"sk":8,"b":"ORAN","cs":16,"pe":1,"re":0,"ms":"Energizing Cheer S","i0":[[12,1]],"i30":[[12,2],[18,1]],"i60":[[12,4],[18,2],[6,5]]},{"n":"MAGNEMITE","d":"Magnemite","no":81,"sp":"skill","f":5800,"ip":18.2,"sk":6.4,"b":"BELUE","cs":8,"pe":0,"re":2,"ms":"Cooking Power-Up S","i0":[[8,1]],"i30":[[8,2],[10,2]],"i60":[[8,4],[10,3]]},{"n":"MAGNETON","d":"Magneton","no":82,"sp":"skill","f":4000,"ip":18.2,"sk":6.3,"b":"BELUE","cs":11,"pe":1,"re":1,"ms":"Cooking Power-Up S","i0":[[8,1]],"i30":[[8,2],[10,2]],"i60":[[8,4],[10,3]]},{"n":"FARFETCHD","d":"Farfetch'd","no":83,"sp":"ingredient","f":3000,"ip":16,"sk":4.3,"b":"PAMTRE","cs":18,"pe":0,"re":0,"ms":"Charge Strength S","i0":[[16,2]],"i30":[[16,5],[4,8]],"i60":[[16,7],[4,13],[5,12]]},{"n":"DODUO","d":"Doduo","no":84,"sp":"berry","f":3800,"ip":18.4,"sk":2,"b":"PAMTRE","cs":13,"pe":0,"re":1,"ms":"Charge Energy S","i0":[[2,1]],"i30":[[2,2],[12,1]],"i60":[[2,4],[12,2],[4,3]]},{"n":"DODRIO","d":"Dodrio","no":85,"sp":"berry","f":2300,"ip":18.4,"sk":2,"b":"PAMTRE","cs":21,"pe":1,"re":0,"ms":"Charge Energy S","i0":[[2,1]],"i30":[[2,2],[12,1]],"i60":[[2,4],[12,2],[4,3]]},{"n":"GASTLY","d":"Gastly","no":92,"sp":"ingredient","f":3800,"ip":14.4,"sk":1.5,"b":"BLUK","cs":10,"pe":0,"re":2,"ms":"Charge Strength S","i0":[[10,2]],"i30":[[10,5],[15,4]],"i60":[[10,7],[15,6],[8,8]]},{"n":"HAUNTER","d":"Haunter","no":93,"sp":"ingredient","f":3000,"ip":15.7,"sk":2.2,"b":"BLUK","cs":14,"pe":1,"re":1,"ms":"Charge Strength S","i0":[[10,2]],"i30":[[10,5],[15,4]],"i60":[[10,7],[15,6],[8,8]]},{"n":"GENGAR","d":"Gengar","no":94,"sp":"ingredient","f":2200,"ip":16.1,"sk":2.4,"b":"BLUK","cs":18,"pe":2,"re":0,"ms":"Charge Strength S","i0":[[10,2]],"i30":[[10,5],[15,4]],"i60":[[10,7],[15,6],[8,8]]},{"n":"ONIX","d":"Onix","no":95,"sp":"berry","f":3100,"ip":13.2,"sk":2.3,"b":"SITRUS","cs":22,"pe":0,"re":1,"ms":"Ingredient Magnet S","i0":[[6,1]],"i30":[[6,2],[4,2]],"i60":[[6,4],[4,4],[9,3]]},{"n":"CUBONE","d":"Cubone","no":104,"sp":"berry","f":4800,"ip":22.3,"sk":4.4,"b":"FIGY","cs":10,"pe":0,"re":1,"ms":"Charge Energy S","i0":[[5,1]],"i30":[[5,2],[12,2]],"i60":[[5,4],[12,3]]},{"n":"MAROWAK","d":"Marowak","no":105,"sp":"berry","f":3300,"ip":22.5,"sk":4.5,"b":"FIGY","cs":15,"pe":1,"re":0,"ms":"Charge Energy S","i0":[[5,1]],"i30":[[5,2],[12,2]],"i60":[[5,4],[12,3]]},{"n":"CHANSEY","d":"Chansey","no":113,"sp":"ingredient","f":3300,"ip":23.6,"sk":2.3,"b":"PERSIM","cs":15,"pe":1,"re":1,"ms":"Energy For Everyone S","i0":[[7,2]],"i30":[[7,5],[9,4]],"i60":[[7,7],[9,7],[3,8]]},{"n":"KANGASKHAN","d":"Kangaskhan","no":115,"sp":"ingredient","f":2650,"ip":22.2,"sk":3.2,"b":"PERSIM","cs":21,"pe":0,"re":0,"ms":"Ingredient Magnet S","i0":[[5,2]],"i30":[[5,5],[9,4]],"i60":[[5,7],[9,6],[2,8]]},{"n":"MR_MIME","d":"Mr. Mime","no":122,"sp":"ingredient","f":2800,"ip":21.6,"sk":3.9,"b":"MAGO","cs":17,"pe":1,"re":0,"ms":"Mimic (Skill Copy)","i0":[[6,2]],"i30":[[6,5],[9,4]],"i60":[[6,7],[9,6],[16,4]]},{"n":"PINSIR","d":"Pinsir","no":127,"sp":"ingredient","f":2400,"ip":21.6,"sk":3.1,"b":"LUM","cs":24,"pe":0,"re":0,"ms":"Charge Strength M","i0":[[3,2]],"i30":[[3,5],[0,5]],"i60":[[3,7],[0,8],[4,7]]},{"n":"DITTO","d":"Ditto","no":132,"sp":"ingredient","f":3500,"ip":20.1,"sk":3.6,"b":"PERSIM","cs":17,"pe":0,"re":0,"ms":"Transform (Skill Copy)","i0":[[8,2]],"i30":[[8,5],[16,3]],"i60":[[8,7],[16,5],[18,3]]},{"n":"EEVEE","d":"Eevee","no":133,"sp":"skill","f":3700,"ip":19.2,"sk":5.5,"b":"PERSIM","cs":12,"pe":0,"re":1,"ms":"Ingredient Magnet S","i0":[[1,1]],"i30":[[1,2],[12,1]],"i60":[[1,4],[12,2],[4,3]]},{"n":"EEVEE_HALLOWEEN","d":"Eevee (Halloween)","no":133,"sp":"skill","f":3200,"ip":12,"sk":4.6,"b":"PERSIM","cs":18,"pe":0,"re":0,"ms":"Ingredient Magnet S","i0":[[17,1]],"i30":[[17,2],[12,4]],"i60":[[17,4],[12,6],[1,9]]},{"n":"EEVEE_HOLIDAY","d":"Eevee (Holiday)","no":133,"sp":"berry","f":3100,"ip":15.6,"sk":3.2,"b":"PERSIM","cs":20,"pe":0,"re":0,"ms":"Dream Shard Magnet S","i0":[[1,1]],"i30":[[1,2],[12,1]],"i60":[[1,4],[12,2],[4,3]]},{"n":"VAPOREON","d":"Vaporeon","no":134,"sp":"skill","f":3100,"ip":21.2,"sk":6.1,"b":"ORAN","cs":13,"pe":1,"re":0,"ms":"Ingredient Magnet S","i0":[[1,1]],"i30":[[1,2],[12,1]],"i60":[[1,4],[12,2],[4,3]]},{"n":"JOLTEON","d":"Jolteon","no":135,"sp":"skill","f":2200,"ip":15.1,"sk":3.9,"b":"GREPA","cs":17,"pe":1,"re":0,"ms":"Extra Helpful S","i0":[[1,1]],"i30":[[1,2],[12,1]],"i60":[[1,4],[12,2],[4,3]]},{"n":"FLAREON","d":"Flareon","no":136,"sp":"skill","f":2700,"ip":18.5,"sk":5.2,"b":"LEPPA","cs":14,"pe":1,"re":0,"ms":"Cooking Power-Up S","i0":[[1,1]],"i30":[[1,2],[12,1]],"i60":[[1,4],[12,2],[4,3]]},{"n":"DRATINI","d":"Dratini","no":147,"sp":"ingredient","f":5000,"ip":25,"sk":2,"b":"YACHE","cs":9,"pe":0,"re":2,"ms":"Charge Energy S","i0":[[10,2]],"i30":[[10,5],[11,4]],"i60":[[10,7],[11,7],[8,8]]},{"n":"DRAGONAIR","d":"Dragonair","no":148,"sp":"ingredient","f":3800,"ip":26.2,"sk":2.5,"b":"YACHE","cs":12,"pe":1,"re":1,"ms":"Charge Energy S","i0":[[10,2]],"i30":[[10,5],[11,4]],"i60":[[10,7],[11,7],[8,8]]},{"n":"DRAGONITE","d":"Dragonite","no":149,"sp":"ingredient","f":2600,"ip":26.4,"sk":2.6,"b":"YACHE","cs":20,"pe":2,"re":0,"ms":"Charge Energy S","i0":[[10,2]],"i30":[[10,5],[11,4]],"i60":[[10,7],[11,7],[8,8]]},{"n":"MEW","d":"Mew","no":151,"sp":"all","f":2900,"ip":20,"sk":4,"b":"MAGO","cs":26,"pe":0,"re":0,"ms":"Versatile","i0":[[7,2],[16,2],[10,2],[4,2],[8,2],[2,2],[14,2]],"i30":[[10,4],[16,3],[7,4],[4,4],[8,4],[2,5],[14,3]],"i60":[[null,0],[16,4],[7,6],[10,5],[4,7],[8,6],[18,2],[2,7],[14,4]]},{"n":"CHIKORITA","d":"Chikorita","no":152,"sp":"berry","f":4400,"ip":16.9,"sk":3.9,"b":"DURIN","cs":12,"pe":0,"re":2,"ms":"Charge Strength S","i0":[[12,1]],"i30":[[12,2],[3,3]],"i60":[[12,4],[3,5],[16,3]]},{"n":"BAYLEEF","d":"Bayleef","no":153,"sp":"berry","f":3300,"ip":16.8,"sk":3.8,"b":"DURIN","cs":17,"pe":1,"re":1,"ms":"Charge Strength S","i0":[[12,1]],"i30":[[12,2],[3,3]],"i60":[[12,4],[3,5],[16,3]]},{"n":"MEGANIUM","d":"Meganium","no":154,"sp":"berry","f":2800,"ip":17.5,"sk":4.6,"b":"DURIN","cs":20,"pe":2,"re":0,"ms":"Charge Strength S","i0":[[12,1]],"i30":[[12,2],[3,3]],"i60":[[12,4],[3,5],[16,3]]},{"n":"CYNDAQUIL","d":"Cyndaquil","no":155,"sp":"berry","f":3500,"ip":18.6,"sk":2.1,"b":"LEPPA","cs":14,"pe":0,"re":2,"ms":"Charge Strength S","i0":[[5,1]],"i30":[[5,2],[10,2]],"i60":[[5,4],[10,3],[8,3]]},{"n":"QUILAVA","d":"Quilava","no":156,"sp":"berry","f":3000,"ip":21.1,"sk":4.1,"b":"LEPPA","cs":18,"pe":1,"re":1,"ms":"Charge Strength S","i0":[[5,1]],"i30":[[5,2],[10,2]],"i60":[[5,4],[10,3],[8,3]]},{"n":"TYPHLOSION","d":"Typhlosion","no":157,"sp":"berry","f":2400,"ip":20.8,"sk":3.9,"b":"LEPPA","cs":23,"pe":2,"re":0,"ms":"Charge Strength S","i0":[[5,1]],"i30":[[5,2],[10,2]],"i60":[[5,4],[10,3],[8,3]]},{"n":"TOTODILE","d":"Totodile","no":158,"sp":"berry","f":4500,"ip":25.3,"sk":5.2,"b":"ORAN","cs":11,"pe":0,"re":2,"ms":"Charge Strength S","i0":[[4,1]],"i30":[[4,2],[8,2]],"i60":[[4,4],[8,3]]},{"n":"CROCONAW","d":"Croconaw","no":159,"sp":"berry","f":3400,"ip":25.3,"sk":5.2,"b":"ORAN","cs":15,"pe":1,"re":1,"ms":"Charge Strength S","i0":[[4,1]],"i30":[[4,2],[8,2]],"i60":[[4,4],[8,3]]},{"n":"FERALIGATR","d":"Feraligatr","no":160,"sp":"berry","f":2800,"ip":25.7,"sk":5.5,"b":"ORAN","cs":19,"pe":2,"re":0,"ms":"Charge Strength S","i0":[[4,1]],"i30":[[4,2],[8,2]],"i60":[[4,4],[8,3]]},{"n":"PICHU","d":"Pichu","no":172,"sp":"berry","f":4300,"ip":21,"sk":2.3,"b":"GREPA","cs":10,"pe":0,"re":2,"ms":"Charge Strength S","i0":[[0,1]],"i30":[[0,2],[5,2]],"i60":[[0,4],[5,3],[7,3]]},{"n":"CLEFFA","d":"Cleffa","no":173,"sp":"berry","f":5600,"ip":16.4,"sk":3.4,"b":"PECHA","cs":10,"pe":0,"re":2,"ms":"Metronome","i0":[[0,1]],"i30":[[0,2],[3,2]],"i60":[[0,4],[3,3],[2,3]]},{"n":"IGGLYBUFF","d":"Igglybuff","no":174,"sp":"skill","f":5200,"ip":17,"sk":3.8,"b":"PECHA","cs":8,"pe":0,"re":2,"ms":"Energy For Everyone S","i0":[[3,1]],"i30":[[3,2],[8,2]],"i60":[[3,4],[8,3],[12,2]]},{"n":"TOGEPI","d":"Togepi","no":175,"sp":"skill","f":4800,"ip":15.1,"sk":4.9,"b":"PECHA","cs":8,"pe":0,"re":2,"ms":"Metronome","i0":[[7,1]],"i30":[[7,2],[5,2]],"i60":[[7,4],[5,4],[12,3]]},{"n":"TOGETIC","d":"Togetic","no":176,"sp":"skill","f":3800,"ip":16.3,"sk":5.6,"b":"PECHA","cs":10,"pe":1,"re":1,"ms":"Metronome","i0":[[7,1]],"i30":[[7,2],[5,2]],"i60":[[7,4],[5,4],[12,3]]},{"n":"NATU","d":"Natu","no":177,"sp":"berry","f":4500,"ip":18.5,"sk":1.6,"b":"MAGO","cs":11,"pe":0,"re":1,"ms":"Ingredient Magnet S","i0":[[7,1]],"i30":[[7,2],[12,2]],"i60":[[7,4],[12,3],[0,5]]},{"n":"XATU","d":"Xatu","no":178,"sp":"berry","f":2500,"ip":19.1,"sk":2.5,"b":"MAGO","cs":19,"pe":1,"re":0,"ms":"Ingredient Magnet S","i0":[[7,1]],"i30":[[7,2],[12,2]],"i60":[[7,4],[12,3],[0,5]]},{"n":"MAREEP","d":"Mareep","no":179,"sp":"skill","f":4600,"ip":12.8,"sk":4.7,"b":"GREPA","cs":9,"pe":0,"re":2,"ms":"Charge Strength M","i0":[[10,1]],"i30":[[10,2],[7,3]],"i60":[[10,4],[7,4]]},{"n":"FLAAFFY","d":"Flaaffy","no":180,"sp":"skill","f":3300,"ip":12.7,"sk":4.6,"b":"GREPA","cs":11,"pe":1,"re":1,"ms":"Charge Strength M","i0":[[10,1]],"i30":[[10,2],[7,3]],"i60":[[10,4],[7,4]]},{"n":"AMPHAROS","d":"Ampharos","no":181,"sp":"skill","f":2500,"ip":13,"sk":4.7,"b":"GREPA","cs":15,"pe":2,"re":0,"ms":"Charge Strength M","i0":[[10,1]],"i30":[[10,2],[7,3]],"i60":[[10,4],[7,4]]},{"n":"SUDOWOODO","d":"Sudowoodo","no":185,"sp":"skill","f":4000,"ip":21.7,"sk":7.2,"b":"SITRUS","cs":16,"pe":1,"re":0,"ms":"Charge Strength M","i0":[[6,1]],"i30":[[6,2],[2,2]],"i60":[[6,4],[2,4],[15,2]]},{"n":"WOOPER","d":"Wooper","no":194,"sp":"ingredient","f":5900,"ip":20.1,"sk":3.8,"b":"ORAN","cs":10,"pe":0,"re":1,"ms":"Charge Energy S","i0":[[15,2]],"i30":[[15,5],[9,6]],"i60":[[15,7],[9,10],[4,12]]},{"n":"WOOPER_PALDEAN","d":"Wooper (Paldean Form)","no":194,"sp":"ingredient","f":6400,"ip":20.9,"sk":5.6,"b":"CHESTO","cs":9,"pe":0,"re":1,"ms":"Charge Energy S","i0":[[12,2]],"i30":[[12,5],[13,4]],"i60":[[12,7],[13,7],[9,9]]},{"n":"QUAGSIRE","d":"Quagsire","no":195,"sp":"ingredient","f":3400,"ip":19,"sk":3.2,"b":"ORAN","cs":16,"pe":1,"re":0,"ms":"Charge Energy S","i0":[[15,2]],"i30":[[15,5],[9,6]],"i60":[[15,7],[9,10],[4,12]]},{"n":"ESPEON","d":"Espeon","no":196,"sp":"skill","f":2400,"ip":16.4,"sk":4.4,"b":"MAGO","cs":16,"pe":1,"re":0,"ms":"Charge Strength M","i0":[[1,1]],"i30":[[1,2],[12,1]],"i60":[[1,4],[12,2],[4,3]]},{"n":"UMBREON","d":"Umbreon","no":197,"sp":"skill","f":3200,"ip":21.9,"sk":10.1,"b":"WIKI","cs":14,"pe":1,"re":0,"ms":"Moonlight (Charge Energy S)","i0":[[1,1]],"i30":[[1,2],[12,1]],"i60":[[1,4],[12,2],[4,3]]},{"n":"MURKROW","d":"Murkrow","no":198,"sp":"skill","f":3600,"ip":14.1,"sk":6.2,"b":"WIKI","cs":13,"pe":0,"re":1,"ms":"Super Luck (Ingredient Draw S)","i0":[[13,1]],"i30":[[13,2],[2,3]],"i60":[[13,4],[2,6],[10,4]]},{"n":"SLOWKING","d":"Slowking","no":199,"sp":"skill","f":3400,"ip":16.6,"sk":8.7,"b":"ORAN","cs":17,"pe":1,"re":0,"ms":"Energizing Cheer S","i0":[[12,1]],"i30":[[12,2],[18,1]],"i60":[[12,4],[18,2],[6,5]]},{"n":"WOBBUFFET","d":"Wobbuffet","no":202,"sp":"skill","f":3500,"ip":21.1,"sk":8.2,"b":"MAGO","cs":16,"pe":1,"re":0,"ms":"Energizing Cheer S","i0":[[0,1]],"i30":[[0,2],[15,1]],"i60":[[0,4],[15,2],[8,3]]},{"n":"STEELIX","d":"Steelix","no":208,"sp":"berry","f":3000,"ip":15.4,"sk":3.2,"b":"BELUE","cs":25,"pe":1,"re":0,"ms":"Ingredient Magnet S","i0":[[6,1]],"i30":[[6,2],[4,2]],"i60":[[6,4],[4,4],[9,3]]},{"n":"SHUCKLE","d":"Shuckle","no":213,"sp":"skill","f":3600,"ip":20.5,"sk":5.9,"b":"LUM","cs":16,"pe":0,"re":0,"ms":"Berry Juice (Energy For Everyone S)","i0":[[8,1]],"i30":[[8,2],[13,2]],"i60":[[8,4],[13,3],[3,4]]},{"n":"HERACROSS","d":"Heracross","no":214,"sp":"skill","f":2300,"ip":15.8,"sk":4.7,"b":"LUM","cs":20,"pe":0,"re":0,"ms":"Bulk Up (Cooking Assist S)","i0":[[3,1]],"i30":[[3,2],[15,1]],"i60":[[3,4],[15,2],[4,4]]},{"n":"SNEASEL","d":"Sneasel","no":215,"sp":"berry","f":3200,"ip":25.5,"sk":1.9,"b":"WIKI","cs":17,"pe":0,"re":1,"ms":"Tasty Chance S","i0":[[4,1]],"i30":[[4,2],[7,2]],"i60":[[4,4],[7,3],[2,4]]},{"n":"DELIBIRD","d":"Delibird","no":225,"sp":"ingredient","f":2500,"ip":18.8,"sk":3,"b":"PAMTRE","cs":20,"pe":0,"re":0,"ms":"Present (Ingredient Magnet S)","i0":[[7,2]],"i30":[[7,5],[0,6]],"i60":[[7,7],[0,9],[12,5]]},{"n":"HOUNDOUR","d":"Houndour","no":228,"sp":"berry","f":4900,"ip":20.1,"sk":3.7,"b":"WIKI","cs":10,"pe":0,"re":1,"ms":"Charge Strength M","i0":[[10,1]],"i30":[[10,2],[5,3]],"i60":[[10,4],[5,4],[16,3]]},{"n":"HOUNDOOM","d":"Houndoom","no":229,"sp":"berry","f":3300,"ip":20.3,"sk":4,"b":"WIKI","cs":16,"pe":1,"re":0,"ms":"Charge Strength M","i0":[[10,1]],"i30":[[10,2],[5,3]],"i60":[[10,4],[5,4],[16,3]]},{"n":"BLISSEY","d":"Blissey","no":242,"sp":"ingredient","f":3100,"ip":23.8,"sk":2.3,"b":"PERSIM","cs":21,"pe":2,"re":0,"ms":"Energy For Everyone S","i0":[[7,2]],"i30":[[7,5],[9,4]],"i60":[[7,7],[9,7],[3,8]]},{"n":"RAIKOU","d":"Raikou","no":243,"sp":"skill","f":2100,"ip":19.2,"sk":1.9,"b":"GREPA","cs":22,"pe":0,"re":0,"ms":"Helper Boost","i0":[[4,1]],"i30":[[4,2],[10,2]],"i60":[[4,4],[10,3],[16,2]]},{"n":"ENTEI","d":"Entei","no":244,"sp":"skill","f":2400,"ip":18.7,"sk":2.3,"b":"LEPPA","cs":19,"pe":0,"re":0,"ms":"Helper Boost","i0":[[8,1]],"i30":[[8,2],[6,2]],"i60":[[8,4],[6,4],[15,3]]},{"n":"SUICUNE","d":"Suicune","no":245,"sp":"skill","f":2700,"ip":27.7,"sk":2.6,"b":"ORAN","cs":17,"pe":0,"re":0,"ms":"Helper Boost","i0":[[0,1]],"i30":[[0,2],[8,2]],"i60":[[0,4],[8,3],[11,2]]},{"n":"LARVITAR","d":"Larvitar","no":246,"sp":"ingredient","f":4800,"ip":23.8,"sk":4.1,"b":"SITRUS","cs":9,"pe":0,"re":2,"ms":"Charge Energy S","i0":[[5,2]],"i30":[[5,5],[2,5]],"i60":[[5,7],[2,8],[4,8]]},{"n":"PUPITAR","d":"Pupitar","no":247,"sp":"ingredient","f":3600,"ip":24.7,"sk":4.5,"b":"SITRUS","cs":13,"pe":1,"re":1,"ms":"Charge Energy S","i0":[[5,2]],"i30":[[5,5],[2,5]],"i60":[[5,7],[2,8],[4,8]]},{"n":"TYRANITAR","d":"Tyranitar","no":248,"sp":"ingredient","f":2700,"ip":26.6,"sk":5.2,"b":"WIKI","cs":19,"pe":2,"re":0,"ms":"Charge Energy S","i0":[[5,2]],"i30":[[5,5],[2,5]],"i60":[[5,7],[2,8],[4,8]]},{"n":"TREECKO","d":"Treecko","no":252,"sp":"skill","f":4500,"ip":17.2,"sk":3.5,"b":"DURIN","cs":8,"pe":0,"re":2,"ms":"Berry Burst","i0":[[7,1]],"i30":[[7,2],[13,2]],"i60":[[7,4],[13,3],[16,2]]},{"n":"GROVYLE","d":"Grovyle","no":253,"sp":"skill","f":3300,"ip":15,"sk":3.5,"b":"DURIN","cs":11,"pe":1,"re":1,"ms":"Berry Burst","i0":[[7,1]],"i30":[[7,2],[13,2]],"i60":[[7,4],[13,3],[16,2]]},{"n":"SCEPTILE","d":"Sceptile","no":254,"sp":"skill","f":2300,"ip":10.7,"sk":3,"b":"DURIN","cs":17,"pe":2,"re":0,"ms":"Berry Burst","i0":[[7,1]],"i30":[[7,2],[13,2]],"i60":[[7,4],[13,3],[16,2]]},{"n":"TORCHIC","d":"Torchic","no":255,"sp":"berry","f":4300,"ip":16,"sk":4.4,"b":"LEPPA","cs":12,"pe":0,"re":2,"ms":"Charge Energy S","i0":[[15,1]],"i30":[[15,2],[2,4]],"i60":[[15,4],[2,6],[8,5]]},{"n":"COMBUSKEN","d":"Combusken","no":256,"sp":"berry","f":3300,"ip":17,"sk":5.2,"b":"CHERI","cs":16,"pe":1,"re":1,"ms":"Charge Energy S","i0":[[15,1]],"i30":[[15,2],[2,4]],"i60":[[15,4],[2,6],[8,5]]},{"n":"BLAZIKEN","d":"Blaziken","no":257,"sp":"berry","f":2600,"ip":15.3,"sk":4.9,"b":"CHERI","cs":22,"pe":2,"re":0,"ms":"Charge Energy S","i0":[[15,1]],"i30":[[15,2],[2,4]],"i60":[[15,4],[2,6],[8,5]]},{"n":"MUDKIP","d":"Mudkip","no":258,"sp":"berry","f":4700,"ip":19.2,"sk":2.4,"b":"ORAN","cs":11,"pe":0,"re":2,"ms":"Tasty Chance S","i0":[[11,1]],"i30":[[11,2],[1,3]],"i60":[[11,4],[1,5],[15,3]]},{"n":"MARSHTOMP","d":"Marshtomp","no":259,"sp":"berry","f":3500,"ip":16.8,"sk":2.8,"b":"FIGY","cs":16,"pe":1,"re":1,"ms":"Tasty Chance S","i0":[[11,1]],"i30":[[11,2],[1,3]],"i60":[[11,4],[1,5],[15,3]]},{"n":"SWAMPERT","d":"Swampert","no":260,"sp":"berry","f":2800,"ip":14.6,"sk":3.4,"b":"FIGY","cs":20,"pe":2,"re":0,"ms":"Tasty Chance S","i0":[[11,1]],"i30":[[11,2],[1,3]],"i60":[[11,4],[1,5],[15,3]]},{"n":"RALTS","d":"Ralts","no":280,"sp":"skill","f":4800,"ip":14.5,"sk":4.3,"b":"MAGO","cs":9,"pe":0,"re":2,"ms":"Energy For Everyone S","i0":[[0,1]],"i30":[[0,2],[11,1]],"i60":[[0,4],[11,2],[16,2]]},{"n":"KIRLIA","d":"Kirlia","no":281,"sp":"skill","f":3500,"ip":14.6,"sk":4.3,"b":"MAGO","cs":13,"pe":1,"re":1,"ms":"Energy For Everyone S","i0":[[0,1]],"i30":[[0,2],[11,1]],"i60":[[0,4],[11,2],[16,2]]},{"n":"GARDEVOIR","d":"Gardevoir","no":282,"sp":"skill","f":2400,"ip":14.4,"sk":4.2,"b":"MAGO","cs":18,"pe":2,"re":0,"ms":"Energy For Everyone S","i0":[[0,1]],"i30":[[0,2],[11,1]],"i60":[[0,4],[11,2],[16,2]]},{"n":"SLAKOTH","d":"Slakoth","no":287,"sp":"berry","f":4900,"ip":21.6,"sk":1.9,"b":"PERSIM","cs":7,"pe":0,"re":2,"ms":"Ingredient Magnet S","i0":[[6,1]],"i30":[[6,2],[3,2]],"i60":[[6,4],[3,4],[0,4]]},{"n":"VIGOROTH","d":"Vigoroth","no":288,"sp":"berry","f":3200,"ip":20.4,"sk":1.5,"b":"PERSIM","cs":9,"pe":1,"re":1,"ms":"Ingredient Magnet S","i0":[[6,1]],"i30":[[6,2],[3,2]],"i60":[[6,4],[3,4],[0,4]]},{"n":"SLAKING","d":"Slaking","no":289,"sp":"berry","f":3600,"ip":33.9,"sk":6.7,"b":"PERSIM","cs":16,"pe":2,"re":0,"ms":"Ingredient Magnet S","i0":[[6,1]],"i30":[[6,2],[3,2]],"i60":[[6,4],[3,4],[0,4]]},{"n":"SABLEYE","d":"Sableye","no":302,"sp":"skill","f":3600,"ip":18.8,"sk":6.8,"b":"WIKI","cs":16,"pe":0,"re":0,"ms":"Dream Shard Magnet S Range","i0":[[8,1]],"i30":[[8,2],[15,2]],"i60":[[8,4],[15,3],[12,3]]},{"n":"MAWILE","d":"Mawile","no":303,"sp":"ingredient","f":3200,"ip":20.4,"sk":3.8,"b":"BELUE","cs":17,"pe":0,"re":0,"ms":"Hyper Cutter (Ingredient Draw S)","i0":[[8,2]],"i30":[[8,5],[11,4]],"i60":[[8,7],[11,6],[6,8]]},{"n":"ARON","d":"Aron","no":304,"sp":"ingredient","f":5700,"ip":27.3,"sk":4.6,"b":"BELUE","cs":10,"pe":0,"re":2,"ms":"Charge Energy S","i0":[[4,2]],"i30":[[4,5],[13,3]],"i60":[[4,7],[13,5],[2,7]]},{"n":"LAIRON","d":"Lairon","no":305,"sp":"ingredient","f":4200,"ip":27.7,"sk":4.8,"b":"BELUE","cs":13,"pe":1,"re":1,"ms":"Charge Energy S","i0":[[4,2]],"i30":[[4,5],[13,3]],"i60":[[4,7],[13,5],[2,7]]},{"n":"AGGRON","d":"Aggron","no":306,"sp":"ingredient","f":3000,"ip":28.5,"sk":5.2,"b":"BELUE","cs":18,"pe":2,"re":0,"ms":"Charge Energy S","i0":[[4,2]],"i30":[[4,5],[13,3]],"i60":[[4,7],[13,5],[2,7]]},{"n":"PLUSLE","d":"Plusle","no":311,"sp":"skill","f":2400,"ip":10.3,"sk":4.9,"b":"GREPA","cs":16,"pe":0,"re":0,"ms":"Plus (Ingredient Magnet S)","i0":[[13,1]],"i30":[[13,2],[16,2]],"i60":[[13,4],[16,3],[1,6]]},{"n":"MINUN","d":"Minun","no":312,"sp":"skill","f":2400,"ip":17.4,"sk":4.9,"b":"GREPA","cs":16,"pe":0,"re":0,"ms":"Minus (Cooking Power-Up S)","i0":[[3,1]],"i30":[[3,2],[7,2]],"i60":[[3,4],[7,3],[1,4]]},{"n":"GULPIN","d":"Gulpin","no":316,"sp":"skill","f":5900,"ip":21.4,"sk":6.3,"b":"CHESTO","cs":8,"pe":0,"re":1,"ms":"Dream Shard Magnet S Range","i0":[[2,1]],"i30":[[2,2],[15,1]],"i60":[[2,4],[15,2],[3,4]]},{"n":"SWALOT","d":"Swalot","no":317,"sp":"skill","f":3500,"ip":21,"sk":7,"b":"CHESTO","cs":19,"pe":1,"re":0,"ms":"Dream Shard Magnet S Range","i0":[[2,1]],"i30":[[2,2],[15,1]],"i60":[[2,4],[15,2],[3,4]]},{"n":"TRAPINCH","d":"Trapinch","no":328,"sp":"ingredient","f":5000,"ip":15.2,"sk":3.1,"b":"FIGY","cs":8,"pe":0,"re":2,"ms":"Charge Strength S","i0":[[14,2]],"i30":[[14,5],[10,6]],"i60":[[14,7],[10,9],[2,12]]},{"n":"VIBRAVA","d":"Vibrava","no":329,"sp":"ingredient","f":3700,"ip":15.5,"sk":3.4,"b":"FIGY","cs":12,"pe":1,"re":1,"ms":"Charge Strength S","i0":[[14,2]],"i30":[[14,5],[10,6]],"i60":[[14,7],[10,9],[2,12]]},{"n":"FLYGON","d":"Flygon","no":330,"sp":"ingredient","f":2700,"ip":17.2,"sk":3.9,"b":"FIGY","cs":17,"pe":2,"re":0,"ms":"Charge Strength S","i0":[[14,2]],"i30":[[14,5],[10,6]],"i60":[[14,7],[10,9],[2,12]]},{"n":"SWABLU","d":"Swablu","no":333,"sp":"berry","f":4200,"ip":17.7,"sk":3.2,"b":"PAMTRE","cs":12,"pe":0,"re":1,"ms":"Charge Energy S","i0":[[7,1]],"i30":[[7,2],[2,3]],"i60":[[7,4],[2,4],[0,5]]},{"n":"ALTARIA","d":"Altaria","no":334,"sp":"berry","f":3500,"ip":25.8,"sk":6.1,"b":"YACHE","cs":14,"pe":1,"re":0,"ms":"Charge Energy S","i0":[[7,1]],"i30":[[7,2],[2,3]],"i60":[[7,4],[2,4],[0,5]]},{"n":"SHUPPET","d":"Shuppet","no":353,"sp":"berry","f":3900,"ip":17.1,"sk":2.6,"b":"BLUK","cs":11,"pe":0,"re":1,"ms":"Charge Strength S","i0":[[8,1]],"i30":[[8,2],[5,2]],"i60":[[8,4],[5,4],[15,3]]},{"n":"BANETTE","d":"Banette","no":354,"sp":"berry","f":2600,"ip":17.9,"sk":3.3,"b":"BLUK","cs":19,"pe":1,"re":0,"ms":"Charge Strength S","i0":[[8,1]],"i30":[[8,2],[5,2]],"i60":[[8,4],[5,4],[15,3]]},{"n":"ABSOL","d":"Absol","no":359,"sp":"ingredient","f":2950,"ip":17.8,"sk":3.8,"b":"WIKI","cs":21,"pe":0,"re":0,"ms":"Charge Strength M","i0":[[12,2]],"i30":[[12,5],[0,8]],"i60":[[12,7],[0,12],[15,7]]},{"n":"WYNAUT","d":"Wynaut","no":360,"sp":"skill","f":5800,"ip":21.3,"sk":6.9,"b":"MAGO","cs":7,"pe":0,"re":1,"ms":"Energizing Cheer S","i0":[[0,1]],"i30":[[0,2],[15,1]],"i60":[[0,4],[15,2],[8,3]]},{"n":"SPHEAL","d":"Spheal","no":363,"sp":"berry","f":5600,"ip":22.4,"sk":2.3,"b":"RAWST","cs":9,"pe":0,"re":2,"ms":"Ingredient Magnet S","i0":[[8,1]],"i30":[[8,2],[4,3]],"i60":[[8,4],[4,4],[5,4]]},{"n":"SPHEAL_HOLIDAY","d":"Spheal (Holiday)","no":363,"sp":"skill","f":3300,"ip":21.4,"sk":5,"b":"RAWST","cs":20,"pe":0,"re":0,"ms":"Tasty Chance S","i0":[[8,1]],"i30":[[8,2],[4,3]],"i60":[[8,4],[4,4],[5,4]]},{"n":"SEALEO","d":"Sealeo","no":364,"sp":"berry","f":4000,"ip":22.1,"sk":2.1,"b":"RAWST","cs":13,"pe":1,"re":1,"ms":"Ingredient Magnet S","i0":[[8,1]],"i30":[[8,2],[4,3]],"i60":[[8,4],[4,4],[5,4]]},{"n":"WALREIN","d":"Walrein","no":365,"sp":"berry","f":3000,"ip":22.3,"sk":2.2,"b":"RAWST","cs":18,"pe":2,"re":0,"ms":"Ingredient Magnet S","i0":[[8,1]],"i30":[[8,2],[4,3]],"i60":[[8,4],[4,4],[5,4]]},{"n":"BAGON","d":"Bagon","no":371,"sp":"berry","f":5300,"ip":20.9,"sk":2.7,"b":"YACHE","cs":9,"pe":0,"re":2,"ms":"Cooking Power-Up S","i0":[[9,1]],"i30":[[9,2],[5,3]],"i60":[[9,4],[5,4],[4,4]]},{"n":"SHELGON","d":"Shelgon","no":372,"sp":"berry","f":3800,"ip":20.6,"sk":2.7,"b":"YACHE","cs":14,"pe":1,"re":1,"ms":"Cooking Power-Up S","i0":[[9,1]],"i30":[[9,2],[5,3]],"i60":[[9,4],[5,4],[4,4]]},{"n":"SALAMENCE","d":"Salamence","no":373,"sp":"berry","f":2800,"ip":21.7,"sk":3.4,"b":"YACHE","cs":22,"pe":2,"re":0,"ms":"Cooking Power-Up S","i0":[[9,1]],"i30":[[9,2],[5,3]],"i60":[[9,4],[5,4],[4,4]]},{"n":"LATIAS","d":"Latias","no":380,"sp":"skill","f":2800,"ip":11.4,"sk":4.9,"b":"YACHE","cs":19,"pe":0,"re":0,"ms":"Heal Pulse (Energizing Cheer S)","i0":[[6,1]],"i30":[[6,2],[17,1]],"i60":[[6,4],[17,2],[15,2]]},{"n":"LATIOS","d":"Latios","no":381,"sp":"skill","f":2800,"ip":19.8,"sk":3,"b":"YACHE","cs":19,"pe":0,"re":0,"ms":"Draco Meteor (Berry Burst)","i0":[[6,1]],"i30":[[6,2],[7,2]],"i60":[[6,4],[7,3],[1,4]]},{"n":"TURTWIG","d":"Turtwig","no":387,"sp":"skill","f":4500,"ip":13.2,"sk":4.1,"b":"DURIN","cs":12,"pe":0,"re":2,"ms":"Energy For Everyone S","i0":[[15,1]],"i30":[[15,2],[9,3]],"i60":[[15,4],[9,5],[5,6]]},{"n":"GROTLE","d":"Grotle","no":388,"sp":"skill","f":3700,"ip":15,"sk":4.6,"b":"DURIN","cs":14,"pe":1,"re":1,"ms":"Energy For Everyone S","i0":[[15,1]],"i30":[[15,2],[9,3]],"i60":[[15,4],[9,5],[5,6]]},{"n":"TORTERRA","d":"Torterra","no":389,"sp":"skill","f":2900,"ip":15.6,"sk":4.8,"b":"FIGY","cs":17,"pe":2,"re":0,"ms":"Energy For Everyone S","i0":[[15,1]],"i30":[[15,2],[9,3]],"i60":[[15,4],[9,5],[5,6]]},{"n":"CHIMCHAR","d":"Chimchar","no":390,"sp":"skill","f":4100,"ip":11.4,"sk":3.3,"b":"LEPPA","cs":10,"pe":0,"re":2,"ms":"Berry Burst","i0":[[10,1]],"i30":[[10,2],[5,3]],"i60":[[10,4],[5,4],[13,3]]},{"n":"MONFERNO","d":"Monferno","no":391,"sp":"skill","f":3100,"ip":11.4,"sk":3.3,"b":"CHERI","cs":14,"pe":1,"re":1,"ms":"Berry Burst","i0":[[10,1]],"i30":[[10,2],[5,3]],"i60":[[10,4],[5,4],[13,3]]},{"n":"INFERNAPE","d":"Infernape","no":392,"sp":"skill","f":2400,"ip":10.6,"sk":3.3,"b":"CHERI","cs":18,"pe":2,"re":0,"ms":"Berry Burst","i0":[[10,1]],"i30":[[10,2],[5,3]],"i60":[[10,4],[5,4],[13,3]]},{"n":"PIPLUP","d":"Piplup","no":393,"sp":"berry","f":4500,"ip":15.9,"sk":2.6,"b":"ORAN","cs":11,"pe":0,"re":2,"ms":"Extra Helpful S","i0":[[7,1]],"i30":[[7,2],[16,1]],"i60":[[7,4],[16,2],[3,4]]},{"n":"PRINPLUP","d":"Prinplup","no":394,"sp":"berry","f":3700,"ip":16.3,"sk":3.5,"b":"ORAN","cs":15,"pe":1,"re":1,"ms":"Extra Helpful S","i0":[[7,1]],"i30":[[7,2],[16,1]],"i60":[[7,4],[16,2],[3,4]]},{"n":"EMPOLEON","d":"Empoleon","no":395,"sp":"berry","f":3200,"ip":16.8,"sk":3.8,"b":"BELUE","cs":18,"pe":2,"re":0,"ms":"Extra Helpful S","i0":[[7,1]],"i30":[[7,2],[16,1]],"i60":[[7,4],[16,2],[3,4]]},{"n":"SHINX","d":"Shinx","no":403,"sp":"ingredient","f":4400,"ip":18.1,"sk":1.8,"b":"GREPA","cs":11,"pe":0,"re":2,"ms":"Cooking Power-Up S","i0":[[6,2]],"i30":[[6,5],[8,4]],"i60":[[6,7],[8,7],[13,5]]},{"n":"LUXIO","d":"Luxio","no":404,"sp":"ingredient","f":3200,"ip":18.2,"sk":1.8,"b":"GREPA","cs":16,"pe":1,"re":1,"ms":"Cooking Power-Up S","i0":[[6,2]],"i30":[[6,5],[8,4]],"i60":[[6,7],[8,7],[13,5]]},{"n":"LUXRAY","d":"Luxray","no":405,"sp":"ingredient","f":2400,"ip":20,"sk":2.3,"b":"GREPA","cs":21,"pe":2,"re":0,"ms":"Cooking Power-Up S","i0":[[6,2]],"i30":[[6,5],[8,4]],"i60":[[6,7],[8,7],[13,5]]},{"n":"DRIFLOON","d":"Drifloon","no":425,"sp":"skill","f":4800,"ip":13.7,"sk":7.1,"b":"BLUK","cs":9,"pe":0,"re":1,"ms":"Stockpile (Charge Strength S)","i0":[[11,1]],"i30":[[11,2],[8,3]],"i60":[[11,4],[8,4],[9,4]]},{"n":"DRIFBLIM","d":"Drifblim","no":426,"sp":"skill","f":2500,"ip":12.8,"sk":6.3,"b":"BLUK","cs":17,"pe":1,"re":0,"ms":"Stockpile (Charge Strength S)","i0":[[11,1]],"i30":[[11,2],[8,3]],"i60":[[11,4],[8,4],[9,4]]},{"n":"HONCHKROW","d":"Honchkrow","no":430,"sp":"skill","f":3200,"ip":14.3,"sk":6.7,"b":"WIKI","cs":18,"pe":1,"re":0,"ms":"Super Luck (Ingredient Draw S)","i0":[[13,1]],"i30":[[13,2],[2,3]],"i60":[[13,4],[2,6],[10,4]]},{"n":"BONSLY","d":"Bonsly","no":438,"sp":"skill","f":6300,"ip":18.9,"sk":6.1,"b":"SITRUS","cs":8,"pe":0,"re":1,"ms":"Charge Strength M","i0":[[6,1]],"i30":[[6,2],[2,2]],"i60":[[6,4],[2,4],[15,2]]},{"n":"MIME_JR","d":"Mime Jr.","no":439,"sp":"ingredient","f":4300,"ip":20.1,"sk":3.2,"b":"MAGO","cs":10,"pe":0,"re":1,"ms":"Mimic (Skill Copy)","i0":[[6,2]],"i30":[[6,5],[9,4]],"i60":[[6,7],[9,6],[16,4]]},{"n":"HAPPINY","d":"Happiny","no":440,"sp":"ingredient","f":5400,"ip":21,"sk":1.3,"b":"PERSIM","cs":7,"pe":0,"re":2,"ms":"Energy For Everyone S","i0":[[7,2]],"i30":[[7,5],[9,4]],"i60":[[7,7],[9,7],[3,8]]},{"n":"SPIRITOMB","d":"Spiritomb","no":442,"sp":"ingredient","f":3500,"ip":19.8,"sk":3.6,"b":"WIKI","cs":27,"pe":0,"re":0,"ms":"Extra Helpful S","i0":[[15,2]],"i30":[[15,5],[17,3]],"i60":[[15,7],[17,5],[16,6]]},{"n":"RIOLU","d":"Riolu","no":447,"sp":"skill","f":4200,"ip":12.6,"sk":3.8,"b":"CHERI","cs":9,"pe":0,"re":1,"ms":"Dream Shard Magnet S","i0":[[8,1]],"i30":[[8,2],[9,2]],"i60":[[8,4],[9,4],[7,4]]},{"n":"LUCARIO","d":"Lucario","no":448,"sp":"skill","f":2600,"ip":15,"sk":5.1,"b":"CHERI","cs":14,"pe":1,"re":0,"ms":"Aura Sphere (Dream Shard Magnet S)","i0":[[8,1]],"i30":[[8,2],[9,2]],"i60":[[8,4],[9,4],[7,4]]},{"n":"CROAGUNK","d":"Croagunk","no":453,"sp":"ingredient","f":5600,"ip":22.8,"sk":4.2,"b":"CHESTO","cs":10,"pe":0,"re":1,"ms":"Charge Strength S","i0":[[8,2]],"i30":[[8,5],[4,5]],"i60":[[8,7],[4,8]]},{"n":"TOXICROAK","d":"Toxicroak","no":454,"sp":"ingredient","f":3400,"ip":22.9,"sk":4.3,"b":"CHESTO","cs":14,"pe":1,"re":0,"ms":"Charge Strength S","i0":[[8,2]],"i30":[[8,5],[4,5]],"i60":[[8,7],[4,8]]},{"n":"SNOVER","d":"Snover","no":459,"sp":"ingredient","f":5600,"ip":25.1,"sk":4.4,"b":"RAWST","cs":10,"pe":0,"re":1,"ms":"Charge Strength S","i0":[[6,2]],"i30":[[6,5],[7,4]],"i60":[[6,7],[7,7],[15,5]]},{"n":"ABOMASNOW","d":"Abomasnow","no":460,"sp":"ingredient","f":3000,"ip":25,"sk":4.4,"b":"RAWST","cs":21,"pe":1,"re":0,"ms":"Charge Strength S","i0":[[6,2]],"i30":[[6,5],[7,4]],"i60":[[6,7],[7,7],[15,5]]},{"n":"WEAVILE","d":"Weavile","no":461,"sp":"berry","f":2700,"ip":25.2,"sk":1.8,"b":"WIKI","cs":21,"pe":1,"re":0,"ms":"Tasty Chance S","i0":[[4,1]],"i30":[[4,2],[7,2]],"i60":[[4,4],[7,3],[2,4]]},{"n":"MAGNEZONE","d":"Magnezone","no":462,"sp":"skill","f":3100,"ip":17.9,"sk":6.2,"b":"BELUE","cs":13,"pe":2,"re":0,"ms":"Cooking Power-Up S","i0":[[8,1]],"i30":[[8,2],[10,2]],"i60":[[8,4],[10,3]]},{"n":"TOGEKISS","d":"Togekiss","no":468,"sp":"skill","f":2600,"ip":15.8,"sk":5.3,"b":"PECHA","cs":16,"pe":2,"re":0,"ms":"Metronome","i0":[[7,1]],"i30":[[7,2],[5,2]],"i60":[[7,4],[5,4],[12,3]]},{"n":"LEAFEON","d":"Leafeon","no":470,"sp":"skill","f":3000,"ip":20.5,"sk":6.9,"b":"DURIN","cs":13,"pe":1,"re":0,"ms":"Energizing Cheer S","i0":[[1,1]],"i30":[[1,2],[12,1]],"i60":[[1,4],[12,2],[4,3]]},{"n":"GLACEON","d":"Glaceon","no":471,"sp":"skill","f":3200,"ip":21.9,"sk":6.3,"b":"RAWST","cs":12,"pe":1,"re":0,"ms":"Cooking Power-Up S","i0":[[1,1]],"i30":[[1,2],[12,1]],"i60":[[1,4],[12,2],[4,3]]},{"n":"GALLADE","d":"Gallade","no":475,"sp":"skill","f":2400,"ip":14.7,"sk":5.4,"b":"CHERI","cs":19,"pe":2,"re":0,"ms":"Extra Helpful S","i0":[[0,1]],"i30":[[0,2],[11,1]],"i60":[[0,4],[11,2],[16,2]]},{"n":"CRESSELIA","d":"Cresselia","no":488,"sp":"skill","f":2300,"ip":23.9,"sk":4.1,"b":"MAGO","cs":22,"pe":0,"re":0,"ms":"Lunar Blessing (Energy For Everyone S)","i0":[[5,1]],"i30":[[5,2],[12,2]],"i60":[[5,4],[12,3],[6,4]]},{"n":"DARKRAI","d":"Darkrai","no":491,"sp":"all","f":2900,"ip":19.2,"sk":2.3,"b":"WIKI","cs":28,"pe":0,"re":0,"ms":"Bad Dreams (Charge Strength M)","i0":[[4,2],[0,2],[10,2],[1,2],[3,2],[2,2],[11,2],[13,2]],"i30":[[null,0],[4,4],[0,5],[10,3],[1,4],[3,4],[2,4],[11,3],[13,3]],"i60":[[null,0],[4,6],[0,7],[10,5],[1,6],[3,6],[2,6],[11,4],[13,4]]},{"n":"MUNNA","d":"Munna","no":517,"sp":"berry","f":5700,"ip":19.7,"sk":4.3,"b":"MAGO","cs":12,"pe":0,"re":1,"ms":"Dream Shard Magnet S Range","i0":[[1,1]],"i30":[[1,2],[3,2]],"i60":[[1,4],[3,3],[13,2]]},{"n":"MUSHARNA","d":"Musharna","no":518,"sp":"berry","f":2800,"ip":18.8,"sk":4.1,"b":"MAGO","cs":24,"pe":1,"re":0,"ms":"Dream Shard Magnet S Range","i0":[[1,1]],"i30":[[1,2],[3,2]],"i60":[[1,4],[3,3],[13,2]]},{"n":"DWEBBLE","d":"Dwebble","no":557,"sp":"skill","f":4300,"ip":17.5,"sk":5.4,"b":"LUM","cs":8,"pe":0,"re":1,"ms":"Ingredient Draw S","i0":[[14,1]],"i30":[[14,2],[9,3]],"i60":[[14,4],[9,5],[8,5]]},{"n":"CRUSTLE","d":"Crustle","no":558,"sp":"skill","f":3200,"ip":23.9,"sk":6.4,"b":"LUM","cs":17,"pe":1,"re":0,"ms":"Ingredient Draw S","i0":[[14,1]],"i30":[[14,2],[9,3]],"i60":[[14,4],[9,5],[8,5]]},{"n":"RUFFLET","d":"Rufflet","no":627,"sp":"skill","f":3800,"ip":12.5,"sk":3.1,"b":"PAMTRE","cs":10,"pe":0,"re":1,"ms":"Berry Burst","i0":[[4,1]],"i30":[[4,2],[11,2]],"i60":[[4,4],[11,3],[13,2]]},{"n":"BRAVIARY","d":"Braviary","no":628,"sp":"skill","f":2400,"ip":12.1,"sk":3.5,"b":"PAMTRE","cs":18,"pe":1,"re":0,"ms":"Berry Burst","i0":[[4,1]],"i30":[[4,2],[11,2]],"i60":[[4,4],[11,3],[13,2]]},{"n":"TYRUNT","d":"Tyrunt","no":696,"sp":"berry","f":5200,"ip":20.3,"sk":2.4,"b":"SITRUS","cs":11,"pe":0,"re":1,"ms":"Cooking Power-Up S","i0":[[4,1]],"i30":[[4,2],[0,3]],"i60":[[4,4],[0,4],[9,3]]},{"n":"TYRANTRUM","d":"Tyrantrum","no":697,"sp":"berry","f":2800,"ip":17.8,"sk":2.9,"b":"SITRUS","cs":23,"pe":1,"re":0,"ms":"Cooking Power-Up S","i0":[[4,1]],"i30":[[4,2],[0,3]],"i60":[[4,4],[0,4],[9,3]]},{"n":"SYLVEON","d":"Sylveon","no":700,"sp":"skill","f":2600,"ip":17.8,"sk":4,"b":"PECHA","cs":15,"pe":1,"re":0,"ms":"Energy For Everyone S","i0":[[1,1]],"i30":[[1,2],[12,1]],"i60":[[1,4],[12,2],[4,3]]},{"n":"HAWLUCHA","d":"Hawlucha","no":701,"sp":"skill","f":2400,"ip":19.2,"sk":5.2,"b":"PAMTRE","cs":21,"pe":0,"re":0,"ms":"Ingredient Draw S","i0":[[10,1]],"i30":[[10,2],[5,3]],"i60":[[10,4],[5,4],[4,5]]},{"n":"DEDENNE","d":"Dedenne","no":702,"sp":"skill","f":2500,"ip":17.7,"sk":4.5,"b":"GREPA","cs":19,"pe":0,"re":0,"ms":"Tasty Chance S","i0":[[0,1]],"i30":[[0,2],[12,1]],"i60":[[0,4],[12,2],[11,2]]},{"n":"PUMPKABOO_JUMBO","d":"Pumpkaboo (Jumbo Variety)","no":710,"sp":"ingredient","f":5600,"ip":12,"sk":4.9,"b":"BLUK","cs":21,"pe":0,"re":1,"ms":"Charge Strength S","i0":[[17,2]],"i30":[[17,5],[2,11]],"i60":[[17,7],[2,18],[9,15]]},{"n":"PUMPKABOO_LARGE","d":"Pumpkaboo (Large Variety)","no":710,"sp":"ingredient","f":5500,"ip":12,"sk":4.9,"b":"BLUK","cs":15,"pe":0,"re":1,"ms":"Charge Strength S","i0":[[17,2]],"i30":[[17,5],[2,11]],"i60":[[17,7],[2,18],[9,15]]},{"n":"PUMPKABOO_MEDIUM","d":"Pumpkaboo (Medium Variety)","no":710,"sp":"ingredient","f":5400,"ip":12,"sk":4.9,"b":"BLUK","cs":11,"pe":0,"re":1,"ms":"Charge Strength S","i0":[[17,2]],"i30":[[17,5],[2,11]],"i60":[[17,7],[2,18],[9,15]]},{"n":"PUMPKABOO_SMALL","d":"Pumpkaboo (Small Variety)","no":710,"sp":"ingredient","f":5300,"ip":12,"sk":4.9,"b":"BLUK","cs":7,"pe":0,"re":1,"ms":"Charge Strength S","i0":[[17,2]],"i30":[[17,5],[2,11]],"i60":[[17,7],[2,18],[9,15]]},{"n":"GOURGEIST_JUMBO","d":"Gourgeist (Jumbo Variety)","no":711,"sp":"ingredient","f":3400,"ip":13,"sk":4.9,"b":"BLUK","cs":25,"pe":1,"re":0,"ms":"Charge Strength S","i0":[[17,2]],"i30":[[17,5],[2,11]],"i60":[[17,7],[2,18],[9,15]]},{"n":"GOURGEIST_LARGE","d":"Gourgeist (Large Variety)","no":711,"sp":"ingredient","f":3300,"ip":13,"sk":4.9,"b":"BLUK","cs":19,"pe":1,"re":0,"ms":"Charge Strength S","i0":[[17,2]],"i30":[[17,5],[2,11]],"i60":[[17,7],[2,18],[9,15]]},{"n":"GOURGEIST_MEDIUM","d":"Gourgeist (Medium Variety)","no":711,"sp":"ingredient","f":3200,"ip":13,"sk":4.9,"b":"BLUK","cs":14,"pe":1,"re":0,"ms":"Charge Strength S","i0":[[17,2]],"i30":[[17,5],[2,11]],"i60":[[17,7],[2,18],[9,15]]},{"n":"GOURGEIST_SMALL","d":"Gourgeist (Small Variety)","no":711,"sp":"ingredient","f":3100,"ip":13,"sk":4.9,"b":"BLUK","cs":10,"pe":1,"re":0,"ms":"Charge Strength S","i0":[[17,2]],"i30":[[17,5],[2,11]],"i60":[[17,7],[2,18],[9,15]]},{"n":"NOIBAT","d":"Noibat","no":714,"sp":"skill","f":5100,"ip":19.8,"sk":4.8,"b":"YACHE","cs":7,"pe":0,"re":1,"ms":"Charge Strength M","i0":[[0,1]],"i30":[[0,2],[16,1]],"i60":[[0,4],[16,2],[4,3]]},{"n":"NOIVERN","d":"Noivern","no":715,"sp":"skill","f":2700,"ip":19.5,"sk":4.8,"b":"YACHE","cs":18,"pe":1,"re":0,"ms":"Charge Strength M","i0":[[0,1]],"i30":[[0,2],[16,1]],"i60":[[0,4],[16,2],[4,3]]},{"n":"GRUBBIN","d":"Grubbin","no":736,"sp":"ingredient","f":4600,"ip":15.5,"sk":2.9,"b":"LUM","cs":11,"pe":0,"re":2,"ms":"Charge Strength S","i0":[[13,2]],"i30":[[13,5],[15,4]],"i60":[[13,7],[15,7],[3,11]]},{"n":"CHARJABUG","d":"Charjabug","no":737,"sp":"ingredient","f":3300,"ip":15.4,"sk":2.8,"b":"LUM","cs":15,"pe":1,"re":1,"ms":"Charge Strength S","i0":[[13,2]],"i30":[[13,5],[15,4]],"i60":[[13,7],[15,7],[3,11]]},{"n":"VIKAVOLT","d":"Vikavolt","no":738,"sp":"ingredient","f":2800,"ip":19.4,"sk":5.1,"b":"LUM","cs":19,"pe":2,"re":0,"ms":"Charge Strength S","i0":[[13,2]],"i30":[[13,5],[15,4]],"i60":[[13,7],[15,7],[3,11]]},{"n":"CUTIEFLY","d":"Cutiefly","no":742,"sp":"ingredient","f":4500,"ip":19.9,"sk":1.9,"b":"PECHA","cs":9,"pe":0,"re":1,"ms":"Ingredient Draw S","i0":[[3,2]],"i30":[[3,5],[8,4]],"i60":[[3,7],[8,6],[11,5]]},{"n":"RIBOMBEE","d":"Ribombee","no":743,"sp":"ingredient","f":2300,"ip":19.4,"sk":2.5,"b":"PECHA","cs":19,"pe":1,"re":0,"ms":"Ingredient Draw S","i0":[[3,2]],"i30":[[3,5],[8,4]],"i60":[[3,7],[8,6],[11,5]]},{"n":"STUFFUL","d":"Stufful","no":759,"sp":"ingredient","f":4100,"ip":22.5,"sk":1.1,"b":"CHERI","cs":13,"pe":0,"re":1,"ms":"Charge Strength S","i0":[[11,2]],"i30":[[11,5],[4,6]],"i60":[[11,7],[4,10],[7,9]]},{"n":"BEWEAR","d":"Bewear","no":760,"sp":"ingredient","f":2800,"ip":22.9,"sk":1.3,"b":"CHERI","cs":20,"pe":1,"re":0,"ms":"Charge Strength S","i0":[[11,2]],"i30":[[11,5],[4,6]],"i60":[[11,7],[4,10],[7,9]]},{"n":"COMFEY","d":"Comfey","no":764,"sp":"ingredient","f":2500,"ip":16.7,"sk":3.5,"b":"PECHA","cs":20,"pe":0,"re":0,"ms":"Energizing Cheer S","i0":[[11,2]],"i30":[[11,5],[5,6]],"i60":[[11,7],[5,9],[12,7]]},{"n":"TOGEDEMARU","d":"Togedemaru","no":777,"sp":"skill","f":2700,"ip":16.9,"sk":5.4,"b":"BELUE","cs":18,"pe":0,"re":0,"ms":"Nuzzle (Energizing Cheer S)","i0":[[1,1]],"i30":[[1,2],[14,1]],"i60":[[1,4],[14,2],[12,2]]},{"n":"MIMIKYU","d":"Mimikyu","no":778,"sp":"skill","f":2500,"ip":15.3,"sk":3.5,"b":"BLUK","cs":19,"pe":0,"re":0,"ms":"Disguise (Berry Burst)","i0":[[0,1]],"i30":[[0,2],[13,1]],"i60":[[0,4],[13,2],[15,2]]},{"n":"DRAMPA","d":"Drampa","no":780,"sp":"ingredient","f":3500,"ip":29.4,"sk":4.6,"b":"YACHE","cs":25,"pe":0,"re":0,"ms":"Tasty Chance S","i0":[[2,2]],"i30":[[2,5],[14,3]],"i60":[[2,7],[14,4],[4,7]]},{"n":"CRAMORANT","d":"Cramorant","no":845,"sp":"ingredient","f":2700,"ip":16.5,"sk":3.9,"b":"PAMTRE","cs":19,"pe":0,"re":0,"ms":"Tasty Chance S","i0":[[8,2]],"i30":[[8,5],[9,4]],"i60":[[8,7],[9,7],[7,8]]},{"n":"TOXEL","d":"Toxel","no":848,"sp":"skill","f":5600,"ip":20.9,"sk":4.8,"b":"CHESTO","cs":6,"pe":0,"re":1,"ms":"Ingredient Magnet S","i0":[[1,1]],"i30":[[1,2],[0,2]],"i60":[[1,4],[0,4],[16,2]]},{"n":"TOXTRICITY_AMPED","d":"Toxtricity (Amped Form)","no":849,"sp":"skill","f":3100,"ip":23.9,"sk":6.4,"b":"CHESTO","cs":18,"pe":1,"re":0,"ms":"Plus (Ingredient Magnet S)","i0":[[1,1]],"i30":[[1,2],[0,2]],"i60":[[1,4],[0,4],[16,2]]},{"n":"TOXTRICITY_LOW_KEY","d":"Toxtricity (Low Key Form)","no":849,"sp":"skill","f":3100,"ip":23.9,"sk":6.4,"b":"CHESTO","cs":18,"pe":1,"re":0,"ms":"Minus (Cooking Power-Up S)","i0":[[1,1]],"i30":[[1,2],[0,2]],"i60":[[1,4],[0,4],[16,2]]},{"n":"SPRIGATITO","d":"Sprigatito","no":906,"sp":"ingredient","f":4600,"ip":20.8,"sk":2.3,"b":"DURIN","cs":10,"pe":0,"re":2,"ms":"Cooking Power-Up S","i0":[[9,2]],"i30":[[9,5],[1,6]],"i60":[[9,7],[1,9],[5,8]]},{"n":"FLORAGATO","d":"Floragato","no":907,"sp":"ingredient","f":3500,"ip":20.9,"sk":2.3,"b":"DURIN","cs":14,"pe":1,"re":1,"ms":"Cooking Power-Up S","i0":[[9,2]],"i30":[[9,5],[1,6]],"i60":[[9,7],[1,9],[5,8]]},{"n":"MEOWSCARADA","d":"Meowscarada","no":908,"sp":"ingredient","f":2600,"ip":19,"sk":2.2,"b":"WIKI","cs":18,"pe":2,"re":0,"ms":"Cooking Power-Up S","i0":[[9,2]],"i30":[[9,5],[1,6]],"i60":[[9,7],[1,9],[5,8]]},{"n":"FUECOCO","d":"Fuecoco","no":909,"sp":"ingredient","f":4200,"ip":25.4,"sk":5.3,"b":"LEPPA","cs":11,"pe":0,"re":2,"ms":"Charge Energy S","i0":[[0,2]],"i30":[[0,5],[4,4]],"i60":[[0,7],[4,6],[10,5]]},{"n":"CROCALOR","d":"Crocalor","no":910,"sp":"ingredient","f":3100,"ip":24.7,"sk":5,"b":"LEPPA","cs":16,"pe":1,"re":1,"ms":"Charge Energy S","i0":[[0,2]],"i30":[[0,5],[4,4]],"i60":[[0,7],[4,6],[10,5]]},{"n":"SKELEDIRGE","d":"Skeledirge","no":911,"sp":"ingredient","f":2700,"ip":26.8,"sk":6.2,"b":"BLUK","cs":19,"pe":2,"re":0,"ms":"Charge Energy S","i0":[[0,2]],"i30":[[0,5],[4,4]],"i60":[[0,7],[4,6],[10,5]]},{"n":"QUAXLY","d":"Quaxly","no":912,"sp":"ingredient","f":4800,"ip":26.1,"sk":2.8,"b":"ORAN","cs":10,"pe":0,"re":2,"ms":"Charge Strength M","i0":[[2,2]],"i30":[[2,5],[16,2]],"i60":[[2,7],[16,4],[8,6]]},{"n":"QUAXWELL","d":"Quaxwell","no":913,"sp":"ingredient","f":3600,"ip":25.9,"sk":2.7,"b":"ORAN","cs":14,"pe":1,"re":1,"ms":"Charge Strength M","i0":[[2,2]],"i30":[[2,5],[16,2]],"i60":[[2,7],[16,4],[8,6]]},{"n":"QUAQUAVAL","d":"Quaquaval","no":914,"sp":"ingredient","f":2600,"ip":23.2,"sk":2.4,"b":"CHERI","cs":19,"pe":2,"re":0,"ms":"Charge Strength M","i0":[[2,2]],"i30":[[2,5],[16,2]],"i60":[[2,7],[16,4],[8,6]]},{"n":"PAWMI","d":"Pawmi","no":921,"sp":"skill","f":4600,"ip":11.1,"sk":3.6,"b":"GREPA","cs":9,"pe":0,"re":2,"ms":"Energy For Everyone S","i0":[[12,1]],"i30":[[12,2],[1,3]],"i60":[[12,4],[1,6],[7,5]]},{"n":"PAWMO","d":"Pawmo","no":922,"sp":"skill","f":3300,"ip":10.9,"sk":3.6,"b":"GREPA","cs":12,"pe":1,"re":1,"ms":"Energy For Everyone S","i0":[[12,1]],"i30":[[12,2],[1,3]],"i60":[[12,4],[1,6],[7,5]]},{"n":"PAWMOT","d":"Pawmot","no":923,"sp":"skill","f":2400,"ip":14.1,"sk":3.9,"b":"GREPA","cs":18,"pe":2,"re":0,"ms":"Energy For Everyone S","i0":[[12,1]],"i30":[[12,2],[1,3]],"i60":[[12,4],[1,6],[7,5]]},{"n":"TINKATINK","d":"Tinkatink","no":957,"sp":"berry","f":4500,"ip":20.2,"sk":1.6,"b":"PECHA","cs":12,"pe":0,"re":2,"ms":"Charge Strength M","i0":[[6,1]],"i30":[[6,2],[12,2]],"i60":[[6,4],[12,3],[9,3]]},{"n":"TINKATUFF","d":"Tinkatuff","no":958,"sp":"berry","f":3300,"ip":18.6,"sk":1.8,"b":"PECHA","cs":16,"pe":1,"re":1,"ms":"Charge Strength M","i0":[[6,1]],"i30":[[6,2],[12,2]],"i60":[[6,4],[12,3],[9,3]]},{"n":"TINKATON","d":"Tinkaton","no":959,"sp":"berry","f":2400,"ip":18.5,"sk":2,"b":"PECHA","cs":20,"pe":2,"re":0,"ms":"Charge Strength M","i0":[[6,1]],"i30":[[6,2],[12,2]],"i60":[[6,4],[12,3],[9,3]]},{"n":"CETODDLE","d":"Cetoddle","no":974,"sp":"ingredient","f":5100,"ip":22.3,"sk":4.2,"b":"RAWST","cs":12,"pe":0,"re":1,"ms":"Charge Energy S","i0":[[9,2]],"i30":[[9,5],[4,5]],"i60":[[9,7],[4,9],[17,4]]},{"n":"CETITAN","d":"Cetitan","no":975,"sp":"ingredient","f":2800,"ip":20.9,"sk":4.2,"b":"RAWST","cs":25,"pe":1,"re":0,"ms":"Charge Energy S","i0":[[9,2]],"i30":[[9,5],[4,5]],"i60":[[9,7],[4,9],[17,4]]},{"n":"CLODSIRE","d":"Clodsire","no":980,"sp":"ingredient","f":3500,"ip":20.8,"sk":5.5,"b":"CHESTO","cs":20,"pe":1,"re":0,"ms":"Charge Energy S","i0":[[12,2]],"i30":[[12,5],[13,4]],"i60":[[12,7],[13,7],[9,9]]}],"recipes":[{"n":"OVERGROW_AVOCADO_GRATIN","t":"curry","bonus":78,"cnt":115,"ings":[[14,22],[9,20],[1,41],[8,32]]},{"n":"BOUNCE_CURRY_UDON","t":"curry","bonus":78,"cnt":112,"ings":[[5,39],[15,31],[10,22],[4,20]]},{"n":"CUT_SUKIYAKI_CURRY","t":"curry","bonus":61,"cnt":101,"ings":[[16,27],[4,26],[3,26],[7,22]]},{"n":"HIDDEN_POWER_PERK_UP_STEW","t":"curry","bonus":61,"cnt":92,"ings":[[2,28],[6,25],[15,23],[13,16]]},{"n":"INFERNO_CORN_KEEMA_CURRY","t":"curry","bonus":48,"cnt":77,"ings":[[10,27],[4,24],[11,14],[5,12]]},{"n":"ROLE_PLAY_PUMPKABOO_STEW","t":"curry","bonus":48,"cnt":69,"ings":[[17,10],[4,16],[9,18],[15,25]]},{"n":"GREENGRASS_CURRY_BUN","t":"curry","bonus":48,"cnt":63,"ings":[[5,20],[10,20],[2,8],[8,15]]},{"n":"DREAM_EATER_BUTTER_CURRY","t":"curry","bonus":35,"cnt":55,"ings":[[9,18],[6,15],[12,12],[1,10]]},{"n":"NINJA_CURRY","t":"curry","bonus":48,"cnt":50,"ings":[[2,24],[4,9],[16,12],[15,5]]},{"n":"EGG_BOMB_CURRY","t":"curry","bonus":25,"cnt":35,"ings":[[3,12],[0,11],[7,8],[9,4]]},{"n":"DIZZY_PUNCH_SPICY_CURRY","t":"curry","bonus":35,"cnt":33,"ings":[[13,11],[10,11],[3,11]]},{"n":"GRILLED_TAIL_CURRY","t":"curry","bonus":25,"cnt":33,"ings":[[18,8],[10,25]]},{"n":"SPICY_LEEK_CURRY","t":"curry","bonus":25,"cnt":32,"ings":[[16,14],[5,10],[10,8]]},{"n":"LIMBER_CORN_STEW","t":"curry","bonus":25,"cnt":30,"ings":[[11,14],[1,8],[9,8]]},{"n":"BULK_UP_BEAN_CURRY","t":"curry","bonus":20.51,"cnt":26,"ings":[[2,12],[4,6],[10,4],[7,4]]},{"n":"SPORE_MUSHROOM_CURRY","t":"curry","bonus":20.51,"cnt":23,"ings":[[15,14],[9,9]]},{"n":"SOFT_POTATO_CHOWDER","t":"curry","bonus":20.51,"cnt":22,"ings":[[1,10],[9,8],[15,4]]},{"n":"HEARTY_CHEESEBURGER_CURRY","t":"curry","bonus":18.77,"cnt":16,"ings":[[1,8],[4,8]]},{"n":"MELTY_OMELETTE_CURRY","t":"curry","bonus":18.77,"cnt":16,"ings":[[7,10],[6,6]]},{"n":"DROUGHT_KATSU_CURRY","t":"curry","bonus":18.77,"cnt":15,"ings":[[4,10],[8,5]]},{"n":"SOLAR_POWER_TOMATO_CURRY","t":"curry","bonus":18.77,"cnt":15,"ings":[[6,10],[10,5]]},{"n":"FANCY_APPLE_CURRY","t":"curry","bonus":18.7,"cnt":7,"ings":[[0,7]]},{"n":"SIMPLE_CHOWDER","t":"curry","bonus":18.7,"cnt":7,"ings":[[1,7]]},{"n":"MILD_HONEY_CURRY","t":"curry","bonus":18.7,"cnt":7,"ings":[[3,7]]},{"n":"BEANBURGER_CURRY","t":"curry","bonus":18.7,"cnt":7,"ings":[[4,7]]},{"n":"HONEY_GATHER_CHOCOLATE_WAFFLES","t":"dessert","bonus":78,"cnt":115,"ings":[[3,38],[11,28],[8,28],[12,21]]},{"n":"SCARY_FACE_PANCAKES","t":"dessert","bonus":78,"cnt":103,"ings":[[17,18],[7,24],[3,32],[6,29]]},{"n":"CLODSIRE_ECLAIR","t":"dessert","bonus":61,"cnt":102,"ings":[[12,30],[1,26],[13,24],[3,22]]},{"n":"ZING_ZAP_SPICED_COLA","t":"dessert","bonus":61,"cnt":87,"ings":[[0,35],[5,20],[16,20],[13,12]]},{"n":"FLOWER_GIFT_MACARONS","t":"dessert","bonus":48,"cnt":77,"ings":[[12,25],[7,25],[3,17],[1,10]]},{"n":"TEATIME_CORN_SCONES","t":"dessert","bonus":48,"cnt":67,"ings":[[0,20],[5,20],[11,18],[1,9]]},{"n":"JIGGLYPUFFS_FRUITY_FLAN","t":"dessert","bonus":35,"cnt":55,"ings":[[3,20],[7,15],[1,10],[0,10]]},{"n":"LEAF_TORNADO_SMOOTHIE","t":"dessert","bonus":35,"cnt":48,"ings":[[14,18],[6,16],[1,14]]},{"n":"EARLY_BIRD_COFFEE_JELLY","t":"dessert","bonus":35,"cnt":42,"ings":[[13,16],[1,14],[3,12]]},{"n":"MOLD_BREAKER_CORN_TIRAMISU","t":"dessert","bonus":35,"cnt":40,"ings":[[13,14],[11,14],[1,12]]},{"n":"EXPLOSION_POPCORN","t":"dessert","bonus":35,"cnt":36,"ings":[[11,15],[8,14],[1,7]]},{"n":"HUGE_POWER_SOY_DONUTS","t":"dessert","bonus":35,"cnt":35,"ings":[[8,12],[2,16],[12,7]]},{"n":"LOVELY_KISS_SMOOTHIE","t":"dessert","bonus":25,"cnt":35,"ings":[[0,11],[1,9],[3,7],[12,8]]},{"n":"STEADFAST_GINGER_COOKIES","t":"dessert","bonus":25,"cnt":35,"ings":[[3,14],[5,12],[12,5],[7,4]]},{"n":"NEROLIS_RESTORATIVE_TEA","t":"dessert","bonus":25,"cnt":35,"ings":[[5,11],[0,15],[15,9]]},{"n":"SWEET_SCENT_CHOCOLATE_CAKE","t":"dessert","bonus":20.51,"cnt":24,"ings":[[3,9],[12,8],[1,7]]},{"n":"BIG_MALASADA","t":"dessert","bonus":20.51,"cnt":23,"ings":[[8,10],[1,7],[3,6]]},{"n":"HUSTLE_PROTEIN_SMOOTHIE","t":"dessert","bonus":20.51,"cnt":23,"ings":[[2,15],[12,8]]},{"n":"PETAL_DANCE_CHOCOLATE_TART","t":"dessert","bonus":25,"cnt":22,"ings":[[0,11],[12,11]]},{"n":"LUCKY_CHANT_APPLE_PIE","t":"dessert","bonus":18.77,"cnt":16,"ings":[[0,12],[1,4]]},{"n":"EMBER_GINGER_TEA","t":"dessert","bonus":18.77,"cnt":16,"ings":[[5,9],[0,7]]},{"n":"STALWART_VEGETABLE_JUICE","t":"dessert","bonus":18.77,"cnt":16,"ings":[[6,9],[0,7]]},{"n":"CLOUD_NINE_SOY_CAKE","t":"dessert","bonus":18.77,"cnt":15,"ings":[[7,8],[2,7]]},{"n":"FLUFFY_SWEET_POTATOES","t":"dessert","bonus":18.77,"cnt":14,"ings":[[9,9],[1,5]]},{"n":"CRAFT_SODA_POP","t":"dessert","bonus":18.7,"cnt":9,"ings":[[3,9]]},{"n":"FANCY_APPLE_JUICE","t":"dessert","bonus":18.7,"cnt":8,"ings":[[0,8]]},{"n":"WARM_MOOMOO_MILK","t":"dessert","bonus":18.7,"cnt":7,"ings":[[1,7]]},{"n":"BULLDOZE_GUACAMOLE_AND_CHIPS","t":"salad","bonus":78,"cnt":105,"ings":[[14,28],[11,25],[10,30],[2,22]]},{"n":"APPLE_ACID_YOGURT_DRESSED_SALAD","t":"salad","bonus":78,"cnt":104,"ings":[[7,35],[0,28],[6,23],[1,18]]},{"n":"DEFIANT_COFFEE_DRESSED_SALAD","t":"salad","bonus":61,"cnt":100,"ings":[[13,28],[4,28],[8,22],[9,22]]},{"n":"SCALD_CHUNKY_SALAD","t":"salad","bonus":61,"cnt":95,"ings":[[17,20],[9,30],[11,18],[15,27]]},{"n":"PETAL_BLIZZARD_LAYERED_SALAD","t":"salad","bonus":48,"cnt":69,"ings":[[7,25],[8,17],[9,15],[4,12]]},{"n":"GREENGRASS_SALAD","t":"salad","bonus":48,"cnt":62,"ings":[[8,22],[11,17],[6,14],[9,9]]},{"n":"NINJA_SALAD","t":"salad","bonus":48,"cnt":57,"ings":[[16,15],[2,19],[15,12],[5,11]]},{"n":"CROSS_CHOP_SALAD","t":"salad","bonus":35,"cnt":56,"ings":[[7,20],[4,15],[11,11],[6,10]]},{"n":"CALM_MIND_FRUIT_SALAD","t":"salad","bonus":48,"cnt":49,"ings":[[0,21],[3,16],[11,12]]},{"n":"LUSCIOUS_AVOCADO_SALAD","t":"salad","bonus":35,"cnt":42,"ings":[[14,14],[2,18],[8,10]]},{"n":"GLUTTONY_POTATO_SALAD","t":"salad","bonus":25,"cnt":36,"ings":[[9,14],[7,9],[4,7],[0,6]]},{"n":"OVERHEAT_GINGER_SALAD","t":"salad","bonus":25,"cnt":35,"ings":[[10,17],[5,10],[6,8]]},{"n":"SLOWPOKE_TAIL_PEPPER_SALAD","t":"salad","bonus":25,"cnt":35,"ings":[[18,10],[10,10],[8,15]]},{"n":"SPORE_MUSHROOM_SALAD","t":"salad","bonus":25,"cnt":33,"ings":[[15,17],[6,8],[8,8]]},{"n":"WATER_VEIL_TOFU_SALAD","t":"salad","bonus":25,"cnt":24,"ings":[[2,15],[6,9]]},{"n":"DAZZLING_APPLE_CHEESE_SALAD","t":"salad","bonus":20.51,"cnt":23,"ings":[[0,15],[1,5],[8,3]]},{"n":"MOOMOO_CAPRESE_SALAD","t":"salad","bonus":20.51,"cnt":23,"ings":[[1,12],[6,6],[8,5]]},{"n":"SUPERPOWER_EXTREME_SALAD","t":"salad","bonus":20.51,"cnt":23,"ings":[[4,9],[5,6],[7,5],[9,3]]},{"n":"CONTRARY_CHOCOLATE_MEAT_SALAD","t":"salad","bonus":20.51,"cnt":23,"ings":[[12,14],[4,9]]},{"n":"FURY_ATTACK_CORN_SALAD","t":"salad","bonus":25,"cnt":17,"ings":[[11,9],[8,8]]},{"n":"SNOW_CLOAK_CAESAR_SALAD","t":"salad","bonus":18.77,"cnt":16,"ings":[[1,10],[4,6]]},{"n":"HEAT_WAVE_TOFU_SALAD","t":"salad","bonus":18.77,"cnt":16,"ings":[[2,10],[10,6]]},{"n":"IMMUNITY_LEEK_SALAD","t":"salad","bonus":18.77,"cnt":15,"ings":[[16,10],[5,5]]},{"n":"FANCY_APPLE_SALAD","t":"salad","bonus":18.7,"cnt":8,"ings":[[0,8]]},{"n":"BEAN_HAM_SALAD","t":"salad","bonus":18.7,"cnt":8,"ings":[[4,8]]},{"n":"SNOOZY_TOMATO_SALAD","t":"salad","bonus":18.7,"cnt":8,"ings":[[6,8]]}],"ms":{"Berry Burst":{"max":6,"selfBerry":[11,14,21,24,27,30],"teamBerry":[1,2,2,3,4,5]},"Disguise (Berry Burst)":{"max":6,"selfBerry":[8,10,15,17,19,21],"teamBerry":[1,2,2,3,4,5]},"Draco Meteor (Berry Burst)":{"max":6,"latiasBerries":[2,4,6,8,9,10]},"Charge Energy S":{"max":6,"energy":[12,16.2,21.2,26.6,33.6,43.4]},"Moonlight (Charge Energy S)":{"max":6,"energy":[12,16.2,21.2,26.6,33.6,43.4],"crit":[6.3,7.7,10.1,13,17.2,22.8]},"Charge Strength M":{"max":7,"strength":[880,1251,1726,2383,3290,4546,6858]},"Bad Dreams (Charge Strength M)":{"max":7,"strength":[2640,3753,5178,7149,9870,13638,18515]},"Charge Strength S":{"max":7,"strength":[400,569,785,1083,1496,2066,3212]},"Stockpile (Charge Strength S)":{"max":7,"averageStrength":[600,853,1177,1625,2243,3099,4497]},"Cooking Assist S":{"max":7,"ingredient":[6,8,11,14,17,21,24]},"Bulk Up (Cooking Assist S)":{"max":7,"ingredient":[6,8,11,14,17,21,24],"chance":[1,2,2,3,3,4,5]},"Cooking Power-Up S":{"max":7,"potSize":[7,10,12,17,22,27,31]},"Minus (Cooking Power-Up S)":{"max":7,"potSize":[5,7,9,12,16,20,24],"energy":[8,10,13,17,23,30,35]},"Dream Shard Magnet S":{"max":8,"shard":[240,340,480,670,920,1260,1800,2500]},"Dream Shard Magnet S Range":{"max":8},"Aura Sphere (Dream Shard Magnet S)":{"max":8,"shard":[240,340,480,670,920,1260,1800,2500],"strength":[200,285,393,542,748,1033,1501,2042]},"Energizing Cheer S":{"max":6,"energy":[12,15,20,25,33,44]},"Heal Pulse (Energizing Cheer S)":{"max":6,"energy":[6,8,10,13,17,22],"helps":[1,2,2,3,4,4],"latiosHelps":[1,1,2,2,2,3]},"Nuzzle (Energizing Cheer S)":{"max":6,"energy":[9,12,16,20,27,35],"skillHelps":[1,2,3,4,5,6]},"Energy For Everyone S":{"max":6,"energy":[5,7,9,11.4,15,18.1]},"Berry Juice (Energy For Everyone S)":{"max":6,"energy":[5,7,9,11.4,15,18.1]},"Lunar Blessing (Energy For Everyone S)":{"max":6,"energy":[3,4,5,7,9,11]},"Extra Helpful S":{"max":7,"help":[6,7,8,9,10,11,12]},"Helper Boost":{"max":6,"base":[2,3,3,4,4,5]},"Ingredient Draw S":{"max":7,"ingredient":[5,6,8,11,13,16,18]},"Hyper Cutter (Ingredient Draw S)":{"max":7,"ingredient":[5,6,8,11,13,16,18],"critIngredient":[10,12,16,22,26,32,36]},"Super Luck (Ingredient Draw S)":{"max":7,"ingredient":[5,6,8,11,13,16,18],"dreamShard":[500,720,1030,1440,2000,2800,4000],"critDreamShard":[2500,3600,5150,7200,10000,14000,20000]},"Ingredient Magnet S":{"max":7,"ingredient":[6,8,11,14,17,21,24]},"Plus (Ingredient Magnet S)":{"max":7,"ingredient":[5,7,9,11,13,16,18],"bonusIngredient":[6,7,8,9,10,11,12]},"Present (Ingredient Magnet S)":{"max":7,"ingredient":[4,6,8,10,12,15,17]},"Skill Copy":{"max":7},"Mimic (Skill Copy)":{"max":7},"Transform (Skill Copy)":{"max":7},"Metronome":{"max":7},"Tasty Chance S":{"max":6,"chance":[4,5,6,7,8,10]},"Versatile":{"max":8}},"natures":[{"n":"Lonely","p":"speed","m":"energy","f":1.1,"i":1,"s":1,"e":0.88},{"n":"Adamant","p":"speed","m":"ingredient","f":1.1,"i":0.8,"s":1,"e":1},{"n":"Naughty","p":"speed","m":"skill","f":1.1,"i":1,"s":0.8,"e":1},{"n":"Brave","p":"speed","m":"exp","f":1.1,"i":1,"s":1,"e":1},{"n":"Bold","p":"energy","m":"speed","f":0.925,"i":1,"s":1,"e":1.2},{"n":"Impish","p":"energy","m":"ingredient","f":1,"i":0.8,"s":1,"e":1.2},{"n":"Lax","p":"energy","m":"skill","f":1,"i":1,"s":0.8,"e":1.2},{"n":"Relaxed","p":"energy","m":"exp","f":1,"i":1,"s":1,"e":1.2},{"n":"Modest","p":"ingredient","m":"speed","f":0.925,"i":1.2,"s":1,"e":1},{"n":"Mild","p":"ingredient","m":"energy","f":1,"i":1.2,"s":1,"e":0.88},{"n":"Rash","p":"ingredient","m":"skill","f":1,"i":1.2,"s":0.8,"e":1},{"n":"Quiet","p":"ingredient","m":"exp","f":1,"i":1.2,"s":1,"e":1},{"n":"Calm","p":"skill","m":"speed","f":0.925,"i":1,"s":1.2,"e":1},{"n":"Gentle","p":"skill","m":"energy","f":1,"i":1,"s":1.2,"e":0.88},{"n":"Careful","p":"skill","m":"ingredient","f":1,"i":0.8,"s":1.2,"e":1},{"n":"Sassy","p":"skill","m":"exp","f":1,"i":1,"s":1.2,"e":1},{"n":"Timid","p":"exp","m":"speed","f":0.925,"i":1,"s":1,"e":1},{"n":"Hasty","p":"exp","m":"energy","f":1,"i":1,"s":1,"e":0.88},{"n":"Jolly","p":"exp","m":"ingredient","f":1,"i":0.8,"s":1,"e":1},{"n":"Naive","p":"exp","m":"skill","f":1,"i":1,"s":0.8,"e":1},{"n":"Bashful","p":"neutral","m":"neutral","f":1,"i":1,"s":1,"e":1},{"n":"Hardy","p":"neutral","m":"neutral","f":1,"i":1,"s":1,"e":1},{"n":"Docile","p":"neutral","m":"neutral","f":1,"i":1,"s":1,"e":1},{"n":"Quirky","p":"neutral","m":"neutral","f":1,"i":1,"s":1,"e":1},{"n":"Serious","p":"neutral","m":"neutral","f":1,"i":1,"s":1,"e":1}],"subskills":[{"n":"Berry Finding S","s":"BFS","a":1,"r":"gold"},{"n":"Dream Shard Bonus","s":"DSB","a":0.06,"r":"gold"},{"n":"Energy Recovery Bonus","s":"ERB","a":0.14,"r":"gold"},{"n":"Helping Bonus","s":"HB","a":0.05,"r":"gold"},{"n":"Helping Speed S","s":"Help S","a":0.07,"r":"white"},{"n":"Helping Speed M","s":"Help M","a":0.14,"r":"silver"},{"n":"Ingredient Finder S","s":"Ing S","a":0.18,"r":"white"},{"n":"Ingredient Finder M","s":"Ing M","a":0.36,"r":"silver"},{"n":"Inventory Up S","s":"Inv S","a":6,"r":"white"},{"n":"Inventory Up M","s":"Inv M","a":12,"r":"silver"},{"n":"Inventory Up L","s":"Inv L","a":18,"r":"silver"},{"n":"Research EXP Bonus","s":"REB","a":0.09,"r":"gold"},{"n":"Skill Level Up M","s":"Skill Lv M","a":2,"r":"gold"},{"n":"Skill Level Up S","s":"Skill Lv S","a":1,"r":"silver"},{"n":"Skill Trigger M","s":"Trigger M","a":0.36,"r":"silver"},{"n":"Skill Trigger S","s":"Trigger S","a":0.18,"r":"white"},{"n":"Sleep EXP Bonus","s":"SEB","a":0.14,"r":"gold"}],"rlb":{"1":1,"2":1.02,"3":1.04,"4":1.06,"5":1.08,"6":1.09,"7":1.11,"8":1.13,"9":1.16,"10":1.18,"11":1.19,"12":1.21,"13":1.23,"14":1.24,"15":1.26,"16":1.28,"17":1.3,"18":1.31,"19":1.33,"20":1.35,"21":1.37,"22":1.4,"23":1.42,"24":1.45,"25":1.47,"26":1.5,"27":1.52,"28":1.55,"29":1.58,"30":1.61,"31":1.64,"32":1.67,"33":1.7,"34":1.74,"35":1.77,"36":1.81,"37":1.84,"38":1.88,"39":1.92,"40":1.96,"41":2,"42":2.04,"43":2.08,"44":2.13,"45":2.17,"46":2.22,"47":2.27,"48":2.32,"49":2.37,"50":2.42,"51":2.48,"52":2.53,"53":2.59,"54":2.65,"55":2.71,"56":2.77,"57":2.83,"58":2.9,"59":2.97,"60":3.03,"61":3.09,"62":3.15,"63":3.21,"64":3.27,"65":3.34,"66":3.39,"67":3.43,"68":3.48,"69":3.52,"70":3.58},"islands":[{"n":"Greengrass Isle","s":"greengrass","b":[]},{"n":"Cyan Beach","s":"cyan","b":["ORAN","PAMTRE","PECHA"]},{"n":"Taupe Hollow","s":"taupe","b":["FIGY","LEPPA","SITRUS"]},{"n":"Snowdrop Tundra","s":"snowdrop","b":["PERSIM","RAWST","WIKI"]},{"n":"Lapis Lakeside","s":"lapis","b":["CHERI","DURIN","MAGO"]},{"n":"Old Gold Power Plant","s":"powerplant","b":["BELUE","BLUK","GREPA"]},{"n":"Amber Canyon","s":"amber","b":["CHESTO","LUM","YACHE"]}],"zh":{"islands":{"Greengrass Isle":"萌綠之島","Cyan Beach":"天青沙灘","Taupe Hollow":"灰褐洞窟","Snowdrop Tundra":"白花雪原","Lapis Lakeside":"寶藍湖畔","Old Gold Power Plant":"黃金舊發電廠","Amber Canyon":"琥褐溪谷","Carmine Volcano":"脂紅火山"},"berries":{"ORAN":"橙橙果","PAMTRE":"椰木果","PECHA":"桃桃果","FIGY":"勿花果","LEPPA":"蘋野果","SITRUS":"文柚果","PERSIM":"柿仔果","RAWST":"莓莓果","WIKI":"異奇果","CHERI":"櫻子果","DURIN":"金枕果","MAGO":"芒芒果","BELUE":"靛莓果","BLUK":"墨莓果","GREPA":"萄葡果","CHESTO":"零餘果","LUM":"木子果","YACHE":"番荔果"},"ings":{"Apple":"特選蘋果","Milk":"哞哞鮮奶","Soybean":"萌綠大豆","Honey":"甜甜蜜","Sausage":"豆製肉","Ginger":"暖暖薑","Tomato":"好眠番茄","Egg":"特選蛋","Oil":"純粹油","Potato":"窩心洋芋","Herb":"火辣香草","Corn":"萌綠玉米","Cacao":"放鬆可可","Coffee":"醒腦咖啡豆","Avocado":"嫩亮酪梨","Mushroom":"品鮮蘑菇","Leek":"粗枝大蔥","Pumpkin":"沉甸甸南瓜","Tail":"美味尾巴"},"natures":{"Lonely":"怕寂寞","Adamant":"固執","Naughty":"頑皮","Brave":"勇敢","Bold":"大膽","Impish":"淘氣","Lax":"樂天","Relaxed":"悠閒","Modest":"內斂","Mild":"慢吞吞","Rash":"馬虎","Quiet":"冷靜","Calm":"溫和","Gentle":"溫順","Careful":"慎重","Sassy":"自大","Timid":"膽小","Hasty":"急躁","Jolly":"爽朗","Naive":"天真","Bashful":"害羞","Hardy":"勤奮","Docile":"坦率","Quirky":"浮躁","Serious":"認真"},"subskills":{"Berry Finding S":"樹果數量S","Dream Shard Bonus":"夢之碎片獎勵","Energy Recovery Bonus":"活力回復獎勵","Helping Bonus":"幫手獎勵","Helping Speed S":"幫忙速度S","Helping Speed M":"幫忙速度M","Ingredient Finder S":"食材機率提升S","Ingredient Finder M":"食材機率提升M","Inventory Up S":"持有上限提升S","Inventory Up M":"持有上限提升M","Inventory Up L":"持有上限提升L","Research EXP Bonus":"研究EXP獎勵","Skill Level Up S":"技能等級提升S","Skill Level Up M":"技能等級提升M","Skill Trigger S":"技能機率提升S","Skill Trigger M":"技能機率提升M","Sleep EXP Bonus":"睡眠EXP獎勵"},"ssShort":{"Berry Finding S":"樹果S","Dream Shard Bonus":"碎片獎","Energy Recovery Bonus":"活力回復獎","Helping Bonus":"幫手獎","Helping Speed S":"速度S","Helping Speed M":"速度M","Ingredient Finder S":"食材S","Ingredient Finder M":"食材M","Inventory Up S":"持有S","Inventory Up M":"持有M","Inventory Up L":"持有L","Research EXP Bonus":"研究EXP","Skill Level Up S":"技能LvS","Skill Level Up M":"技能LvM","Skill Trigger S":"技能率S","Skill Trigger M":"技能率M","Sleep EXP Bonus":"睡眠EXP"},"ms":{"Berry Burst":"樹果遽增","Disguise (Berry Burst)":"畫皮（樹果遽增）","Draco Meteor (Berry Burst)":"流星群（樹果遽增）","Charge Energy S":"活力填充S","Moonlight (Charge Energy S)":"月光（活力填充S）","Charge Strength M":"能量填充M","Bad Dreams (Charge Strength M)":"夢魘（能量填充M）","Charge Strength S":"能量填充S","Stockpile (Charge Strength S)":"蓄力（能量填充S）","Cooking Assist S":"料理輔助S","Bulk Up (Cooking Assist S)":"健美（料理輔助S）","Cooking Power-Up S":"料理強化S","Minus (Cooking Power-Up S)":"負電（料理強化S）","Dream Shard Magnet S":"夢之碎片獲取S","Dream Shard Magnet S Range":"夢之碎片獲取S（範圍）","Aura Sphere (Dream Shard Magnet S)":"波導彈（夢之碎片獲取S）","Energizing Cheer S":"活力療癒S","Heal Pulse (Energizing Cheer S)":"治癒波動（活力療癒S）","Nuzzle (Energizing Cheer S)":"蹭蹭臉頰（活力療癒S）","Energy For Everyone S":"活力全體療癒S","Berry Juice (Energy For Everyone S)":"樹果汁（活力全體療癒S）","Lunar Blessing (Energy For Everyone S)":"新月祈禱（活力全體療癒S）","Extra Helpful S":"幫手支援S","Helper Boost":"幫手加速","Ingredient Draw S":"食材精選S","Hyper Cutter (Ingredient Draw S)":"怪力鉗（食材精選S）","Super Luck (Ingredient Draw S)":"超幸運（食材精選S）","Ingredient Magnet S":"食材獲取S","Plus (Ingredient Magnet S)":"正電（食材獲取S）","Present (Ingredient Magnet S)":"禮物（食材獲取S）","Skill Copy":"技能複製","Mimic (Skill Copy)":"模仿（技能複製）","Transform (Skill Copy)":"變身（技能複製）","Metronome":"揮指","Tasty Chance S":"料理成功S","Versatile":"十項全能","Type Boost S":"屬性加速S"},"recipes":{"OVERGROW_AVOCADO_GRATIN":"茂盛焗烤酪梨","BOUNCE_CURRY_UDON":"彈跳咖哩烏龍麵","CUT_SUKIYAKI_CURRY":"居合斬壽喜燒咖哩","HIDDEN_POWER_PERK_UP_STEW":"覺醒力量濃湯","INFERNO_CORN_KEEMA_CURRY":"煉獄玉米乾咖哩","ROLE_PLAY_PUMPKABOO_STEW":"扮演南瓜精濃湯","GREENGRASS_CURRY_BUN":"萌綠咖哩麵包","DREAM_EATER_BUTTER_CURRY":"絕對睡眠奶油咖哩","NINJA_CURRY":"忍者咖哩","EGG_BOMB_CURRY":"親子愛咖哩","DIZZY_PUNCH_SPICY_CURRY":"迷昏拳辣味咖哩","GRILLED_TAIL_CURRY":"炙燒尾肉咖哩","SPICY_LEEK_CURRY":"辣味蔥勁十足咖哩","LIMBER_CORN_STEW":"柔軟玉米濃湯","BULK_UP_BEAN_CURRY":"健美豆子咖哩","SPORE_MUSHROOM_CURRY":"蘑菇孢子咖哩","SOFT_POTATO_CHOWDER":"窩心白醬濃湯","HEARTY_CHEESEBURGER_CURRY":"吃飽飽起司肉排咖哩","MELTY_OMELETTE_CURRY":"入口即化蛋捲咖哩","DROUGHT_KATSU_CURRY":"日照炸肉排咖哩","SOLAR_POWER_TOMATO_CURRY":"太陽之力番茄咖哩","FANCY_APPLE_CURRY":"特選蘋果咖哩","SIMPLE_CHOWDER":"單純白醬濃湯","MILD_HONEY_CURRY":"寶寶甜蜜咖哩","BEANBURGER_CURRY":"豆製肉排咖哩","HONEY_GATHER_CHOCOLATE_WAFFLES":"採蜜巧克力格子鬆餅","SCARY_FACE_PANCAKES":"心跳加速鬼面鬆餅","CLODSIRE_ECLAIR":"土王閃電泡芙","ZING_ZAP_SPICED_COLA":"電光香料可樂","FLOWER_GIFT_MACARONS":"花之禮馬卡龍","TEATIME_CORN_SCONES":"茶會玉米司康","JIGGLYPUFFS_FRUITY_FLAN":"胖丁百匯布丁","LEAF_TORNADO_SMOOTHIE":"青草攪拌器冰沙","EARLY_BIRD_COFFEE_JELLY":"早起咖啡凍","MOLD_BREAKER_CORN_TIRAMISU":"破格玉米香提拉米蘇","EXPLOSION_POPCORN":"大爆炸爆米花","HUGE_POWER_SOY_DONUTS":"大力士豆香甜甜圈","LOVELY_KISS_SMOOTHIE":"惡魔之吻水果牛奶","STEADFAST_GINGER_COOKIES":"不屈薑餅","NEROLIS_RESTORATIVE_TEA":"橙夢的排毒茶","SWEET_SCENT_CHOCOLATE_CAKE":"甜甜香氣巧克力蛋糕","BIG_MALASADA":"大馬拉薩達","HUSTLE_PROTEIN_SMOOTHIE":"活力蛋白飲","PETAL_DANCE_CHOCOLATE_TART":"花瓣舞巧克力塔","LUCKY_CHANT_APPLE_PIE":"祈願蘋果派","EMBER_GINGER_TEA":"火花薑茶","STALWART_VEGETABLE_JUICE":"我行我素蔬菜汁","CLOUD_NINE_SOY_CAKE":"輕裝豆香蛋糕","FLUFFY_SWEET_POTATOES":"熟成甜薯燒","CRAFT_SODA_POP":"手製勁爽汽水","FANCY_APPLE_JUICE":"特選蘋果汁","WARM_MOOMOO_MILK":"哞哞熱鮮奶","BULLDOZE_GUACAMOLE_AND_CHIPS":"重踏酪梨醬脆片","APPLE_ACID_YOGURT_DRESSED_SALAD":"蘋果酸優格沙拉","DEFIANT_COFFEE_DRESSED_SALAD":"不服輸咖啡沙拉","SCALD_CHUNKY_SALAD":"大塊滿滿熱水沙拉","PETAL_BLIZZARD_LAYERED_SALAD":"落英繽紛含羞草蛋沙拉","GREENGRASS_SALAD":"萌綠沙拉","NINJA_SALAD":"忍者沙拉","CROSS_CHOP_SALAD":"十字切碎丁沙拉","CALM_MIND_FRUIT_SALAD":"冥想香甜沙拉","LUSCIOUS_AVOCADO_SALAD":"碎裂酪梨沙拉","GLUTTONY_POTATO_SALAD":"貪吃鬼洋芋沙拉","OVERHEAT_GINGER_SALAD":"過熱沙拉","SLOWPOKE_TAIL_PEPPER_SALAD":"呆呆獸尾巴的胡椒沙拉","SPORE_MUSHROOM_SALAD":"蘑菇孢子沙拉","WATER_VEIL_TOFU_SALAD":"濕潤豆腐沙拉","DAZZLING_APPLE_CHEESE_SALAD":"迷人蘋果起司沙拉","MOOMOO_CAPRESE_SALAD":"哞哞起司番茄沙拉","SUPERPOWER_EXTREME_SALAD":"蠻力豪邁沙拉","CONTRARY_CHOCOLATE_MEAT_SALAD":"心情不定肉沙拉淋巧克力醬","FURY_ATTACK_CORN_SALAD":"亂擊玉米沙拉","SNOW_CLOAK_CAESAR_SALAD":"撥雪凱撒沙拉","HEAT_WAVE_TOFU_SALAD":"熱風豆腐沙拉","IMMUNITY_LEEK_SALAD":"免疫蔥花沙拉","FANCY_APPLE_SALAD":"特選蘋果沙拉","BEAN_HAM_SALAD":"豆製火腿沙拉","SNOOZY_TOMATO_SALAD":"好眠番茄沙拉"},"pk":{"BULBASAUR":"妙蛙種子","IVYSAUR":"妙蛙草","VENUSAUR":"妙蛙花","CHARMANDER":"小火龍","CHARMELEON":"火恐龍","CHARIZARD":"噴火龍","SQUIRTLE":"傑尼龜","WARTORTLE":"卡咪龜","BLASTOISE":"水箭龜","CATERPIE":"綠毛蟲","METAPOD":"鐵甲蛹","BUTTERFREE":"巴大蝶","RATTATA":"小拉達","RATICATE":"拉達","EKANS":"阿柏蛇","ARBOK":"阿柏怪","PIKACHU":"皮卡丘","PIKACHU_CAPTAIN":"皮卡丘（船長）","PIKACHU_HALLOWEEN":"皮卡丘（萬聖節）","PIKACHU_HOLIDAY":"皮卡丘（佳節）","RAICHU":"雷丘","SANDSHREW":"穿山鼠","SANDSLASH":"穿山王","CLEFAIRY":"皮皮","CLEFABLE":"皮可西","VULPIX":"六尾","VULPIX_ALOLAN":"六尾（阿羅拉的樣子）","NINETALES":"九尾","NINETALES_ALOLAN":"九尾（阿羅拉的樣子）","JIGGLYPUFF":"胖丁","WIGGLYTUFF":"胖可丁","DIGLETT":"地鼠","DUGTRIO":"三地鼠","MEOWTH":"喵喵","PERSIAN":"貓老大","PSYDUCK":"可達鴨","GOLDUCK":"哥達鴨","MANKEY":"猴怪","PRIMEAPE":"火爆猴","GROWLITHE":"卡蒂狗","ARCANINE":"風速狗","BELLSPROUT":"喇叭芽","WEEPINBELL":"口呆花","VICTREEBEL":"大食花","GEODUDE":"小拳石","GRAVELER":"隆隆石","GOLEM":"隆隆岩","SLOWPOKE":"呆呆獸","SLOWBRO":"呆殼獸","MAGNEMITE":"小磁怪","MAGNETON":"三合一磁怪","FARFETCHD":"大蔥鴨","DODUO":"嘟嘟","DODRIO":"嘟嘟利","GASTLY":"鬼斯","HAUNTER":"鬼斯通","GENGAR":"耿鬼","ONIX":"大岩蛇","CUBONE":"卡拉卡拉","MAROWAK":"嘎啦嘎啦","CHANSEY":"吉利蛋","KANGASKHAN":"袋獸","MR_MIME":"魔牆人偶","PINSIR":"凱羅斯","DITTO":"百變怪","EEVEE":"伊布","EEVEE_HALLOWEEN":"伊布（萬聖節）","EEVEE_HOLIDAY":"伊布（佳節）","VAPOREON":"水伊布","JOLTEON":"雷伊布","FLAREON":"火伊布","DRATINI":"迷你龍","DRAGONAIR":"哈克龍","DRAGONITE":"快龍","MEW":"夢幻","CHIKORITA":"菊草葉","BAYLEEF":"月桂葉","MEGANIUM":"大竺葵","CYNDAQUIL":"火球鼠","QUILAVA":"火岩鼠","TYPHLOSION":"火爆獸","TOTODILE":"小鋸鱷","CROCONAW":"藍鱷","FERALIGATR":"大力鱷","PICHU":"皮丘","CLEFFA":"皮寶寶","IGGLYBUFF":"寶寶丁","TOGEPI":"波克比","TOGETIC":"波克基古","NATU":"天然雀","XATU":"天然鳥","MAREEP":"咩利羊","FLAAFFY":"茸茸羊","AMPHAROS":"電龍","SUDOWOODO":"樹才怪","WOOPER":"烏波","WOOPER_PALDEAN":"烏波（帕底亞的樣子）","QUAGSIRE":"沼王","ESPEON":"太陽伊布","UMBREON":"月亮伊布","MURKROW":"黑暗鴉","SLOWKING":"呆呆王","WOBBUFFET":"果然翁","STEELIX":"大鋼蛇","SHUCKLE":"壺壺","HERACROSS":"赫拉克羅斯","SNEASEL":"狃拉","DELIBIRD":"信使鳥","HOUNDOUR":"戴魯比","HOUNDOOM":"黑魯加","BLISSEY":"幸福蛋","RAIKOU":"雷公","ENTEI":"炎帝","SUICUNE":"水君","LARVITAR":"幼基拉斯","PUPITAR":"沙基拉斯","TYRANITAR":"班基拉斯","TREECKO":"木守宮","GROVYLE":"森林蜥蜴","SCEPTILE":"蜥蜴王","TORCHIC":"火稚雞","COMBUSKEN":"力壯雞","BLAZIKEN":"火焰雞","MUDKIP":"水躍魚","MARSHTOMP":"沼躍魚","SWAMPERT":"巨沼怪","RALTS":"拉魯拉絲","KIRLIA":"奇魯莉安","GARDEVOIR":"沙奈朵","SLAKOTH":"懶人獺","VIGOROTH":"過動猿","SLAKING":"請假王","SABLEYE":"勾魂眼","MAWILE":"大嘴娃","ARON":"可可多拉","LAIRON":"可多拉","AGGRON":"波士可多拉","PLUSLE":"正電拍拍","MINUN":"負電拍拍","GULPIN":"溶食獸","SWALOT":"吞食獸","TRAPINCH":"大顎蟻","VIBRAVA":"超音波幼蟲","FLYGON":"沙漠蜻蜓","SWABLU":"青綿鳥","ALTARIA":"七夕青鳥","SHUPPET":"怨影娃娃","BANETTE":"詛咒娃娃","ABSOL":"阿勃梭魯","WYNAUT":"小果然","SPHEAL":"海豹球","SPHEAL_HOLIDAY":"海豹球（佳節）","SEALEO":"海魔獅","WALREIN":"帝牙海獅","BAGON":"寶貝龍","SHELGON":"甲殼龍","SALAMENCE":"暴飛龍","LATIAS":"拉帝亞斯","LATIOS":"拉帝歐斯","TURTWIG":"草苗龜","GROTLE":"樹林龜","TORTERRA":"土台龜","CHIMCHAR":"小火焰猴","MONFERNO":"猛火猴","INFERNAPE":"烈焰猴","PIPLUP":"波加曼","PRINPLUP":"波皇子","EMPOLEON":"帝王拿波","SHINX":"小貓怪","LUXIO":"勒克貓","LUXRAY":"倫琴貓","DRIFLOON":"飄飄球","DRIFBLIM":"隨風球","HONCHKROW":"烏鴉頭頭","BONSLY":"盆才怪","MIME_JR":"魔尼尼","HAPPINY":"小福蛋","SPIRITOMB":"花岩怪","RIOLU":"利歐路","LUCARIO":"路卡利歐","CROAGUNK":"不良蛙","TOXICROAK":"毒骷蛙","SNOVER":"雪笠怪","ABOMASNOW":"暴雪王","WEAVILE":"瑪狃拉","MAGNEZONE":"自爆磁怪","TOGEKISS":"波克基斯","LEAFEON":"葉伊布","GLACEON":"冰伊布","GALLADE":"艾路雷朵","CRESSELIA":"克雷色利亞","DARKRAI":"達克萊伊","MUNNA":"食夢夢","MUSHARNA":"夢夢蝕","DWEBBLE":"石居蟹","CRUSTLE":"岩殿居蟹","RUFFLET":"毛頭小鷹","BRAVIARY":"勇士雄鷹","TYRUNT":"寶寶暴龍","TYRANTRUM":"怪顎龍","SYLVEON":"仙子伊布","HAWLUCHA":"摔角鷹人","DEDENNE":"咚咚鼠","PUMPKABOO_JUMBO":"南瓜精（特大size）","PUMPKABOO_LARGE":"南瓜精（大size）","PUMPKABOO_MEDIUM":"南瓜精（普通size）","PUMPKABOO_SMALL":"南瓜精（小size）","GOURGEIST_JUMBO":"南瓜怪人（特大size）","GOURGEIST_LARGE":"南瓜怪人（大size）","GOURGEIST_MEDIUM":"南瓜怪人（普通size）","GOURGEIST_SMALL":"南瓜怪人（小size）","NOIBAT":"嗡蝠","NOIVERN":"音波龍","GRUBBIN":"強顎雞母蟲","CHARJABUG":"蟲電寶","VIKAVOLT":"鍬農炮蟲","CUTIEFLY":"萌虻","RIBOMBEE":"蝶結萌虻","STUFFUL":"童偶熊","BEWEAR":"穿著熊","COMFEY":"花療環環","TOGEDEMARU":"托戈德瑪爾","MIMIKYU":"謎擬Ｑ","DRAMPA":"老翁龍","CRAMORANT":"古月鳥","TOXEL":"毒電嬰","TOXTRICITY_AMPED":"顫弦蠑螈（高調的樣子）","TOXTRICITY_LOW_KEY":"顫弦蠑螈（低調的樣子）","SPRIGATITO":"新葉喵","FLORAGATO":"蒂蕾喵","MEOWSCARADA":"魔幻假面喵","FUECOCO":"呆火鱷","CROCALOR":"炙燙鱷","SKELEDIRGE":"骨紋巨聲鱷","QUAXLY":"潤水鴨","QUAXWELL":"湧躍鴨","QUAQUAVAL":"狂歡浪舞鴨","PAWMI":"布撥","PAWMO":"布土撥","PAWMOT":"巴布土撥","TINKATINK":"小鍛匠","TINKATUFF":"巧鍛匠","TINKATON":"巨鍛匠","CETODDLE":"走鯨","CETITAN":"浩大鯨","CLODSIRE":"土王"}},"meta":{"src":"nerolis-lab/nerolis-lab","commit":"7814857","commitDate":"2026-08-30","builtAt":"2026-09-07","zhSrc":"RaenonX i18n + 52poke zh-hant"}}</script>
+<script>
+"use strict";
+const D = JSON.parse(document.getElementById('gamedata').textContent);
+const $ = id => document.getElementById(id);
+const ING_NAME = D.ings.map(x=>x[0]);
+const ING_VAL  = D.ings.map(x=>x[1]);
+const NING = ING_NAME.length;
+const BERRY_VAL = Object.fromEntries(D.berries);
+const BERRY_NAMES = D.berries.map(b=>b[0]);
+const NAT = Object.fromEntries(D.natures.map(n=>[n.n,n]));
+const SS = Object.fromEntries(D.subskills.map(s=>[s.n,s]));
+const SS_SLOT_LV = [10,25,50,70,80];
+const RIBBON_CARRY = [0,1,3,6,8];
+const AVG_CRIT = 1.171428571;
+// Helper Boost extra helps: rows = unique species on the team sharing its berry (1-5)
+const HB_TABLE = [[2,3,3,4,4,5],[2,3,3,4,5,6],[3,4,5,6,7,8],[4,5,6,7,8,9],[6,7,8,9,10,11]];
+const MAGNET_POOL = ING_NAME.map((n,i)=>i).filter(i=>ING_NAME[i]!=='Tail');
+const MEALS_WEEK = 21;
+
+const Z = D.zh || {};
+const bz  = k => (Z.berries   && Z.berries[k])   || k;
+const iz  = k => (Z.ings      && Z.ings[k])      || k;
+const pz  = p => (Z.pk        && Z.pk[p.n])      || p.d;
+const isl = n => (Z.islands   && Z.islands[n])   || n;
+const msz = n => (Z.ms        && Z.ms[n])        || n;
+const ssz = n => (Z.subskills && Z.subskills[n]) || n;
+const sss = n => (Z.ssShort   && Z.ssShort[n])   || (SS[n] ? SS[n].s : n);
+const SPEC_ZH = {berry:"樹果",ingredient:"食材",skill:"技能",all:"全能"};
+const NAT_AB = {speed:"速度",ingredient:"食材",skill:"技能",energy:"活力",exp:"EXP"};
+const natZ = n => (Z.natures && Z.natures[n.n]) || n.n;
+const natLabel = n => natZ(n) + (n.p ? " +"+NAT_AB[n.p]+" −"+NAT_AB[n.m] : " 無修正");
+const recipeZh = n => (Z.recipes && Z.recipes[n]) || n.split('_').map(w=>w[0]+w.slice(1).toLowerCase()).join(' ');
+const fmt = n => n>=1e6 ? (n/1e6).toFixed(2)+'M' : n>=1e4 ? Math.round(n/1e3)+'k' : Math.round(n).toLocaleString();
+const f1 = n => (Math.round(n*10)/10).toFixed(1);
+
+/* ================= ENGINE ================= */
+const energyF = e => e>=80?0.45 : e>=60?0.52 : e>=40?0.58 : e>=1?0.66 : 1.00;
+const mealRecovery = e => e>=81?1 : e>=71?2 : e>=61?3 : e>=51?4 : e>=41?5 : e>=31?6 : e>=21?7 : e>=11?8 : 9;
+const round4 = x => Math.round(x*1e4)/1e4;
+function berryPower(name, level){
+  const v = BERRY_VAL[name];
+  return Math.round(Math.max(v + (level-1), v*Math.pow(1.025, level-1)));
+}
+function ribbonFreqMul(r, remainingEvo){
+  if (!remainingEvo || r<2) return 1;
+  if (r>=4) return remainingEvo>=2 ? 0.75 : 0.88;
+  return remainingEvo>=2 ? 0.89 : 0.95;
+}
+function activeSubskills(m){
+  const out = [];
+  for (let i=0;i<5;i++){
+    const nm = m.ss[i];
+    if (nm && m.level >= SS_SLOT_LV[i]) out.push(nm);
+  }
+  return out;
+}
+/** Static (context-free) per-member stats. */
+function baseStats(m, wk){
+  const p = D.dex[m.sp], nat = NAT[m.nature] || NAT.Bashful;
+  const act = activeSubskills(m);
+  const h = nm => act.includes(nm);
+  const invAdd = (h('Inventory Up S')?6:0)+(h('Inventory Up M')?12:0)+(h('Inventory Up L')?18:0);
+  const carry = Math.ceil((p.cs + 5*p.pe + invAdd + RIBBON_CARRY[m.ribbon||0]) * (wk.camp?1.2:1));
+  const ingChance = Math.min(1, (p.ip/100) * nat.i * (1 + (h('Ingredient Finder S')?0.18:0) + (h('Ingredient Finder M')?0.36:0)));
+  const berriesPerDrop = ((p.sp==='berry'||p.sp==='all')?2:1) + (h('Berry Finding S')?1:0);
+  const slots = Math.min(Math.floor(m.level/30)+1, 3);
+  // average ingredient vector per ingredient-help (already /slots)
+  const opts = [p.i0, p.i30, p.i60];
+  const ingVec = new Float64Array(NING);
+  let avgIngAmt = 0;
+  for (let s=0;s<slots;s++){
+    const list = opts[s] || [];
+    const pick = list[Math.min(m.ingSet[s]||0, list.length-1)];
+    if (!pick) continue;
+    ingVec[pick[0]] += pick[1]/slots;
+    avgIngAmt += pick[1]/slots;
+  }
+  const skillLvMax = (D.ms[p.ms]||{max:6}).max;
+  const skillLv = Math.max(1, Math.min(skillLvMax, (m.skillLv||1) + (h('Skill Level Up M')?2:0) + (h('Skill Level Up S')?1:0)));
+  const skillChance = (p.sk/100) * (1 + (h('Skill Trigger S')?0.18:0) + (h('Skill Trigger M')?0.36:0)) * nat.s;
+  const pity = p.sp==='skill' ? Math.floor(144000/p.f) : 78;
+  const effSkill = skillChance<=0 ? 0 : skillChance/(1 - Math.pow(1-skillChance, pity+1));
+  const natureFreqMul = 2 - nat.f;
+  return {p, nat, act, h, carry, ingChance, berriesPerDrop, slots, ingVec, avgIngAmt,
+          skillLv, effSkill, natureFreqMul, hasHB:h('Helping Bonus'), hasERB:h('Energy Recovery Bonus'),
+          ribbonMul:ribbonFreqMul(m.ribbon||0, p.re)};
+}
+const WILDCARD = /^(Metronome|Versatile|Skill Copy|Mimic \(|Transform \()/;
+const BASE_SKILLS = Object.keys(D.ms).filter(n =>
+  !WILDCARD.test(n) && !/Range$/.test(n) && !/\(/.test(n) && Object.keys(D.ms[n]).length > 1);
+const wildcardCache = {};
+/** Metronome, Skill Copy and Versatile resolve to some other skill each proc —
+ *  approximate them as the mean payload of the base skills at the same level. */
+function wildcardPayload(lv){
+  if (wildcardCache[lv]) return wildcardCache[lv];
+  const acc = {}; let n = 0;
+  for (const nm of BASE_SKILLS){
+    const pay = rawPayload(nm, lv);
+    for (const k of Object.keys(pay)) acc[k] = (acc[k]||0) + pay[k];
+    n++;
+  }
+  for (const k of Object.keys(acc)) acc[k] /= n;
+  return (wildcardCache[lv] = acc);
+}
+/** Classify a main skill into what it contributes per proc. */
+function skillPayload(msName, lv){
+  if (WILDCARD.test(msName)) return {...wildcardPayload(lv), wild:1};
+  return rawPayload(msName, lv);
+}
+function rawPayload(msName, lv){
+  const s = D.ms[msName]; if (!s) return {};
+  const at = a => a && a[Math.min(lv,a.length)-1] || 0;
+  const o = {};
+  if (s.strength)         o.strength = at(s.strength);
+  if (s.averageStrength)  o.strength = at(s.averageStrength);
+  if (s.ingredient)       o.ingSpread = at(s.ingredient);
+  if (s.bonusIngredient)  o.ingSpread = (o.ingSpread||0) + at(s.bonusIngredient)/2;
+  if (s.energy)           o.energySelf = at(s.energy);
+  if (s.potSize)          o.pot = at(s.potSize);
+  if (s.selfBerry)        o.selfBerry = at(s.selfBerry);
+  if (s.teamBerry)        o.teamBerry = at(s.teamBerry);
+  if (s.help)             o.helpsOne = at(s.help);
+  if (s.base)             o.helpsAll = at(s.base);
+  if (s.latiasBerries)    o.selfBerry = at(s.latiasBerries);
+  if (/Energy For Everyone/.test(msName)) { o.energyTeam = o.energySelf||0; delete o.energySelf; }
+  if (/Energizing Cheer/.test(msName))   { o.energyTeam = (o.energySelf||0)/5; delete o.energySelf; }
+  if (s.chance)           o.critChance = at(s.chance);
+  return o;
+}
+/** Simulate one member's day. ctx = {nHB,nERB,supportEnergy (per day, to each member), extraHelps} */
+function simulate(bs, m, wk, ctx){
+  const helpSS = Math.max(0.65, 1 - (bs.h('Helping Speed M')?0.14:0) - (bs.h('Helping Speed S')?0.07:0) - 0.05*Math.min(5, ctx.nHB));
+  const levelFactor = 1 - 0.002*(m.level-1);
+  const freqBase = Math.floor(round4(bs.natureFreqMul * helpSS * levelFactor * bs.ribbonMul) * bs.p.f / (wk.camp?1.2:1));
+  const sleepMin = Math.round(wk.sleepH*60), wakeMin = 1440 - sleepMin;
+  const cap = bs.hasERB ? 105 : 100;
+  const nSteps = Math.floor(wakeMin/10);
+  const supportPerStep = nSteps>0 ? ctx.supportEnergy/nSteps : 0;
+  let start = 0, helpsDay = 0, helpsNight = 0, fastSteps = 0, totalSteps = 0;
+  for (let iter=0; iter<4; iter++){
+    const rec = Math.min(cap, sleepMin*(100/510)*bs.nat.e*(1 + 0.14*Math.min(5, ctx.nERB)));
+    let e = Math.min(150, start + rec);
+    helpsDay = 0; helpsNight = 0; fastSteps = 0; totalSteps = 0;
+    const mealAt = [Math.floor(wakeMin*0.12/10)*10, Math.floor(wakeMin*0.45/10)*10, Math.floor(wakeMin*0.8/10)*10];
+    for (let t=0; t<wakeMin; t+=10){
+      if (e >= 80) fastSteps++;
+      totalSteps++;
+      helpsDay += 600 / (freqBase * energyF(e));
+      e = Math.max(0, e - 1);
+      for (const mt of mealAt) if (mt === t) e = Math.min(150, e + mealRecovery(e));
+      if (supportPerStep) e = Math.min(150, e + supportPerStep);
+    }
+    for (let t=0; t<sleepMin; t+=10){
+      if (e >= 80) fastSteps++;
+      totalSteps++;
+      helpsNight += 600 / (freqBase * energyF(e));
+      e = Math.max(0, e - 1);
+    }
+    start = e;
+  }
+  // extra helps injected by team main skills, spread across the day
+  helpsDay += ctx.extraHelps || 0;
+  // carry-size truncation applies at night only
+  const dropPerHelp = (1-bs.ingChance)*bs.berriesPerDrop + bs.ingChance*bs.avgIngAmt;
+  const helpsTillFull = dropPerHelp>0 ? bs.carry/dropPerHelp : Infinity;
+  const nightNormal = Math.min(helpsNight, helpsTillFull);
+  const snack = Math.max(0, helpsNight - nightNormal);
+  const productive = helpsDay + nightNormal;
+  const bankedProcs = bs.p.sp==='skill' ? 2 : 1;
+  const procs = productive*bs.effSkill + Math.min(bankedProcs, nightNormal*bs.effSkill);
+  return {freqBase, helpsDay, helpsNight, productive, snack, procs,
+          fastHours: fastSteps/6, fastShare: totalSteps ? fastSteps/totalSteps : 0, wakeEnergy: start,
+          berries: productive*(1-bs.ingChance)*bs.berriesPerDrop + snack*bs.berriesPerDrop};
+}
+/** Full per-member per-day output in a given team context. */
+function memberOutput(m, wk, ctx){
+  const bs = m._bs;
+  const sim = simulate(bs, m, wk, ctx);
+  const pay = {...skillPayload(bs.p.ms, bs.skillLv)};
+  // Helper Boost's real payout depends on how many team-mates share its berry
+  if (/^Helper Boost/.test(bs.p.ms))
+    pay.helpsAll = HB_TABLE[(ctx.hbU||1)-1][Math.min(bs.skillLv, 6)-1];
+  // Minus only hands out energy when a Plus partner is on the team
+  if (/^Minus \(/.test(bs.p.ms) && !ctx.hasPlus) delete pay.energySelf;
+  const ing = new Float64Array(NING);
+  for (let i=0;i<NING;i++) ing[i] = sim.productive * bs.ingChance * bs.ingVec[i];
+  if (pay.ingSpread) { const per = sim.procs*pay.ingSpread/MAGNET_POOL.length; for (const i of MAGNET_POOL) ing[i] += per; }
+  const favMul = wk.fav.has(bs.p.b) ? 2 : 1;
+  const bp = berryPower(bs.p.b, m.level);
+  let berryStrength = sim.berries * bp * favMul;
+  if (pay.selfBerry) berryStrength += sim.procs*pay.selfBerry*bp*favMul;
+  if (pay.teamBerry) berryStrength += sim.procs*pay.teamBerry*4*bp*favMul;
+  const skillStrength = sim.procs * (pay.strength||0);
+  return {sim, pay, ing, berryStrength, skillStrength,
+          potBonus: sim.procs*(pay.pot||0),
+          energyGiven: sim.procs*((pay.energyTeam||0)*5 + (pay.energySelf||0)),
+          helpsGiven: sim.procs*((pay.helpsAll||0)*5 + (pay.helpsOne||0)),
+          critAdd: Math.min(0.7, sim.procs*(pay.critChance||0)/100)};
+}
+
+/* -------- team context resolution + memoised member outputs -------- */
+const qE = v => Math.min(120, Math.round(v/15)*15);
+const qH = v => Math.round(v*2)/2;
+function ctxKey(c){ return c.nHB+'|'+c.nERB+'|'+c.supportEnergy+'|'+c.extraHelps+'|'+c.hbU+'|'+(c.hasPlus?1:0); }
+function teamContext(idxs, roster, wk, memo){
+  let nHB=0, nERB=0, hasPlus=false, hbU=1;
+  for (const i of idxs){
+    const bs = roster[i]._bs;
+    if (bs.hasHB) nHB++;
+    if (bs.hasERB) nERB++;
+    if (/^Plus \(/.test(bs.p.ms)) hasPlus = true;
+  }
+  const hbHolder = idxs.find(i => /^Helper Boost/.test(roster[i]._bs.p.ms));
+  if (hbHolder !== undefined){
+    const berry = roster[hbHolder]._bs.p.b;
+    const uniq = new Set();
+    for (const i of idxs) if (roster[i]._bs.p.b === berry) uniq.add(roster[i]._bs.p.n);
+    hbU = Math.max(1, Math.min(5, uniq.size));
+  }
+  // two-pass: neutral context to size team-wide skill support, then re-evaluate
+  let ctx = {nHB, nERB, supportEnergy:0, extraHelps:0, hbU, hasPlus};
+  for (let pass=0; pass<2; pass++){
+    let energy=0, helps=0;
+    for (const i of idxs){ const o = getOut(i, roster, wk, ctx, memo); energy += o.energyGiven; helps += o.helpsGiven; }
+    const next = {nHB, nERB, hbU, hasPlus, supportEnergy: qE(energy/5), extraHelps: qH(helps/5)};
+    if (ctxKey(next)===ctxKey(ctx)) { ctx = next; break; }
+    ctx = next;
+  }
+  return ctx;
+}
+function getOut(i, roster, wk, ctx, memo){
+  const k = i+'#'+ctxKey(ctx);
+  let v = memo.get(k);
+  if (!v){ v = memberOutput(roster[i], wk, ctx); memo.set(k, v); }
+  return v;
+}
+
+/* -------- recipe scoring -------- */
+const rlvl = r => {
+  const v = wk.recipeLevels && wk.recipeLevels[r.n];
+  return (typeof v === 'number' && v >= 1) ? Math.min(70, v) : wk.recipeLv;
+};
+function recipeValue(r, lv){
+  let sum = 0; for (const [i,a] of r.ings) sum += a*ING_VAL[i];
+  return Math.round(sum * (D.rlb[lv]||1) * (1 + r.bonus/100));
+}
+function scoreTeam(idxs, roster, wk, memo){
+  const ctx = teamContext(idxs, roster, wk, memo);
+  const ing = new Float64Array(NING);
+  let berryS=0, skillS=0, pot=0, critAdd=0;
+  const outs = [];
+  for (const i of idxs){
+    const o = getOut(i, roster, wk, ctx, memo);
+    outs.push(o);
+    for (let k=0;k<NING;k++) ing[k] += o.ing[k];
+    berryS += o.berryStrength; skillS += o.skillStrength; pot += o.potBonus; critAdd += o.critAdd;
+  }
+  const wIng = new Float64Array(NING);
+  for (let k=0;k<NING;k++) wIng[k] = ing[k]*7;
+  const potEff = Math.round((wk.pot + pot) * (wk.camp?1.5:1));
+  const critMul = AVG_CRIT + critAdd*0.8;
+  const areaMul = 1 + wk.areaBonus/100;
+  const mul = critMul * areaMul;
+  let r, cooksCapped, fits, rv, dishS;
+  if (wk.recipePick === 'auto'){
+    const b = bestSingleRecipe(wIng, potEff, mul);
+    if (b){ r = b.c.r; cooksCapped = b.n; rv = b.c.rv; fits = true;
+            dishS = Math.max(b.s, proxyDish(wIng, potEff, mul)) / areaMul; }
+    else { r = wk.recipe; cooksCapped = 0; rv = recipeValue(r, rlvl(r)); fits = r.cnt <= potEff; dishS = 0; }
+  } else {
+    r = wk.recipe;
+    rv = recipeValue(r, rlvl(r));
+    fits = r.cnt <= potEff;
+    let cooks = Infinity;
+    for (const [i,a] of r.ings) cooks = Math.min(cooks, wIng[i]/a);
+    cooksCapped = Math.min(MEALS_WEEK, Math.floor(cooks));
+    dishS = fits ? cooksCapped * rv * critMul : 0;
+  }
+  let bottleneck = null, worstRatio = Infinity;
+  for (const [i,a] of r.ings){ const c = wIng[i]/a; if (c < worstRatio){ worstRatio = c; bottleneck = i; } }
+  const total = (berryS*7 + skillS*7 + dishS) * areaMul;
+  const score = wk.mode==='dish' ? dishS*areaMul : wk.mode==='berry' ? berryS*7*areaMul : total;
+  return {idxs, ctx, outs, ing, wIng, berryS:berryS*7*areaMul, skillS:skillS*7*areaMul,
+          dishS:dishS*areaMul, total, score, cooksCapped, bottleneck, fits, potEff, rv, critMul, recipe:r, mul};
+}
+
+let POOL = [];
+function buildPool(){
+  const all = wk.recipeScope === 'all';
+  POOL = D.recipes.filter(r => all || r.t === wk.dishType)
+    .map(r => ({r, rv: recipeValue(r, rlvl(r)), lv: rlvl(r), cnt: r.cnt}))
+    .sort((a,b) => b.rv - a.rv);
+}
+/** Every recipe this team can sustain, ranked by what spamming it alone would yield. */
+function rankSingle(wIng, potEff, mul){
+  const out = [];
+  for (const c of POOL){
+    if (c.cnt > potEff) continue;
+    let cooks = Infinity;
+    for (const [i,a] of c.r.ings){ const k = wIng[i]/a; if (k < cooks) cooks = k; }
+    const n = Math.min(MEALS_WEEK, Math.floor(cooks));
+    if (n <= 0) continue;
+    out.push({c, n, s: n * c.rv * mul});
+  }
+  out.sort((a,b)=>b.s-a.s);
+  return out;
+}
+function bestSingleRecipe(wIng, potEff, mul){ return rankSingle(wIng, potEff, mul)[0] || null; }
+/** Search-stage proxy for the 21-meal plan: walk recipes by value, fill meals,
+ *  ignore that ingredients are shared. Over-counts, but ranks teams the same way
+ *  the real plan does — which is all the search needs. */
+function proxyDish(wIng, potEff, mul){
+  let meals = MEALS_WEEK, total = 0;
+  for (const c of POOL){
+    if (meals <= 0) break;
+    if (c.cnt > potEff) continue;
+    let cooks = Infinity;
+    for (const [i,a] of c.r.ings){ const k = Math.floor(wIng[i]/a); if (k < cooks) cooks = k; }
+    if (cooks < 1) continue;
+    const n = Math.min(cooks, meals);
+    total += n * c.rv * mul; meals -= n;
+  }
+  return total;
+}
+/** Plain greedy is not monotone — raising one recipe's level could make it pick a
+ *  worse opening move and lose value. So try several openings and keep the best. */
+function bestPlan(wIng, potEff, mul, forced){
+  const seeds = forced ? [forced]
+    : [null, ...rankSingle(wIng, potEff, mul).slice(0, 8).map(x => x.c.r)];
+  let best = null;
+  for (const sd of seeds){
+    const mp = mealPlan(wIng, potEff, mul, sd);
+    if (!best || mp.total > best.total) best = mp;
+  }
+  return best;
+}
+/** Greedy fill of all 21 meals from one shared ingredient pool. */
+function mealPlan(wIng, potEff, mul, forceFirst){
+  const pool = Array.from(wIng);
+  const plan = []; let meals = MEALS_WEEK, total = 0, guard = 0;
+  if (forceFirst && forceFirst.cnt <= potEff){
+    const rv = recipeValue(forceFirst, rlvl(forceFirst));
+    let cooks = Infinity;
+    for (const [i,a] of forceFirst.ings){ const k = Math.floor(pool[i]/a); if (k < cooks) cooks = k; }
+    cooks = Math.min(cooks, meals);
+    if (cooks >= 1){
+      for (const [i,a] of forceFirst.ings) pool[i] -= a * cooks;
+      plan.push({r: forceFirst, n: cooks, each: rv, primary: true});
+      total += cooks * rv * mul; meals -= cooks;
+    }
+  }
+  while (meals > 0 && guard++ < 40){
+    let best = null;
+    for (const c of POOL){
+      if (c.cnt > potEff) continue;
+      let cooks = Infinity;
+      for (const [i,a] of c.r.ings){ const k = Math.floor(pool[i]/a); if (k < cooks) cooks = k; }
+      if (cooks < 1) continue;
+      if (!best || c.rv > best.c.rv) best = {c, cooks: Math.min(cooks, meals)};
+    }
+    if (!best) break;
+    for (const [i,a] of best.c.r.ings) pool[i] -= a * best.cooks;
+    plan.push({r: best.c.r, n: best.cooks, each: best.c.rv});
+    total += best.cooks * best.c.rv * mul;
+    meals -= best.cooks;
+  }
+  return {plan, total, idleMeals: meals, leftover: pool};
+}
+
+function rankRecipesForTeam(r){
+  const potEff = r.potEff;
+  const out = [];
+  for (const cand of POOL){
+    const rec = cand.r;
+    let cooks = Infinity, bn = null, worst = Infinity;
+    for (const [i,a] of rec.ings){
+      const c = r.wIng[i]/a;
+      if (c < worst){ worst = c; bn = i; }
+      cooks = Math.min(cooks, c);
+    }
+    const capped = Math.min(MEALS_WEEK, Math.floor(cooks));
+    const fits = rec.cnt <= potEff;
+    const rv = cand.rv;
+    out.push({rec, capped, fits, rv, bn,
+              strength: fits ? capped*rv*r.critMul*(1+wk.areaBonus/100) : 0});
+  }
+  out.sort((a,b)=>b.strength-a.strength);
+  return out;
+}
+
+/* ================= STATE ================= */
+const BLANK = () => ({sp: D.dex.findIndex(p=>p.n==='PIKACHU'), level:30, nature:'Bashful', ss:[null,null,null,null,null], ingSet:[0,0,0], skillLv:1, ribbon:0, pin:false, ex:false});
+let roster = [];
+let wk = {island:'greengrass', fav:new Set(), areaBonus:15, pot:57, sleepH:8.5, camp:0, mode:'total', dishType:'curry', recipeName:null, recipeLv:20, recipePick:'auto', recipeScope:'type', recipeLevels:{}};
+let lastResults = null, shownAlt = 0;
+
+/* ================= PERSISTENCE ================= */
+/* One codebase, two backends:
+   - inside a claude.ai artifact -> the artifact's own database
+   - self-hosted (GitHub Pages etc.) -> the user's Google Sheet via Apps Script
+   localStorage is always written as an offline copy in both cases. */
+let dbRef = null, dbObj = null;
+let sync = {url:'', token:'', on:false};
+const statusEl = document.getElementById('saveStatus');
+function setStatus(t){ statusEl.textContent = t; }
+function setSyncStatus(t){ const e = $('syncStatus'); if (e) e.textContent = t; }
+
+function serialize(){
+  return {roster: roster.map(m=>({sp:D.dex[m.sp].n, level:m.level, nature:m.nature, ss:m.ss, ingSet:m.ingSet, skillLv:m.skillLv, ribbon:m.ribbon, pin:!!m.pin, ex:!!m.ex})),
+          wk: {...wk, fav:[...wk.fav], recipe:undefined}, updatedAt: new Date().toISOString(), v:1};
+}
+function deserialize(o){
+  if (!o) return;
+  if (Array.isArray(o.roster)) roster = o.roster.map(r=>{
+    const sp = D.dex.findIndex(p=>p.n===r.sp);
+    return {...BLANK(), ...r, sp: sp<0?0:sp, ss:(r.ss||[null,null,null,null,null]).slice(0,5), ingSet:(r.ingSet||[0,0,0]).slice(0,3)};
+  });
+  if (o.wk){ const f = o.wk.fav||[]; wk = {...wk, ...o.wk, fav:new Set(f), recipeLevels:o.wk.recipeLevels||{}}; }
+}
+/** A human-readable mirror of the roster, so the Sheet is worth opening. */
+function rosterTable(){
+  const head = ['種類','圖鑑','等級','性格','副技能1','副技能2','副技能3','副技能4','副技能5','食材1','食材2','食材3','技能Lv','主技能','緞帶','固定','排除'];
+  const RIB = ['無','200h','500h','1000h','2000h'];
+  const rows = roster.map(m=>{
+    const p = D.dex[m.sp], opts = [p.i0, p.i30, p.i60];
+    const ings = [0,1,2].map(k=>{
+      const list = opts[k] || [];
+      const pick = list[Math.min(m.ingSet[k]||0, list.length-1)];
+      return pick ? iz(ING_NAME[pick[0]]) + '×' + pick[1] : '';
+    });
+    return [pz(p), p.no, m.level, natZ(NAT[m.nature]||NAT.Bashful),
+            ...[0,1,2,3,4].map(i=>m.ss[i] ? ssz(m.ss[i]) : ''),
+            ...ings, m.skillLv, msz(p.ms), RIB[m.ribbon||0], m.pin?'是':'', m.ex?'是':''];
+  });
+  return [head, ...rows];
+}
+
+/* ---- Google Sheet backend ---- */
+function loadSyncConfig(){
+  try {
+    sync.url = localStorage.getItem('psleep-sync-url') || '';
+    sync.token = localStorage.getItem('psleep-sync-token') || '';
+    sync.on = !!(sync.url && sync.token);
+  } catch(e){}
+}
+function saveSyncConfig(){
+  try {
+    localStorage.setItem('psleep-sync-url', sync.url);
+    localStorage.setItem('psleep-sync-token', sync.token);
+  } catch(e){}
+}
+async function sheetGet(){
+  const u = sync.url + (sync.url.includes('?') ? '&' : '?') + 'token=' + encodeURIComponent(sync.token);
+  const res = await fetch(u, {method:'GET', redirect:'follow'});
+  if (!res.ok) throw new Error('HTTP ' + res.status);
+  const j = await res.json();
+  if (j.error) throw new Error(j.error);
+  return j.data || null;
+}
+async function sheetPut(payload){
+  // text/plain keeps this a "simple request" — Apps Script does not answer CORS preflight
+  const res = await fetch(sync.url, {method:'POST', redirect:'follow',
+    headers:{'Content-Type':'text/plain;charset=utf-8'},
+    body: JSON.stringify({token: sync.token, data: payload, table: rosterTable()})});
+  if (!res.ok) throw new Error('HTTP ' + res.status);
+  const j = await res.json();
+  if (j.error) throw new Error(j.error);
+  return j;
+}
+
+let saveTimer = null;
+function save(){
+  const payload = serialize();
+  try { localStorage.setItem('psleep-box', JSON.stringify(payload)); } catch(e){}
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(async ()=>{
+    if (dbRef){
+      try { await dbRef.set(payload); setStatus('已同步'); }
+      catch(e){ setStatus('同步失敗（本機已存）'); }
+    } else if (sync.on){
+      setStatus('上傳中…');
+      try { await sheetPut(payload); setStatus('已同步 Sheet'); setSyncStatus('已上傳 ' + new Date().toLocaleTimeString('zh-TW')); }
+      catch(e){ setStatus('Sheet 同步失敗（本機已存）'); setSyncStatus('上傳失敗：' + e.message); }
+    }
+  }, 900);
+}
+
+async function boot(){
+  loadSyncConfig();
+  try { const raw = localStorage.getItem('psleep-box'); if (raw) deserialize(JSON.parse(raw)); } catch(e){}
+  const selfHosted = !window.claude;
+  if (selfHosted && $('syncSection')) $('syncSection').hidden = false;
+  if ($('syncUrl')){ $('syncUrl').value = sync.url; $('syncToken').value = sync.token; }
+  renderAll();
+
+  const db = await (window.claude && window.claude.use ? window.claude.use('db') : Promise.resolve(null));
+  if (db){
+    dbObj = db;
+    dbRef = db.doc('box/main');
+    try {
+      const snap = await dbRef.get();
+      if (snap.exists) { deserialize(snap.data()); renderAll(); setStatus('已同步'); }
+      else { await dbRef.set(serialize()); setStatus('已同步'); }
+    } catch(e){ setStatus('只存在這台裝置'); }
+    Promise.all([db.doc('meta/status').get(), db.doc('meta/refresh').get()]).then(([st,rq])=>{
+      if (st.exists) metaStatus = st.data();
+      if (rq.exists) metaReq = rq.data();
+      renderVersion();
+    }).catch(()=>{});
+    return;
+  }
+
+  if (sync.on){
+    setStatus('連線 Sheet…'); setSyncStatus('連線中…');
+    try {
+      const remote = await sheetGet();
+      const localRaw = localStorage.getItem('psleep-box');
+      const local = localRaw ? JSON.parse(localRaw) : null;
+      // last write wins
+      if (remote && (!local || !local.updatedAt || (remote.updatedAt || '') >= local.updatedAt)){
+        deserialize(remote); renderAll();
+        setStatus('已同步 Sheet'); setSyncStatus('已下載雲端版本（' + (remote.updatedAt||'').slice(0,16).replace('T',' ') + '）');
+      } else if (local){
+        await sheetPut(local);
+        setStatus('已同步 Sheet'); setSyncStatus('本機較新，已上傳');
+      } else {
+        setStatus('已同步 Sheet'); setSyncStatus('雲端為空');
+      }
+    } catch(e){
+      setStatus('Sheet 連線失敗（用本機資料）'); setSyncStatus('連線失敗：' + e.message);
+    }
+  } else {
+    setStatus('只存在這台裝置');
+    setSyncStatus(selfHosted ? '尚未設定' : '');
+  }
+}
+
+/* ---- sync panel wiring ---- */
+if ($('syncPull')){
+  const readFields = ()=>{
+    sync.url = $('syncUrl').value.trim();
+    sync.token = $('syncToken').value.trim();
+    sync.on = !!(sync.url && sync.token);
+    saveSyncConfig();
+  };
+  $('syncPull').addEventListener('click', async ()=>{
+    readFields();
+    if (!sync.on){ setSyncStatus('網址和金鑰都要填'); return; }
+    setSyncStatus('連線中…');
+    try {
+      const remote = await sheetGet();
+      if (remote){ deserialize(remote); renderAll(); setSyncStatus('已下載（' + (remote.roster||[]).length + ' 隻）'); setStatus('已同步 Sheet'); }
+      else { setSyncStatus('連線成功，但雲端還是空的 —— 按「立即上傳」把本機資料推上去'); }
+    } catch(e){ setSyncStatus('連線失敗：' + e.message); }
+  });
+  $('syncPush').addEventListener('click', async ()=>{
+    readFields();
+    if (!sync.on){ setSyncStatus('網址和金鑰都要填'); return; }
+    setSyncStatus('上傳中…');
+    try { await sheetPut(serialize()); setSyncStatus('已上傳 ' + roster.length + ' 隻'); setStatus('已同步 Sheet'); }
+    catch(e){ setSyncStatus('上傳失敗：' + e.message); }
+  });
+  $('syncOff').addEventListener('click', ()=>{
+    sync = {url:'', token:'', on:false};
+    $('syncUrl').value = ''; $('syncToken').value = '';
+    saveSyncConfig(); setSyncStatus('已停用，資料只留在這台瀏覽器'); setStatus('只存在這台裝置');
+  });
+}
+
+/* ================= UI: weekly ================= */
+function buildWeekly(){
+  $('island').innerHTML = D.islands.map(i=>`<option value="${i.s}">${isl(i.n)}</option>`).join('');
+  $('favBerries').innerHTML = BERRY_NAMES.map(b=>`<button type="button" class="chip" data-berry="${b}" aria-pressed="false" title="${b.toLowerCase()}">${bz(b)}</button>`).join('');
+  $('favBerries').addEventListener('click', e=>{
+    const b = e.target.closest('[data-berry]'); if (!b) return;
+    const k = b.dataset.berry;
+    if (wk.fav.has(k)) wk.fav.delete(k); else wk.fav.add(k);
+    syncWeeklyUI(); save();
+  });
+  $('island').addEventListener('change', e=>{
+    wk.island = e.target.value;
+    const isl = D.islands.find(i=>i.s===wk.island);
+    if (isl && isl.b.length){ wk.fav = new Set(isl.b); }
+    syncWeeklyUI(); save();
+  });
+  $('dishType').addEventListener('change', e=>{ wk.dishType = e.target.value; wk.recipeName = null; fillRecipes(); save(); });
+  $('recipe').addEventListener('change', e=>{ wk.recipeName = e.target.value; save(); });
+  for (const [id, key, num] of [['areaBonus','areaBonus',1],['pot','pot',1],['sleepH','sleepH',1],['recipeLv','recipeLv',1],['camp','camp',1]]){
+    $(id).addEventListener('change', e=>{ wk[key] = num ? Number(e.target.value) : e.target.value; save(); });
+  }
+  $('mode').addEventListener('change', e=>{ wk.mode = e.target.value; save(); });
+  $('recipePick').addEventListener('change', e=>{ wk.recipePick = e.target.value; syncWeeklyUI(); save(); });
+  $('recipeScope').addEventListener('change', e=>{ wk.recipeScope = e.target.value; syncWeeklyUI(); save(); });
+  $('runBtn').addEventListener('click', run);
+}
+function fillRecipes(){
+  const list = D.recipes.filter(r=>r.t===wk.dishType).sort((a,b)=>a.cnt-b.cnt);
+  $('recipe').innerHTML = list.map(r=>{
+    const ings = r.ings.map(([i,a])=>iz(ING_NAME[i])+'×'+a).join('・');
+    return `<option value="${r.n}">${recipeZh(r.n)} — ${ings}（共 ${r.cnt}）</option>`;
+  }).join('');
+  if (!wk.recipeName || !list.some(r=>r.n===wk.recipeName)){
+    const pick = list.find(r=>r.cnt>=21) || list[list.length-1];
+    wk.recipeName = pick && pick.n;
+  }
+  $('recipe').value = wk.recipeName;
+}
+function syncWeeklyUI(){
+  $('island').value = wk.island; $('areaBonus').value = wk.areaBonus; $('pot').value = wk.pot;
+  $('sleepH').value = wk.sleepH; $('camp').value = wk.camp; $('mode').value = wk.mode;
+  $('dishType').value = wk.dishType; $('recipeLv').value = wk.recipeLv;
+  $('recipePick').value = wk.recipePick; $('recipeScope').value = wk.recipeScope;
+  const nSet = Object.keys(wk.recipeLevels||{}).length;
+  $('rlvCount').textContent = nSet ? `（${nSet} 道已個別設定）` : '';
+  const auto = wk.recipePick === 'auto';
+  $('recipe').disabled = auto;
+  $('recipe').style.opacity = auto ? .5 : 1;
+  $('recipeAutoNote').textContent = auto ? '（自動模式下由推演決定，這裡只是備援）' : '';
+  $('dishType').disabled = auto && wk.recipeScope === 'all';
+  for (const el of $('favBerries').querySelectorAll('[data-berry]'))
+    el.setAttribute('aria-pressed', wk.fav.has(el.dataset.berry) ? 'true' : 'false');
+  fillRecipes();
+}
+
+/* ================= UI: box ================= */
+const SPECIES_OPTS = D.dex.map((p,i)=>`<option value="${i}">${pz(p)}　#${p.no} ${p.d} · ${SPEC_ZH[p.sp]} · ${bz(p.b)}</option>`).join('');
+const NATURE_OPTS = D.natures.map(n=>`<option value="${n.n}">${natLabel(n)}</option>`).join('');
+const SS_OPTS = `<option value="">—</option>` + D.subskills.map(s=>`<option value="${s.n}" title="${ssz(s.n)}">${sss(s.n)}</option>`).join('');
+function ingSetOpts(m, slot){
+  const p = D.dex[m.sp], list = [p.i0, p.i30, p.i60][slot] || [];
+  if (!list.length) return `<option value="0">—</option>`;
+  return list.map((x,i)=>`<option value="${i}">${iz(ING_NAME[x[0]])}×${x[1]}</option>`).join('');
+}
+function renderBox(){
+  const host = $('boxList');
+  $('boxEmpty').style.display = roster.length ? 'none' : 'block';
+  host.innerHTML = roster.map((m,idx)=>{
+    const p = D.dex[m.sp];
+    const slots = Math.min(Math.floor(m.level/30)+1, 3);
+    return `<div class="boxrow" data-i="${idx}">
+      <div data-lbl="種類"><select data-k="sp">${SPECIES_OPTS}</select></div>
+      <div data-lbl="等級"><input type="number" data-k="level" min="1" max="70" value="${m.level}"></div>
+      <div data-lbl="性格"><select data-k="nature">${NATURE_OPTS}</select></div>
+      <div data-lbl="副技能"><div class="ss-mini">${[0,1,2,3,4].map(s=>
+        `<select data-k="ss" data-s="${s}" title="第 ${s+1} 格 — Lv${SS_SLOT_LV[s]} 解鎖${m.ss[s]?'：'+ssz(m.ss[s]):''}"${m.level<SS_SLOT_LV[s]?' style="opacity:.45"':''}>${SS_OPTS}</select>`).join('')}</div></div>
+      <div data-lbl="食材組合"><div class="ss-mini" style="grid-template-columns:repeat(3,1fr)">${[0,1,2].map(s=>
+        `<select data-k="ingSet" data-s="${s}"${s>=slots?' disabled style="opacity:.35"':''}>${ingSetOpts(m,s)}</select>`).join('')}</div></div>
+      <div data-lbl="技能Lv"><input type="number" data-k="skillLv" min="1" max="8" value="${m.skillLv}"></div>
+      <div data-lbl="緞帶"><select data-k="ribbon" title="睡眠緞帶：縮短未進化寶可夢的幫手間隔並提升攜帶上限">${
+        ['無','200h','500h','1000h','2000h'].map((t,i)=>`<option value="${i}">${t}</option>`).join('')}</select></div>
+      <div data-lbl="" style="display:flex;gap:5px;justify-content:flex-end">
+        <button class="btn sm ghost" data-act="pin" title="固定在隊上">${m.pin?'📌':'📍'}</button>
+        <button class="btn sm ghost" data-act="ex" title="排除">${m.ex?'🚫':'○'}</button>
+        <button class="btn sm ghost" data-act="del" title="刪除">✕</button>
+      </div>
+    </div>`;
+  }).join('');
+  roster.forEach((m,idx)=>{
+    const row = host.querySelector(`[data-i="${idx}"]`);
+    row.querySelector('[data-k="sp"]').value = m.sp;
+    row.querySelector('[data-k="nature"]').value = m.nature;
+    row.querySelectorAll('[data-k="ss"]').forEach(s=>{ s.value = m.ss[+s.dataset.s] || ''; });
+    row.querySelectorAll('[data-k="ingSet"]').forEach(s=>{ s.value = String(m.ingSet[+s.dataset.s]||0); });
+    row.querySelector('[data-k="ribbon"]').value = String(m.ribbon||0);
+    row.style.opacity = m.ex ? .5 : 1;
+  });
+}
+$('boxList').addEventListener('change', e=>{
+  const row = e.target.closest('[data-i]'); if (!row) return;
+  const m = roster[+row.dataset.i], k = e.target.dataset.k;
+  if (!k) return;
+  if (k==='sp'){ m.sp = +e.target.value; m.ingSet = [0,0,0]; m.skillLv = 1; renderBox(); }
+  else if (k==='ss') m.ss[+e.target.dataset.s] = e.target.value || null;
+  else if (k==='ingSet') m.ingSet[+e.target.dataset.s] = +e.target.value;
+  else if (k==='level'){ m.level = Math.max(1, Math.min(70, +e.target.value||1)); renderBox(); }
+  else if (k==='skillLv') m.skillLv = Math.max(1, Math.min(8, +e.target.value||1));
+  else if (k==='nature') m.nature = e.target.value;
+  else if (k==='ribbon') m.ribbon = +e.target.value;
+  save();
+});
+$('boxList').addEventListener('click', e=>{
+  const btn = e.target.closest('[data-act]'); if (!btn) return;
+  const i = +btn.closest('[data-i]').dataset.i, a = btn.dataset.act;
+  if (a==='del') roster.splice(i,1);
+  else if (a==='pin'){ roster[i].pin = !roster[i].pin; if (roster[i].pin) roster[i].ex = false; }
+  else if (a==='ex'){ roster[i].ex = !roster[i].ex; if (roster[i].ex) roster[i].pin = false; }
+  renderBox(); save();
+});
+$('addBtn').addEventListener('click', ()=>{ roster.push(BLANK()); renderBox(); save();
+  const rows = $('boxList').querySelectorAll('[data-i]'); rows[rows.length-1].scrollIntoView({block:'nearest'}); });
+$('exportBtn').addEventListener('click', async ()=>{
+  const t = JSON.stringify(serialize());
+  try { await navigator.clipboard.writeText(t); setStatus('JSON 已複製'); }
+  catch(e){ window.prompt('複製下面的 JSON：', t); }
+});
+$('importBtn').addEventListener('click', ()=>{
+  const t = window.prompt('把先前複製的 JSON 貼在這裡：');
+  if (!t) return;
+  try { deserialize(JSON.parse(t)); renderAll(); save(); setStatus('已匯入'); }
+  catch(e){ setStatus('JSON 格式不正確'); }
+});
+
+/* ================= RUN ================= */
+function combinations(pool, k, pinned, cb){
+  const idx = new Array(k);
+  const need = k - pinned.length;
+  if (need < 0) return;
+  (function rec(start, depth){
+    if (depth === need){ cb(pinned.concat(idx.slice(0, need))); return; }
+    for (let i=start; i<=pool.length-(need-depth); i++){ idx[depth] = pool[i]; rec(i+1, depth+1); }
+  })(0, 0);
+}
+function run(){
+  const active = roster.map((m,i)=>({m,i})).filter(x=>!x.m.ex);
+  if (active.length < 5){ $('results').innerHTML = `<div class="notice warn">箱子裡至少要有 5 隻可用的寶可夢（目前 ${active.length} 隻）。</div>`; return; }
+  wk.recipe = D.recipes.find(r=>r.n===wk.recipeName) || D.recipes[0];
+  buildPool();
+  if (!POOL.length){ $('results').innerHTML = `<div class="notice warn">目前的料理類型／範圍下沒有任何食譜可比較。</div>`; return; }
+  $('runStatus').textContent = '推演中…';
+  roster.forEach(m=>{ m._bs = baseStats(m, wk); });
+  setTimeout(()=>{
+    const t0 = performance.now();
+    const pinned = active.filter(x=>x.m.pin).map(x=>x.i);
+    if (pinned.length > 5){ $('results').innerHTML = `<div class="notice warn">固定（📌）的寶可夢超過 5 隻，請減少到 5 隻以內。</div>`; $('runStatus').textContent=''; return; }
+    let pool = active.map(x=>x.i).filter(i=>!pinned.includes(i));
+    const memo = new Map();
+    // pre-filter very large boxes by solo score
+    const nC = (n,k)=>{ let r=1; for(let i=0;i<k;i++) r = r*(n-i)/(i+1); return r; };
+    let trimmed = false;
+    if (nC(pool.length, 5-pinned.length) > 1.2e6){
+      const solo = pool.map(i=>({i, s: scoreTeam([i,i,i,i,i].slice(0,1).concat(pool.filter(j=>j!==i).slice(0,4)), roster, wk, memo).score}));
+      solo.sort((a,b)=>b.s-a.s);
+      pool = solo.slice(0, 42-pinned.length).map(x=>x.i);
+      trimmed = true;
+    }
+    const FINALISTS = 50, SHOWN = 8;
+    const best = [];
+    let count = 0;
+    combinations(pool, 5, pinned, idxs=>{
+      count++;
+      const r = scoreTeam(idxs, roster, wk, memo);
+      if (best.length < FINALISTS){ best.push(r); best.sort((a,b)=>b.score-a.score); }
+      else if (r.score > best[FINALISTS-1].score){ best[FINALISTS-1] = r; best.sort((a,b)=>b.score-a.score); }
+    });
+    // finalists get the expensive treatment: fill all 21 meals from one shared pool
+    for (const b of best){
+      const mp = bestPlan(b.wIng, b.potEff, b.mul, wk.recipePick==='manual' ? wk.recipe : null);
+      b.mp = mp;
+      if (mp && mp.total > b.dishS){
+        b.dishS = mp.total;
+        if (wk.recipePick === 'auto' && mp.plan.length){
+          const top = mp.plan.reduce((x,y)=> (y.n*y.each > x.n*x.each ? y : x));
+          b.recipe = top.r;
+          b.cooksCapped = top.n;
+          b.rv = top.each;
+          b.fits = true;
+        }
+      }
+      b.total = b.berryS + b.skillS + b.dishS;
+      b.score = wk.mode==='dish' ? b.dishS : wk.mode==='berry' ? b.berryS : b.total;
+    }
+    best.sort((a,b)=>b.score-a.score);
+    const ms = Math.round(performance.now()-t0);
+    lastResults = best.slice(0, SHOWN); shownAlt = 0;
+    $('comboCount').textContent = `${count.toLocaleString()} 種組合 · ${ms}ms${trimmed?' · 已預篩至前 42 隻':''}`;
+    $('runStatus').textContent = '';
+    renderResults();
+  }, 20);
+}
+
+/* ================= RESULTS RENDER ================= */
+function memberCard(rank, i, r, o){
+  const m = roster[i], p = D.dex[m.sp], bs = m._bs;
+  const act = bs.act.map(a=>sss(a));
+  const ingList = [];
+  for (let k=0;k<NING;k++) if (o.ing[k]*7 > 12) ingList.push(iz(ING_NAME[k])+' '+f1(o.ing[k]*7));
+  return `<div class="mem">
+    <div class="rank">${rank}</div>
+    <div>
+      <div class="nm">${pz(p)}<span class="tag ${p.sp}">${SPEC_ZH[p.sp]}</span>${wk.fav.has(p.b)?`<span class="tag fav">加成樹果</span>`:''}${m.pin?`<span class="tag pin">固定</span>`:''}</div>
+      <div class="meta">Lv${m.level} · ${natZ(NAT[m.nature]||NAT.Bashful)} · ${act.length?act.join('／'):'無副技能'} · 頻率 ${Math.round(o.sim.freqBase/60*10)/10}分</div>\n      <div class="meta">${msz(p.ms)} Lv${bs.skillLv} · 每日發動 ${f1(o.sim.procs)} 次</div>
+      <div class="meta" style="color:var(--ing)">${ingList.length?ingList.join('　'):'（無食材產出）'}</div>
+    </div>
+    <div class="out">
+      <div><span class="muted">週能量</span> ${fmt((o.berryStrength+o.skillStrength)*7*(1+wk.areaBonus/100))}</div>
+      <div class="muted">幫手 ${f1(o.sim.productive)}／日${o.sim.snack>0.5?` · 偷吃 ${f1(o.sim.snack)}`:''}</div>
+      <div class="muted" style="color:${o.sim.fastShare>=0.6?'var(--pos)':o.sim.fastShare>=0.3?'var(--ing)':'var(--neg)'}">最快檔位 ${f1(o.sim.fastHours)}h／日（${Math.round(o.sim.fastShare*100)}%）</div>
+    </div>
+  </div>`;
+}
+function renderResults(){
+  if (!lastResults || !lastResults.length){
+    $('results').innerHTML = roster.filter(m=>!m.ex).length < 5
+      ? `<div class="notice">先在下面「我的寶可夢箱」建立至少 5 隻，才能開始推演。</div>`
+      : `<div class="notice">設定好本週條件後，按「推演最佳隊伍」。</div>`;
+    return;
+  }
+  const r = lastResults[shownAlt];
+  const TR = r.recipe;
+  const recipeIngs = new Map(TR.ings);
+  const bars = TR.ings.map(([i,a])=>{
+    const have = r.wIng[i], canCook = Math.floor(have/a);
+    const ratio = Math.min(1, canCook/MEALS_WEEK), short = canCook < MEALS_WEEK;
+    return `<div class="barrow${canCook<1?' lack':''}" title="一週產 ${f1(have)}，每次需 ${a}">
+      <div>${iz(ING_NAME[i])}</div>
+      <div class="bar"><i style="width:${Math.max(ratio*100,1.5).toFixed(1)}%;background:${canCook<1?'var(--neg)':short?'var(--ing)':'var(--pos)'}"></i></div>
+      <div class="v">${canCook} 次</div>
+    </div>`;
+  }).join('');
+  const extra = [];
+  for (let k=0;k<NING;k++) if (!recipeIngs.has(k) && r.wIng[k] > 15) extra.push([k, r.wIng[k]]);
+  extra.sort((a,b)=>b[1]-a[1]);
+
+  const warn = !r.fits ? `<div class="notice warn">鍋子容量不足：這道食譜需要 ${TR.cnt} 個食材，你目前平日有效容量 ${r.potEff}。換小一點的食譜，或把「食譜選擇」切到自動配對讓它自己挑。</div>` : '';
+  const bn = r.bottleneck!=null ? iz(ING_NAME[r.bottleneck]) : '—';
+
+  $('results').innerHTML = `
+  ${warn}
+  <div class="panel hero" style="margin-top:${warn?'12px':'0'}">
+    <div class="roster">
+      <div class="eyebrow">建議先發 5 隻</div>
+      ${r.idxs.map((i,n)=>memberCard(n+1, i, r, r.outs[n])).join('')}
+      <div class="pillrow" style="margin-top:4px">
+        <span class="pill">HB ×${r.ctx.nHB}</span>
+        <span class="pill">ERB ×${r.ctx.nERB}</span>
+        <span class="pill">技能補能量 ${Math.round(r.ctx.supportEnergy)}/日</span>
+        ${r.ctx.extraHelps>0.2?`<span class="pill">額外幫手 ${f1(r.ctx.extraHelps)}/日</span>`:''}
+      </div>
+    </div>
+    <div class="totals">
+      <div>
+        <div class="eyebrow">本週卡比獸總能量</div>
+        <div class="bigfig">${fmt(r.total)}</div>
+      </div>
+      <div>
+        <div class="subfig"><span>樹果</span><b>${fmt(r.berryS)}</b></div>
+        <div class="subfig"><span>料理</span><b>${fmt(r.dishS)}</b></div>
+        <div class="subfig"><span>主技能</span><b>${fmt(r.skillS)}</b></div>
+      </div>
+      <div>
+        <div class="eyebrow">${wk.recipePick==='auto'?'自動選中的主食譜':'指定食譜'}</div>
+        <div style="font-size:13.5px;font-weight:700;margin:3px 0 2px">${recipeZh(TR.n)}</div>
+        <div class="subfig"><span>主食譜可煮</span><b>${r.cooksCapped} / 21 餐</b></div>
+        <div class="subfig"><span>單道能量 (Lv${rlvl(TR)})</span><b>${fmt(r.rv)}</b></div>
+        <div class="subfig"><span>瓶頸食材</span><b>${bn}</b></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="grid" style="grid-template-columns:minmax(0,1.1fr) minmax(0,1fr);margin-top:16px;gap:16px">
+    <div class="panel">
+      <div class="phead"><h3>主食譜食材缺口</h3><span class="muted" style="font-size:12px">每樣食材夠煮幾次 · 滿格＝21 餐</span></div>
+      <div class="pbody">${bars}
+        ${extra.length?`<div style="margin-top:12px;padding-top:10px;border-top:1px solid var(--line)">
+          <div class="eyebrow" style="margin-bottom:6px">其他食材（可換別的食譜）</div>
+          <div class="chips">${extra.slice(0,10).map(([k,v])=>`<span class="pill">${iz(ING_NAME[k])} ${f1(v)}</span>`).join('')}</div></div>`:''}
+      </div>
+    </div>
+    <div class="panel">
+      <div class="phead"><h3>這隊最能煮的食譜</h3><span class="muted" style="font-size:12px">以目前產量排序</span></div>
+      <div class="pbody" style="padding:0"><div class="scroll" style="border:0">
+      <table><thead><tr><th>食譜</th><th style="text-align:right">煮/週</th><th style="text-align:right">週能量</th><th></th></tr></thead>
+      <tbody>${rankRecipesForTeam(r).slice(0,7).map(x=>`<tr${x.rec.n===wk.recipe.n?' style="background:color-mix(in srgb,var(--accent) 12%,transparent)"':''}>
+        <td>${recipeZh(x.rec.n)} <span class="muted num">共${x.rec.cnt}</span>${x.fits?'':' <span class="tag pin">鍋子不足</span>'}</td>
+        <td class="n" style="text-align:right">${x.capped}</td>
+        <td class="n" style="text-align:right">${fmt(x.strength)}</td>
+        <td><button class="btn sm ghost" data-setrecipe="${x.rec.n}">設為目標</button></td></tr>`).join('')}
+      </tbody></table></div></div>
+    </div>
+  </div>
+
+  ${r.mp ? `<div class="panel" style="margin-top:16px">
+    <div class="phead"><h3>本週 21 餐排程</h3><span class="muted" style="font-size:12px">同一個食材池貪婪填滿 · 依單道能量由高到低</span></div>
+    <div class="pbody" style="padding:0"><div class="scroll" style="border:0">
+    <table><thead><tr><th>餐次</th><th>食譜</th><th style="text-align:right">次數</th><th style="text-align:right">單道</th><th style="text-align:right">小計</th></tr></thead>
+    <tbody>${r.mp.plan.map((x,n)=>`<tr>
+      <td class="n">${n+1}</td>
+      <td>${recipeZh(x.r.n)} <span class="muted num">共${x.r.cnt}</span>${(x.primary || x.r.n===TR.n)?' <span class="tag pin">主食譜</span>':''}</td>
+      <td class="n" style="text-align:right">${x.n}</td>
+      <td class="n" style="text-align:right">${fmt(x.each)}</td>
+      <td class="n" style="text-align:right">${fmt(x.n*x.each*r.mul)}</td></tr>`).join('')}
+      ${r.mp.idleMeals>0?`<tr><td></td><td class="muted">食材不足，${r.mp.idleMeals} 餐無法排入（實際遊戲會退成拌拌料理）</td><td class="n" style="text-align:right">${r.mp.idleMeals}</td><td></td><td class="n" style="text-align:right">—</td></tr>`:''}
+    </tbody></table></div></div>
+  </div>` : ''}
+
+  <div class="grid" style="grid-template-columns:1fr;margin-top:16px;gap:16px">
+    <div class="panel">
+      <div class="phead"><h3>替代隊伍</h3><span class="muted" style="font-size:12px">點一列切換</span></div>
+      <div class="pbody" style="padding:0">
+        <div class="scroll" style="border:0;border-radius:0 0 12px 12px">
+        <table><thead><tr><th>#</th><th>組合</th><th style="text-align:right">週能量</th><th style="text-align:right">煮</th></tr></thead>
+        <tbody>${lastResults.map((x,n)=>`<tr class="alt${n===shownAlt?' on':''}" data-alt="${n}">
+          <td class="n">${n+1}</td>
+          <td>${x.idxs.map(i=>pz(D.dex[roster[i].sp])).join('・')}</td>
+          <td class="n" style="text-align:right">${fmt(x.total)}</td>
+          <td class="n" style="text-align:right">${x.cooksCapped}</td></tr>`).join('')}
+        </tbody></table></div>
+      </div>
+    </div>
+  </div>`;
+  $('results').querySelectorAll('.alt').forEach(tr=>tr.addEventListener('click', ()=>{ shownAlt = +tr.dataset.alt; renderResults(); }));
+  $('results').querySelectorAll('[data-setrecipe]').forEach(b=>b.addEventListener('click', ()=>{
+    wk.recipeName = b.dataset.setrecipe; $('recipe').value = wk.recipeName; save(); run();
+  }));
+}
+
+/* ================= VIEWS ================= */
+function showView(name){
+  for (const v of ['plan','box','recipes']) $('view-'+v).hidden = (v !== name);
+  for (const b of $('viewNav').querySelectorAll('[data-view]'))
+    b.setAttribute('aria-pressed', b.dataset.view === name ? 'true' : 'false');
+  if (name === 'recipes') renderRecipeLevels();
+  window.scrollTo({top:0, behavior:'instant'});
+}
+$('viewNav').addEventListener('click', e=>{
+  const b = e.target.closest('[data-view]'); if (b) showView(b.dataset.view);
+});
+
+/* ================= RECIPE LEVELS ================= */
+const RLB_MAX = D.rlb[70] || 3.58;
+function renderRecipeLevels(){
+  const type = $('rlvType').value, q = $('rlvSearch').value.trim().toLowerCase();
+  const sort = $('rlvSort').value;
+  let list = D.recipes.filter(r=>{
+    if (type !== 'all' && r.t !== type) return false;
+    if (!q) return true;
+    const hay = (recipeZh(r.n) + ' ' + r.n + ' ' + r.ings.map(([i])=>iz(ING_NAME[i])).join(' ')).toLowerCase();
+    return hay.includes(q);
+  }).map(r=>({r, lv: rlvl(r), set: typeof (wk.recipeLevels||{})[r.n] === 'number',
+              val: recipeValue(r, rlvl(r))}));
+  const cmp = {value:(a,b)=>b.val-a.val, lv:(a,b)=>b.lv-a.lv, cnt:(a,b)=>a.r.cnt-b.r.cnt,
+               name:(a,b)=>recipeZh(a.r.n).localeCompare(recipeZh(b.r.n),'zh-Hant')}[sort];
+  list.sort(cmp);
+  const TYPE_ZH = {curry:'咖哩／濃湯', salad:'沙拉', dessert:'甜點／飲品'};
+  $('rlvBody').innerHTML = list.map(x=>{
+    const mul = D.rlb[x.lv] || 1;
+    return `<tr data-r="${x.r.n}">
+      <td><b>${recipeZh(x.r.n)}</b><div class="muted" style="font-size:11.5px">${x.r.ings.map(([i,a])=>iz(ING_NAME[i])+'×'+a).join('・')}</div></td>
+      <td class="muted" style="font-size:12px">${TYPE_ZH[x.r.t]}</td>
+      <td class="n" style="text-align:right">${x.r.cnt}</td>
+      <td style="text-align:center"><input type="number" min="1" max="70" step="1" data-rlv="${x.r.n}" value="${x.set ? x.lv : ''}" placeholder="${wk.recipeLv}"></td>
+      <td class="n" style="text-align:right;color:${mul>=2?'var(--pos)':mul>=1.4?'var(--ing)':'var(--muted)'}">×${mul.toFixed(2)}</td>
+      <td class="n" style="text-align:right">${fmt(x.val)}</td>
+    </tr>`;
+  }).join('') || `<tr><td colspan="6" class="muted" style="padding:22px;text-align:center">沒有符合的食譜</td></tr>`;
+  const n = Object.keys(wk.recipeLevels||{}).length;
+  $('rlvCount').textContent = n ? `（${n} 道已個別設定）` : '';
+}
+$('rlvBody').addEventListener('change', e=>{
+  const k = e.target.dataset.rlv; if (!k) return;
+  wk.recipeLevels = wk.recipeLevels || {};
+  const v = e.target.value.trim();
+  if (v === '') delete wk.recipeLevels[k];
+  else wk.recipeLevels[k] = Math.max(1, Math.min(70, Math.round(Number(v)) || 1));
+  save(); renderRecipeLevels();
+});
+for (const id of ['rlvType','rlvSearch','rlvSort']) $(id).addEventListener('input', renderRecipeLevels);
+$('rlvClear').addEventListener('click', ()=>{
+  if (!Object.keys(wk.recipeLevels||{}).length) return;
+  if (!window.confirm('清除所有個別設定的食譜等級？全部會改回套用預設等級。')) return;
+  wk.recipeLevels = {}; save(); renderRecipeLevels();
+});
+
+/* ================= DATA VERSION ================= */
+let metaStatus = null, metaReq = null;
+function renderVersion(){
+  const m = D.meta || {};
+  $('verSrc').innerHTML = `${m.src||'—'}<br>commit ${m.commit||'—'} · ${m.commitDate||'—'}<br>打包於 ${m.builtAt||'—'}`;
+  $('verZh').textContent = m.zhSrc || '—';
+  $('verCounts').textContent = `${D.dex.length} 隻寶可夢 · ${D.recipes.length} 道食譜 · ${D.subskills.length} 個副技能 · ${D.islands.length} 個研究區域`;
+  const parts = [];
+  if (metaStatus && metaStatus.lastCheckedAt) parts.push('檢查：' + metaStatus.lastCheckedAt.slice(0,16).replace('T',' '));
+  if (metaStatus && metaStatus.message) parts.push(metaStatus.message);
+  if (metaReq && metaReq.requestedAt) parts.push('已排入更新請求：' + metaReq.requestedAt.slice(0,16).replace('T',' '));
+  $('verStatus').innerHTML = parts.length ? parts.join('<br>') : '尚無記錄';
+}
+$('refreshBtn').addEventListener('click', async ()=>{
+  const btn = $('refreshBtn');
+  if (!dbObj){
+    $('refreshNote').innerHTML = window.claude
+      ? '<b style="color:var(--neg)">這個檢視連不上雲端資料庫，請求無法排隊。</b> 請直接在對話裡跟 Claude 說「更新資料」。'
+      : '<b>自架版本沒有收單機制。</b> 更新方式是重新從上游萃取資料，替換 <code>index.html</code> 裡 <code>&lt;script id="gamedata"&gt;</code> 的內容，再 commit。';
+    return;
+  }
+  btn.disabled = true; btn.textContent = '送出中…';
+  try {
+    metaReq = {requestedAt: new Date().toISOString(), source: 'page'};
+    await dbObj.doc('meta/refresh').set(metaReq);
+    btn.textContent = '已排入佇列 ✓';
+    $('refreshNote').innerHTML = '請求已送出。Claude 下次收單（每週一早上）會比對上游與官網公告，有變動就更新並把結果寫回這裡。<b>等不了的話在對話裡說一句「更新資料」，我當場處理。</b>';
+  } catch(e){
+    btn.disabled = false; btn.textContent = '請求更新資料';
+    $('refreshNote').innerHTML = '<b style="color:var(--neg)">送出失敗。</b> 請直接在對話裡跟 Claude 說「更新資料」。';
+  }
+  renderVersion();
+});
+
+/* ================= THEME ================= */
+try { const t = localStorage.getItem('psleep-theme'); if (t) document.documentElement.setAttribute('data-theme', t); } catch(e){}
+$('themeBtn').addEventListener('click', ()=>{
+  const cur = document.documentElement.getAttribute('data-theme');
+  const sysDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+  const now = cur ? cur : (sysDark ? 'dark' : 'light');
+  const next = now==='dark' ? 'light' : 'dark';
+  document.documentElement.setAttribute('data-theme', next);
+  try { localStorage.setItem('psleep-theme', next); } catch(e){}
+});
+
+/* ================= INIT ================= */
+function renderAll(){ syncWeeklyUI(); renderBox(); renderResults(); renderVersion(); if (!$('view-recipes').hidden) renderRecipeLevels(); }
+buildWeekly();
+if (!wk.fav.size) wk.fav = new Set(['ORAN','PAMTRE','PECHA']);
+boot().then(()=>{ if (roster.length>=5) run(); });
+</script>
+
+</body>
+</html>
