@@ -291,7 +291,7 @@ details.notes li{margin:5px 0;max-width:74ch}
     <div id="boxList"></div>
     <div class="empty" id="boxEmpty">
       <div style="font-weight:700;color:var(--ink);font-size:15px;margin-bottom:6px">箱子還是空的</div>
-      按「＋ 新增一隻」逐隻建立（種類欄位打圖鑑編號最快），或用「貼上 JSON」還原備份。<br>
+      按「＋ 新增一隻」逐隻建立（點開種類選單後打中文名可跳選），或用「貼上 JSON」還原備份。<br>
       也可以直接把持有清單的截圖丟給 Claude 代建 —— 每隻需要看到等級、性格、五格副技能、三格食材。
     </div>
   </div></div>
@@ -333,6 +333,7 @@ details.notes li{margin:5px 0;max-width:74ch}
       <div>
         <div class="eyebrow">遊戲數值來源</div>
         <div class="num" id="verSrc">—</div>
+        <div class="muted" id="verBuild" style="font-size:11.5px;margin-top:5px"></div>
         <div class="eyebrow" style="margin-top:11px">中文名稱來源</div>
         <div id="verZh">—</div>
       </div>
@@ -1161,7 +1162,7 @@ function memberCard(rank, i, r, o){
 function renderResults(){
   if (!lastResults || !lastResults.length){
     $('results').innerHTML = roster.filter(m=>!m.ex).length < 5
-      ? `<div class="notice">先在下面「我的寶可夢箱」建立至少 5 隻，才能開始推演。</div>`
+      ? `<div class="notice">先到右上角「寶可夢箱」分頁建立至少 5 隻，才能開始推演。</div>`
       : `<div class="notice">設定好本週條件後，按「推演最佳隊伍」。</div>`;
     return;
   }
@@ -1335,9 +1336,18 @@ $('rlvClear').addEventListener('click', ()=>{
 let metaStatus = null, metaReq = null;
 function renderVersion(){
   const m = D.meta || {};
+  const selfHosted = !window.claude;
   $('verSrc').innerHTML = `${m.src||'—'}<br>commit ${m.commit||'—'} · ${m.commitDate||'—'}<br>打包於 ${m.builtAt||'—'}`;
   $('verZh').textContent = m.zhSrc || '—';
+  $('verBuild').textContent = selfHosted
+    ? '自架版本（GitHub Pages 等）· 寶可夢箱存在你的 Google Sheet 或本機瀏覽器'
+    : 'claude.ai artifact 版本 · 寶可夢箱存在 artifact 資料庫';
   $('verCounts').textContent = `${D.dex.length} 隻寶可夢 · ${D.recipes.length} 道食譜 · ${D.subskills.length} 個副技能 · ${D.islands.length} 個研究區域`;
+  if (selfHosted){
+    $('refreshBtn').disabled = true;
+    $('refreshBtn').textContent = '自架版本不適用';
+    $('refreshNote').innerHTML = '這是<b>自架版本</b>，遊戲資料是靜態快照，不會自己更新。更新方式：從上游重新萃取，替換 <code>index.html</code> 裡 <code>&lt;script id="gamedata"&gt;</code> 的內容，再 commit。詳見 repo 的 README。';
+  }
   const parts = [];
   if (metaStatus && metaStatus.lastCheckedAt) parts.push('檢查：' + metaStatus.lastCheckedAt.slice(0,16).replace('T',' '));
   if (metaStatus && metaStatus.message) parts.push(metaStatus.message);

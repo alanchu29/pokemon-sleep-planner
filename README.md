@@ -54,6 +54,17 @@ Settings → Pages → Source 選 `main` 分支根目錄。幾分鐘後 `https:/
 
 絕對數值會有誤差，但**隊伍之間的排序可靠** —— 那才是這個工具要回答的問題。
 
+## 開發
+
+```bash
+npm i playwright-core
+npm test          # tests/smoke.mjs — 27 項檢查
+npm run serve     # 本機起 http server（拆檔後需要）
+npm run data      # 從上游重建遊戲資料並注入 index.html
+```
+
+動手前先讀 [CLAUDE.md](CLAUDE.md)（架構與已知陷阱）與 [DECISIONS.md](DECISIONS.md)（為什麼做成這樣）。待辦見 [TODO.md](TODO.md)。
+
 ## 授權
 
 程式碼與繁中對照表：自由使用。
