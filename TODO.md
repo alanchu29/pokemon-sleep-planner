@@ -4,25 +4,26 @@
 
 ---
 
-## 1. 拆檔：`data.json` + `app.js` + 精簡 `index.html`
+## ~~1. 拆檔：`data.json` + `app.js` + 精簡 `index.html`~~ ✅ 已完成
 
-**優先度：最高。這件事不做，後面每次改動都是黑箱。**
+原本 156 KB 的單檔拆成：
 
-**動機**：`index.html` 現在 152 KB，65 KB 的資料 JSON 和 1,200 行程式碼擠在同一個檔案的同一行區塊裡。`git diff` 完全看不出改了什麼 —— 改一行邏輯，diff 顯示整檔變動。
+| 檔案 | 大小 |
+|---|---|
+| `index.html`（骨架 ＋ 載入器） | 11 KB / 250 行 |
+| `src/app.js` | 50 KB / 1,025 行 |
+| `src/app.css` | 10 KB / 147 行 |
+| `data/game.json`（indent-2） | 193 KB / 14,032 行 |
 
-**做法**：
-- `data/game.json` — 現在 `<script id="gamedata">` 的內容，**pretty-print**（要能 diff）
-- `src/app.js` — 現在 `<script>` 的內容
-- `src/app.css` — 現在 `<style>` 的內容
-- `index.html` — 只留骨架 ＋ `<link>` ＋ `<script src>`
-- 資料改用 `fetch('./data/game.json')` 載入，`await` 之後才 boot
+資料改用 `fetch('./data/game.json')`，`await` 完才動態插入 `app.js`。**`app.js` 刻意保持 classic script**（不是 module）—— 頂層宣告必須留在全域，否則 `tests/smoke.mjs` 全滅。細節見 `CLAUDE.md` 的「載入順序」。
 
-**注意**：這會讓 `file://` 直接開失效（fetch 受 CORS 限制）。要嘛保留一個 `npm run build` 產生單檔版本，要嘛在 README 註明本機要跑 `python3 -m http.server`。**GitHub Pages 上沒問題。**
+**驗收結果**：
+- ✅ 27 項 smoke 全過（測試改成自己起靜態 server）
+- ✅ 改一行 `energyF`，`git diff` 只顯示那一行
+- ✅ 改 `BULBASAUR` 的 `f`，diff 顯示 `"f": 4400 → 4300`，上下文看得到是哪隻
+- ✅ `file://` 直接開會顯示「請跑 `npm run serve`」而不是白畫面
 
-**驗收**：
-- `node tests/smoke.mjs` 全過
-- 改一行邏輯，`git diff` 只顯示那一行
-- `data/game.json` 的 diff 能看出哪隻寶可夢的數值變了
+代價：`file://` 不能用了，本機要 `npm run serve`。GitHub Pages 不受影響。
 
 ---
 
@@ -42,23 +43,35 @@
 
 ---
 
-## 3. 把測試固化成 CI
+## 3. 引擎輸出的快照測試（golden file）
 
-**動機**：這個專案至今抓到的 bug 全是手動跑 Playwright 發現的：
+**CI 本身已經做完**（`.github/workflows/ci.yml`，push / PR 跑 27 項）。但**驗收條件沒過**：
+
+實測把 `energyF` 的 `0.45` 改成 `0.50` —— **27 項依然全過，CI 不會紅。** 現有斷言全是結構性（「21 餐加總正確」）或相對性（「同樹果隊拿到更多幫手」），基準值在執行時才算，所以動係數抓不到。
+
+**做法**：固定一組隊伍與週條件，把引擎輸出（`total` / `berryS` / `dishS` / 每位成員的 `fastShare`）存成 `tests/golden.json`，比對到小數第 2 位。動公式時 diff 直接顯示影響幅度；確認是刻意改動就更新 golden file。
+
+**驗收**：把 `energyF` 的 `0.45` 改成 `0.50`，`npm test` 必須失敗，且訊息要印出變化幅度。
+
+---
+
+## 3b. 文案一致性檢查
+
+**動機**：這個專案至今抓到的 bug 全是**跑起來**發現的，沒有一個是靠讀程式碼：
 
 | Bug | 怎麼發現的 |
 |---|---|
 | `$` 的 TDZ → 整頁死掉 | 同步往返測試 |
 | 貪婪排程不單調（調高等級反而變差） | 對照實驗 |
 | 搜尋／評分目標脫鉤 → 料理能量低估 27% | 對照實驗 |
-| 自架版本文案說謊 | 看螢幕截圖 |
+| 自架版本文案說謊（按鈕聲稱 Claude 會處理） | 看螢幕截圖 |
+| 拆檔後文案還叫人「替換 `<script id="gamedata">`」 | 看螢幕截圖 |
 
-**沒有一個是靠讀程式碼找到的。** 這些檢查必須自動化。
+最後那一項是拆檔時發生的：`index.html` 裡已經沒有 `gamedata` 區塊，但 UI 還在教使用者去改它。**這類「文案描述了不存在的東西」的 bug，現有測試完全抓不到** —— 第 6 節只檢查「沒有謊稱 Claude 會收單」這一條寫死的規則。
 
-**做法**：
-- `tests/smoke.mjs` 已有基礎，擴充成：引擎數值快照、單調性（隨機 20 組等級）、雙後端偵測、Sheet 往返（mock endpoint）、每個 view 都渲染且無 console error
-- `.github/workflows/ci.yml`：push / PR 時跑
-- 引擎關鍵輸出加**快照測試**（golden file）—— 動到公式時 diff 會直接顯示影響
+**做法**：讓 UI 裡凡是提到檔名／區塊名的文案，都從一個常數表來（例如 `PATHS = {data:'data/game.json', ...}`），測試斷言那些路徑真的存在於 repo。或者退一步：測試把所有 `refreshNote` / `verBuild` 之類的說明文字抓出來，比對裡面出現的 `路徑樣式` 是否都是實際檔案。
+
+**驗收**：把 `data/game.json` 改名，測試必須失敗。
 
 **驗收**：PR 上看得到綠勾；故意把 `energyF` 的 0.45 改成 0.5，CI 必須失敗。
 

@@ -1,6 +1,6 @@
 # CLAUDE.md — 專案脈絡
 
-Pokémon Sleep 每週最佳隊伍推演工具。單一 HTML 檔、零依賴、無 build step。
+Pokémon Sleep 每週最佳隊伍推演工具。零依賴、無 build step、純靜態。
 
 ## 這份檔案的用途
 
@@ -8,20 +8,31 @@ Pokémon Sleep 每週最佳隊伍推演工具。單一 HTML 檔、零依賴、�
 
 ## 架構
 
-目前**所有東西都在 `index.html` 一個檔案裡**（約 152 KB），依序是：
+四個檔案，都是**真實來源**，不是產出物 —— 直接編輯：
 
-| 區塊 | 內容 |
+| 檔案 | 內容 |
 |---|---|
-| `<title>` / `<link>` / `<style>` | Google Fonts、CSS 變數（三種主題狀態）、版面 |
-| `<div class="wrap">` | 三個 `.view`（`view-plan` / `view-box` / `view-recipes`）＋ 全域的「資料版本」footer |
-| `<script id="gamedata">` | **全部遊戲資料的 JSON，單行**。246 隻寶可夢、78 道食譜、性格／副技能／主技能數值、`zh` 繁中對照表、`meta` 版本戳 |
-| `<script>` | 引擎與 UI，約 1,200 行 |
+| `index.html` | 骨架：`<head>`（字型、`app.css`）＋ markup（三個 `.view`：`view-plan` / `view-box` / `view-recipes`，加「資料版本」footer）＋ 尾端的載入器 |
+| `src/app.css` | CSS 變數（三種主題狀態）與版面 |
+| `src/app.js` | 引擎與 UI，約 1,000 行 |
+| `data/game.json` | 遊戲資料快照。246 隻寶可夢、78 道食譜、性格／副技能／主技能數值、`zh` 繁中對照表、`meta` 版本戳。**indent-2 pretty-print，一個欄位一行** |
 
-`index.html` 是**唯一的真實來源**，不是產出物 —— 直接編輯它。
+### 載入順序（重要）
 
-### 程式碼分區（`<script>` 內，依出現順序）
+`index.html` 尾端的 `<script type="module">` 做兩件事，**順序不能換**：
 
-1. `const D` / `const $` — 資料與 DOM 輔助（**`$` 必須在最前面**，見下方陷阱）
+1. `await fetch('./data/game.json')` → 放到 `window.GAMEDATA`
+2. 動態插入 `<script src="./src/app.js">`（**classic script，不是 `import()`**）
+
+`app.js` 的第一行就是 `const D = window.GAMEDATA`，所以資料一定要先到。
+
+**為什麼是動態插入 classic script 而不是 `import()`**：`app.js` 的頂層宣告必須留在全域。`tests/smoke.mjs` 靠 `page.evaluate` 直接驅動內部狀態（`roster = [...]`、`run()`、`scoreTeam()`、`wk.recipeScope = ...`），改成 module 會把這些關進模組作用域，27 項測試會全滅。**不要「順手」把 `app.js` 改成 module。**
+
+因為用了 `fetch`，**`file://` 直接開會失效**（CORS）。本機要跑 `npm run serve`。載入器有 catch，會顯示提示而不是白畫面 —— 改動載入器時要保留這個 fallback。
+
+### 程式碼分區（`src/app.js` 內，依出現順序）
+
+1. `const D`（= `window.GAMEDATA`）/ `const $` — 資料與 DOM 輔助（**`$` 必須在最前面**，見下方陷阱）
 2. 中文查表：`bz` `iz` `pz` `isl` `msz` `ssz` `sss` `natZ` `recipeZh`
 3. **引擎**：`energyF` `berryPower` `baseStats` `skillPayload` `simulate` `memberOutput` `teamContext`
 4. **食譜求解**：`buildPool` `rankSingle` `bestSingleRecipe` `proxyDish` `mealPlan` `bestPlan` `scoreTeam` `rankRecipesForTeam`
@@ -85,7 +96,9 @@ Google Sheet 後端在 `apps-script/Code.gs`，設定步驟見 `SETUP-google-she
 node tools/extract-data.mjs        # 會印出用法
 ```
 
-流程：clone 上游 → 用 esbuild bundle 萃取腳本 → 合併 `tools/zh.txt` → 產出 `tools/data.json` → 替換 `index.html` 裡 `<script id="gamedata">` 的內容。
+流程：clone 上游 → 用 esbuild bundle 萃取腳本 → 合併 `tools/zh.txt` → **直接覆寫 `data/game.json`**（indent-2）。
+
+覆寫之後一定要 `git diff data/game.json` 看一眼再 commit —— 那份 diff 現在是一個欄位一行，上游動了什麼會直接顯示出來。
 
 **`zh` 區塊上游沒有** —— 它來自 `tools/zh.txt`（遊戲自己的 i18n 字串）。重建時絕對不能弄丟。
 
@@ -99,8 +112,18 @@ node tools/extract-data.mjs        # 會印出用法
 ## 驗收方式
 
 ```bash
-npm i playwright-core            # 容器內已有 chromium
-node tests/smoke.mjs             # 引擎 + 單調性 + 雙後端
+npm i playwright-core
+npm test                         # 引擎 + 單調性 + 雙後端 + Sheet 往返，27 項
 ```
 
-沒有 CI。`TODO.md` 第 3 項就是要補。
+`tests/smoke.mjs` 會**自己起一台靜態 server**（因為資料改用 fetch 之後不能再用 `file://` 載入），所以 CI 不需要額外的 server step。
+
+Chromium 路徑：預設 `/opt/pw-browsers/chromium`（容器內），用 `CHROMIUM` 環境變數覆蓋。Windows 上例如：
+
+```bash
+CHROMIUM="C:\Program Files (x86)\Google\Chrome\Application\chrome.exe" node tests/smoke.mjs
+```
+
+CI 在 `.github/workflows/ci.yml`，push / PR 都會跑。
+
+**注意：目前的測試全是結構性／相對性斷言，抓不到公式係數的改動。** 實測把 `energyF` 的 `0.45` 改成 `0.50`，27 項依然全過。要擋住這類迴歸還缺**引擎輸出的快照測試（golden file）**，見 `TODO.md`。

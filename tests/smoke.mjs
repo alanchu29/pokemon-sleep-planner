@@ -8,11 +8,11 @@
  */
 import { chromium } from 'playwright-core';
 import http from 'node:http';
-import { resolve, dirname } from 'node:path';
+import { readFile } from 'node:fs/promises';
+import { resolve, dirname, extname, normalize } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const PAGE = 'file://' + resolve(ROOT, 'index.html');
 const EXEC = process.env.CHROMIUM || '/opt/pw-browsers/chromium';
 const TOKEN = 'smoke-token';
 
@@ -41,6 +41,22 @@ const server = http.createServer((req, res) => {
 });
 await new Promise((r) => server.listen(0, r));
 const GAS = `http://127.0.0.1:${server.address().port}/`;
+
+/* ---- 靜態檔伺服器 ----
+   資料改成 fetch('./data/game.json') 之後不能再用 file:// 載入（CORS 會擋），
+   所以測試自己起一台。CI 因此不需要額外的 server step。 */
+const MIME = { '.html': 'text/html', '.js': 'text/javascript', '.json': 'application/json', '.css': 'text/css' };
+const statics = http.createServer(async (req, res) => {
+  const rel = normalize(decodeURIComponent(new URL(req.url, 'http://x').pathname)).replace(/^([/\\])+/, '');
+  const file = resolve(ROOT, rel || 'index.html');
+  if (!file.startsWith(ROOT)) { res.writeHead(403).end(); return; }
+  try {
+    const buf = await readFile(file);
+    res.writeHead(200, { 'Content-Type': MIME[extname(file)] || 'application/octet-stream' }).end(buf);
+  } catch { res.writeHead(404).end('not found'); }
+});
+await new Promise((r) => statics.listen(0, r));
+const PAGE = `http://127.0.0.1:${statics.address().port}/index.html`;
 
 const browser = await chromium.launch({ executablePath: EXEC });
 const errors = [];
@@ -198,5 +214,6 @@ ok('全程沒有 JS 錯誤', errors.length === 0, errors.slice(0, 3).join(' | ')
 
 await browser.close();
 server.close();
+statics.close();
 console.log(`\n${fail === 0 ? '✓ 全部通過' : '✗ 有失敗'} — ${pass} passed, ${fail} failed\n`);
 process.exit(fail === 0 ? 0 : 1);

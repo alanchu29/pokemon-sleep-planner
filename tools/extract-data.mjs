@@ -1,15 +1,15 @@
 #!/usr/bin/env node
 /**
- * 從上游 Neroli's Lab 重建 data/game.json（或 index.html 裡的 gamedata 區塊）。
+ * 從上游 Neroli's Lab 重建 data/game.json。
  *
- *   node tools/extract-data.mjs [--out tools/data.json] [--inject index.html]
+ *   node tools/extract-data.mjs [--out data/game.json]
  *
  * 流程：
  *   1. clone 上游到 .tmp/nl（已存在則 fetch）
  *   2. 用 esbuild 把 common/src/index.ts bundle 成 CJS
  *   3. 萃取成本專案用的精簡結構
  *   4. 合併 tools/zh.txt 的繁中對照表（上游沒有這份，務必保留）
- *   5. --inject 時直接替換 index.html 裡 <script id="gamedata"> 的內容
+ *   5. 以 indent-2 寫出（一個欄位一行，動到哪隻寶可夢的哪個數值 diff 會直接顯示）
  *
  * 需要：node 18+、git、網路。會在 .tmp 下 npm i esbuild uuid。
  */
@@ -24,8 +24,7 @@ const NL = resolve(TMP, 'nl');
 const UPSTREAM = 'https://github.com/nerolis-lab/nerolis-lab';
 
 const args = process.argv.slice(2);
-const outPath = resolve(ROOT, arg('--out') || 'tools/data.json');
-const injectPath = arg('--inject') ? resolve(ROOT, arg('--inject')) : null;
+const outPath = resolve(ROOT, arg('--out') || 'data/game.json');
 function arg(name) { const i = args.indexOf(name); return i >= 0 ? args[i + 1] : null; }
 const sh = (cmd, cwd) => execSync(cmd, { cwd, stdio: 'inherit' });
 const shq = (cmd, cwd) => execSync(cmd, { cwd, encoding: 'utf8' }).trim();
@@ -136,7 +135,8 @@ const gaps = {
   subskills: data.subskills.map((s) => s.n).filter((n) => !data.zh.subskills[n]),
   islands: data.islands.map((i) => i.n).filter((n) => !data.zh.islands[n]),
 };
-const json = JSON.stringify(data);
+const json = JSON.stringify(data, null, 2) + '\n';
+mkdirSync(dirname(outPath), { recursive: true });
 writeFileSync(outPath, json);
 
 console.log(`\n寫入 ${outPath} (${json.length} bytes)`);
@@ -148,11 +148,4 @@ for (const [k, v] of Object.entries(gaps)) {
 if (clean) console.log('繁中對照表 100% 覆蓋 ✓');
 else console.warn('\n→ 請到 tools/zh.txt 補上，來源見 CLAUDE.md。沒有可靠來源就留英文，不要自創。');
 
-if (injectPath) {
-  const html = readFileSync(injectPath, 'utf8');
-  const re = /(<script id="gamedata" type="application\/json">)([\s\S]*?)(<\/script>)/;
-  if (!re.test(html)) { console.error(`✗ 在 ${injectPath} 找不到 gamedata 區塊`); process.exit(1); }
-  writeFileSync(injectPath, html.replace(re, (_, a, __, c) => a + json + c));
-  console.log(`已注入 ${injectPath}`);
-  console.log('→ 接著跑 node tests/smoke.mjs 再 commit');
-}
+console.log('\n→ 先 git diff data/game.json 確認改動合理，跑 node tests/smoke.mjs，再 commit');

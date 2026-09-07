@@ -6,9 +6,9 @@
   "scripts": {
     "test": "node tests/smoke.mjs",
     "serve": "python3 -m http.server 8080",
-    "data": "node tools/extract-data.mjs --inject index.html"
+    "data": "node tools/extract-data.mjs"
   },
   "devDependencies": {
-    "playwright-core": "^1.48.0"
+    "playwright-core": "^1.63.0"
   }
 }

@@ -14,9 +14,12 @@ jobs:
         with:
           node-version: 22
       - name: Install
-        run: npm i playwright-core --no-audit --no-fund
+        run: npm ci --no-audit --no-fund
+      # 刻意用 playwright-core 自己的 CLI，不是 `npx playwright`：
+      # 後者會去 registry 抓 latest 的 playwright，下載的瀏覽器 revision
+      # 可能對不上 package-lock 釘住的 playwright-core，executablePath() 就會指向不存在的檔案。
       - name: Install Chromium
-        run: npx playwright install --with-deps chromium
+        run: npx playwright-core install --with-deps chromium
       - name: Resolve Chromium path
         id: chromium
         run: echo "path=$(node -e "console.log(require('playwright-core').chromium.executablePath())")" >> "$GITHUB_OUTPUT"

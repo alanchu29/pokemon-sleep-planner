@@ -40,7 +40,9 @@ Settings → Pages → Source 選 `main` 分支根目錄。幾分鐘後 `https:/
 
 遊戲數值是**靜態快照**（頁面底部「資料版本」有 commit 與日期）。遊戲改版後不會自己更新。
 
-更新方式：從 [Neroli's Lab](https://github.com/nerolis-lab/nerolis-lab) 重新萃取，替換 `index.html` 裡 `<script id="gamedata">` 的內容，`meta` 欄位改成新的 commit／日期。`zh` 那個區塊是繁中對照表，**上游沒有，要保留**。
+更新方式：`npm run data` 會從 [Neroli's Lab](https://github.com/nerolis-lab/nerolis-lab) 重新萃取並覆寫 `data/game.json`（`meta` 欄位一併換成新的 commit／日期）。先 `git diff data/game.json` 確認改動合理、跑過 `npm test`，再 commit。
+
+`data/game.json` 裡的 `zh` 區塊是繁中對照表，來自 `tools/zh.txt`，**上游沒有這份，重建時不能弄丟**。
 
 ## 已知簡化
 
@@ -58,10 +60,21 @@ Settings → Pages → Source 選 `main` 分支根目錄。幾分鐘後 `https:/
 
 ```bash
 npm i playwright-core
-npm test          # tests/smoke.mjs — 27 項檢查
-npm run serve     # 本機起 http server（拆檔後需要）
-npm run data      # 從上游重建遊戲資料並注入 index.html
+npm run serve     # 起 http server → 開 http://localhost:8080
+npm test          # tests/smoke.mjs — 27 項檢查（測試會自己起 server）
+npm run data      # 從上游重建 data/game.json
 ```
+
+**不能用 `file://` 雙擊開 `index.html`** —— 遊戲資料是 `fetch('./data/game.json')` 載進來的，`file://` 會被 CORS 擋掉。直接開會看到一段說明要你改跑 `npm run serve`。GitHub Pages 上沒這個問題。
+
+檔案佈局：
+
+| 檔案 | 內容 |
+|---|---|
+| `index.html` | 骨架 —— markup ＋ 載入器 |
+| `src/app.css` | 樣式 |
+| `src/app.js` | 引擎與 UI |
+| `data/game.json` | 遊戲資料快照（indent-2，一個欄位一行，方便 diff） |
 
 動手前先讀 [CLAUDE.md](CLAUDE.md)（架構與已知陷阱）與 [DECISIONS.md](DECISIONS.md)（為什麼做成這樣）。待辦見 [TODO.md](TODO.md)。
 
