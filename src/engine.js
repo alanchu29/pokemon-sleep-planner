@@ -29,6 +29,20 @@ const RIBBON_CARRY = [0,1,3,6,8];
 const AVG_CRIT = 1.171428571;
 // Helper Boost extra helps: rows = unique species on the team sharing its berry (1-5)
 const HB_TABLE = [[2,3,3,4,4,5],[2,3,3,4,5,6],[3,4,5,6,7,8],[4,5,6,7,8,9],[6,7,8,9,10,11]];
+/* 屬性清單（內部名）。上游的 dex **沒有屬性欄位**，這份來自 tools/types.txt ——
+   和 zh 對照表同一個性質：repo 自己維護、重建時不能弄丟。
+   兩個主技能吃屬性：夢魘看惡屬性（BAD_DREAMS_DRAIN）、流星群看隊上的龍屬性種類數。 */
+const DARK   = new Set((D.types && D.types.dark)   || []);
+const DRAGON = new Set((D.types && D.types.dragon) || []);
+/* 上游快照沒有、但遊戲技能頁有的主技能數值表（來自 tools/skills-extra.json）。
+   目前只有流星群的基礎樹果表：外層 = 主技能等級 1..6，內層 = 隊上不同種類的龍屬性數 1..5。 */
+const MS_EXTRA = D.msExtra || {};
+/* 夢魘（能量填充M）：「卡比獸的能量增加 (#1)，且讓幫手隊伍中**惡屬性以外**的
+   寶可夢活力下降 12。」—— 遊戲技能說明上的數字，**固定值，不隨技能等級變**
+   （加成那一欄才隨等級，就是快照裡的 strength）。上游快照沒有這一欄。 */
+const BAD_DREAMS_DRAIN = 12;
+/* 治癒波動（活力療癒S）一次打 2 隻 —— 見 rawPayload。一般的活力療癒S 是 1 隻。 */
+const HEAL_PULSE_TARGETS = 2;
 const MAGNET_POOL = ING_NAME.map((n,i)=>i).filter(i=>ING_NAME[i]!=='Tail');
 const MEALS_WEEK = 21;
 
@@ -80,7 +94,7 @@ function baseStats(m, wk){
   const pity = p.sp==='skill' ? Math.floor(144000/p.f) : 78;
   const effSkill = skillChance<=0 ? 0 : skillChance/(1 - Math.pow(1-skillChance, pity+1));
   const natureFreqMul = 2 - nat.f;
-  return {p, nat, act, h, carry, ingChance, berriesPerDrop, slots, ingVec, avgIngAmt,
+  return {p, nat, act, h, carry, ingChance, berriesPerDrop, slots, ingVec, avgIngAmt, dark: DARK.has(p.n), dragon: DRAGON.has(p.n),
           skillLv, effSkill, natureFreqMul, hasHB:h('Helping Bonus'), hasERB:h('Energy Recovery Bonus'),
           ribbonMul:ribbonFreqMul(m.ribbon||0, p.re)};
 }
@@ -113,16 +127,35 @@ function rawPayload(msName, lv){
   if (s.strength)         o.strength = at(s.strength);
   if (s.averageStrength)  o.strength = at(s.averageStrength);
   if (s.ingredient)       o.ingSpread = at(s.ingredient);
-  if (s.bonusIngredient)  o.ingSpread = (o.ingSpread||0) + at(s.bonusIngredient)/2;
+  if (s.bonusIngredient)  o.ingBonus = at(s.bonusIngredient);   // 有夥伴才給，見 memberOutput
   if (s.energy)           o.energySelf = at(s.energy);
   if (s.potSize)          o.pot = at(s.potSize);
   if (s.selfBerry)        o.selfBerry = at(s.selfBerry);
   if (s.teamBerry)        o.teamBerry = at(s.teamBerry);
   if (s.help)             o.helpsOne = at(s.help);
+  /* 治癒波動的「額外幫忙(樹果或食材)」。和幫手支援S 的 `help` 同一個概念（給一隻隊友），
+     所以走同一個 `helpsOne`。`latiosHelps` 是**加碼**，不是取代 —— 遊戲的技能頁
+     直接寫「基礎 + 額外 = 總計」，而且 helps+latiosHelps 逐級等於那個總計欄
+     （1+1=2、2+1=3、2+2=4、3+2=5、4+2=6、4+3=7）。 */
+  if (s.helps)            o.helpsOne = at(s.helps);
+  if (s.latiosHelps)      o.helpsWithLatios = at(s.latiosHelps);
   if (s.base)             o.helpsAll = at(s.base);
-  if (s.latiasBerries)    o.selfBerry = at(s.latiasBerries);
+  /* 欄位名稱本身就說明它是條件式的（`latiasBerries` ＝「有拉帝亞斯時的樹果」）。
+     以前這裡無條件當成 selfBerry，等於拉帝歐斯單獨上場也照領。見 memberOutput。 */
+  if (s.latiasBerries)    o.berryWithLatias = at(s.latiasBerries);
   if (/Energy For Everyone/.test(msName)) { o.energyTeam = o.energySelf||0; delete o.energySelf; }
-  if (/Energizing Cheer/.test(msName))   { o.energyTeam = (o.energySelf||0)/5; delete o.energySelf; }
+  /* 活力療癒S 系列打**隨機幾隻**，`energy` / `helps` / `latiosHelps` 都是「每一隻」的量。
+     一般的活力療癒S 是 1 隻；**治癒波動是 2 隻** —— 遊戲內說明（拉帝亞斯，主技能Lv.1）：
+     「隨機讓隊伍的 2 隻寶可夢回復活力 6，並讓牠們立刻完成 1 次幫忙。
+       隊伍中有拉帝歐斯時，還會讓牠們再立刻完成 1 次幫忙。」
+     所以那三欄都要乘上目標數。以前一律當 1 隻，治癒波動因此被低估一半。
+     ⚠ 目標數只在 Lv.1 的說明裡看到（技能頁的資料表沒有這一欄，所以推測不隨等級變）。 */
+  if (/Energizing Cheer/.test(msName)){
+    const tg = /^Heal Pulse/.test(msName) ? HEAL_PULSE_TARGETS : 1;
+    o.energyTeam = (o.energySelf||0)*tg/5; delete o.energySelf;
+    if (o.helpsOne)        o.helpsOne *= tg;
+    if (o.helpsWithLatios) o.helpsWithLatios *= tg;
+  }
   if (s.chance)           o.critChance = at(s.chance);
   return o;
 }
@@ -145,7 +178,10 @@ function simulate(bs, m, wk, ctx){
   const sleepMin = Math.round(wk.sleepH*60), wakeMin = 1440 - sleepMin;
   const cap = bs.hasERB ? 105 : 100;
   const nSteps = Math.floor(wakeMin/10);
-  const supportPerStep = nSteps>0 ? ctx.supportEnergy/nSteps : 0;
+  /* 夢魘的扣活力**只打在惡屬性以外的隊友身上**，所以不能併進共用的 supportEnergy
+     （那是「每個人都拿到一樣多」的量）。惡屬性隊友（含達克萊伊自己）免疫。 */
+  const drain = bs.dark ? 0 : (ctx.darkDrain || 0);
+  const supportPerStep = nSteps>0 ? (ctx.supportEnergy + drain)/nSteps : 0;
   let start = 0, helpsDay = 0, helpsNight = 0, fastSteps = 0, totalSteps = 0;
   for (let iter=0; iter<4; iter++){
     const rec = Math.min(cap, sleepMin*(100/510)*bs.nat.e*(1 + 0.14*Math.min(5, ctx.nERB)));
@@ -187,10 +223,37 @@ function memberOutput(m, wk, ctx){
   const bs = m._bs;
   const sim = simulate(bs, m, wk, ctx);
   const pay = {...skillPayload(bs.p.ms, bs.skillLv)};
-  // Helper Boost's real payout depends on how many team-mates share its berry
+  /* Helper Boost 吃的是**牠自己那個樹果**的列 —— 一隊可能有好幾個持有者，
+     所以 ctx.hbRows 是 map 而不是純量（見 teamContext）。 */
   if (/^Helper Boost/.test(bs.p.ms))
-    pay.helpsAll = HB_TABLE[(ctx.hbU||1)-1][Math.min(bs.skillLv, 6)-1];
-  // Minus only hands out energy when a Plus partner is on the team
+    pay.helpsAll = HB_TABLE[((ctx.hbRows && ctx.hbRows[bs.p.b]) || 1)-1][Math.min(bs.skillLv, 6)-1];
+  /* 正電／負電**互為條件**：兩邊都要隊上有另一半才給加成。
+     正電的加成是額外食材（`bonusIngredient`），負電的是給隊友的能量（`energy`）；
+     基礎效果（正電的 `ingredient`、負電的 `potSize`）沒有條件，照給。
+
+     以前正電那一側是「無條件加一半」—— 單獨帶會被高估、正負配對會被低估，
+     於是搜尋會系統性地錯過那個配對。負電那一側本來就是條件式的。 */
+  if (/^Plus \(/.test(bs.p.ms) && ctx.hasMinus) pay.ingSpread = (pay.ingSpread||0) + (pay.ingBonus||0);
+  /* 流星群（樹果遽增）：`latiasBerries` 只有隊上有拉帝亞斯時才給。
+     ⚠ 快照裡這個技能**只有這一欄**（沒有 selfBerry／teamBerry），所以沒有夥伴時
+     牠的主技能就完全沒有產出 —— 上游有沒有漏掉基礎效果還沒確認，UI 有標。 */
+  /* 流星群（樹果遽增）。兩份分開：
+       ① 基礎表 —— 隊上**不同種類的龍屬性**數決定自己與隊友各拿幾顆（MS_EXTRA，repo 維護）
+       ② `latiasBerries` —— 隊上有拉帝亞斯時，**自己**再 +N（上游有這一欄）
+     遊戲內說明：「獲得自己以及隊伍中的寶可夢會撿來的樹果。隊伍中有越多不同種類的
+     龍屬性幫手寶可夢，樹果數量就會增加得越多。不僅如此，隊伍中有拉帝亞斯時，
+     自己獲得的樹果還會增加 2 個。」 */
+  if (/^Draco Meteor/.test(bs.p.ms)){
+    const x = MS_EXTRA[bs.p.ms] || {};
+    const li = Math.min(bs.skillLv, 6) - 1;
+    const di = Math.min(Math.max(ctx.nDragon || 1, 1), 5) - 1;
+    if (x.selfBerryByDragon) pay.selfBerry = (pay.selfBerry||0) + x.selfBerryByDragon[li][di];
+    if (x.teamBerryByDragon) pay.teamBerry = (pay.teamBerry||0) + x.teamBerryByDragon[li][di];
+    if (ctx.hasLatias)       pay.selfBerry = (pay.selfBerry||0) + (pay.berryWithLatias||0);
+  }
+  /* 治癒波動：隊上有拉帝歐斯時額外幫忙加碼（基礎 + 額外 = 總計）。 */
+  if (/^Heal Pulse/.test(bs.p.ms) && ctx.hasLatios)
+    pay.helpsOne = (pay.helpsOne||0) + (pay.helpsWithLatios||0);
   if (/^Minus \(/.test(bs.p.ms) && !ctx.hasPlus) delete pay.energySelf;
   const ing = new Float64Array(NING);
   for (let i=0;i<NING;i++) ing[i] = sim.productive * bs.ingChance * bs.ingVec[i];
@@ -204,6 +267,8 @@ function memberOutput(m, wk, ctx){
   return {sim, pay, ing, berryStrength, skillStrength,
           potBonus: sim.procs*(pay.pot||0),
           energyGiven: sim.procs*((pay.energyTeam||0)*5 + (pay.energySelf||0)),
+          /* 每天扣掉的活力（負值），之後在 teamContext 裡加總成 ctx.darkDrain。 */
+          energyDrain: /^Bad Dreams/.test(bs.p.ms) ? -sim.procs*BAD_DREAMS_DRAIN : 0,
           helpsGiven: sim.procs*((pay.helpsAll||0)*5 + (pay.helpsOne||0)),
           critAdd: Math.min(0.7, sim.procs*(pay.critChance||0)/100)};
 }
@@ -211,28 +276,52 @@ function memberOutput(m, wk, ctx){
 /* -------- team context resolution + memoised member outputs -------- */
 const qE = v => Math.min(120, Math.round(v/15)*15);
 const qH = v => Math.round(v*2)/2;
-function ctxKey(c){ return c.nHB+'|'+c.nERB+'|'+c.supportEnergy+'|'+c.extraHelps+'|'+c.hbU+'|'+(c.hasPlus?1:0); }
+/** Helper Boost 的列數是 `{樹果: 同樹果的不同物種數}` —— 一隊可能有**好幾個**持有者
+ *  （三神獸的樹果各不相同），所以它是 map 不是純量。序列化要排序過才穩定。 */
+const hbKey = r => r ? Object.keys(r).sort().map(b => b+':'+r[b]).join(',') : '';
+function ctxKey(c){ return c.nHB+'|'+c.nERB+'|'+c.supportEnergy+'|'+c.extraHelps+'|'+hbKey(c.hbRows)+'|'+(c.hasPlus?1:0)+(c.hasMinus?1:0)+(c.hasLatias?1:0)+(c.hasLatios?1:0)+'|'+c.darkDrain+'|'+c.nDragon; }
 function teamContext(idxs, roster, wk, memo){
-  let nHB=0, nERB=0, hasPlus=false, hbU=1;
+  let nHB=0, nERB=0, hasPlus=false, hasMinus=false, hasLatias=false, hasLatios=false;
+  /* 流星群：「隊伍中有越多**不同種類的龍屬性**幫手寶可夢，樹果數量就會增加得越多」
+     （遊戲內說明）。和 Helper Boost 一樣算**物種數**，含牠自己。 */
+  const dragonKinds = new Set();
   for (const i of idxs){
     const bs = roster[i]._bs;
     if (bs.hasHB) nHB++;
     if (bs.hasERB) nERB++;
     if (/^Plus \(/.test(bs.p.ms)) hasPlus = true;
+    if (/^Minus \(/.test(bs.p.ms)) hasMinus = true;
+    if (bs.p.n === 'LATIAS') hasLatias = true;
+    if (bs.dragon) dragonKinds.add(bs.p.n);
+    if (bs.p.n === 'LATIOS') hasLatios = true;
   }
-  const hbHolder = idxs.find(i => /^Helper Boost/.test(roster[i]._bs.p.ms));
-  if (hbHolder !== undefined){
-    const berry = roster[hbHolder]._bs.p.b;
+  /* Helper Boost：**每一個持有者各自算自己那一列**（列 = 隊上與「牠的」樹果相同的
+     不同物種數，含牠自己）。
+     以前這裡是 `idxs.find(...)` 取「第一個」持有者，整隊共用一個純量 —— 但三神獸的
+     樹果各不相同（雷公 GREPA／炎帝 LEPPA／水君 ORAN），所以兩隻同隊時另一隻會被套上
+     別人的列。而 `find` 取的是 roster 索引最小的那個，於是**同一支隊伍只要換 roster
+     順序，答案就會變**（實測 helpsGiven 差 2.3 倍）—— 違反第 4 節的順序不變量。 */
+  let hbRows = null;
+  for (const i of idxs){
+    const bs = roster[i]._bs;
+    if (!/^Helper Boost/.test(bs.p.ms)) continue;
+    hbRows = hbRows || {};
+    if (hbRows[bs.p.b] != null) continue;           // 同樹果的第二隻算出來會一樣
     const uniq = new Set();
-    for (const i of idxs) if (roster[i]._bs.p.b === berry) uniq.add(roster[i]._bs.p.n);
-    hbU = Math.max(1, Math.min(5, uniq.size));
+    for (const j of idxs) if (roster[j]._bs.p.b === bs.p.b) uniq.add(roster[j]._bs.p.n);
+    hbRows[bs.p.b] = Math.max(1, Math.min(5, uniq.size));
   }
   // two-pass: neutral context to size team-wide skill support, then re-evaluate
-  let ctx = {nHB, nERB, supportEnergy:0, extraHelps:0, hbU, hasPlus};
+  const nDragon = Math.max(1, Math.min(5, dragonKinds.size));
+  let ctx = {nHB, nERB, supportEnergy:0, extraHelps:0, darkDrain:0, hbRows, hasPlus, hasMinus, hasLatias, hasLatios, nDragon};
   for (let pass=0; pass<2; pass++){
-    let energy=0, helps=0;
-    for (const i of idxs){ const o = getOut(i, roster, wk, ctx, memo); energy += o.energyGiven; helps += o.helpsGiven; }
-    const next = {nHB, nERB, hbU, hasPlus, supportEnergy: qE(energy/5), extraHelps: qH(helps/5)};
+    let energy=0, helps=0, drain=0;
+    for (const i of idxs){ const o = getOut(i, roster, wk, ctx, memo);
+      energy += o.energyGiven; helps += o.helpsGiven; drain += o.energyDrain; }
+    /* darkDrain 是**每個非惡屬性成員各自**被扣的量（夢魘同時打所有人，所以不除以 5）。
+       量化成 3 的倍數控制快取爆炸，和 qE/qH 同一個道理。 */
+    const next = {nHB, nERB, hbRows, hasPlus, hasMinus, hasLatias, hasLatios, nDragon, supportEnergy: qE(energy/5),
+                  extraHelps: qH(helps/5), darkDrain: Math.round(drain/3)*3};
     if (ctxKey(next)===ctxKey(ctx)) { ctx = next; break; }
     ctx = next;
   }
@@ -438,7 +527,7 @@ function rankRecipesForTeam(r, wk){
    單獨一隻只看得到自己那 5%。所以 `monPower` 會回傳 `teamOnly`，UI 標一個徽章 ——
    量不到就說量不到，不要假裝那個數字包含了它。 */
 const SCORE_WK = {fav: new Set(), camp: false, sleepH: 8.5};
-const SCORE_CTX = {nHB: 0, nERB: 0, supportEnergy: 0, extraHelps: 0, hbU: 1, hasPlus: false};
+const SCORE_CTX = {nHB: 0, nERB: 0, supportEnergy: 0, extraHelps: 0, darkDrain: 0, hbRows: null, hasPlus: false, hasMinus: false, hasLatias: false, hasLatios: false, nDragon: 1};
 
 /** 一隻的個體產能。純函式，不碰 POOL、不需要參考隊。 */
 function monPower(m){
@@ -470,8 +559,15 @@ function monPower(m){
        那個篩選排名用。注意它**包含食材磁鐵灑出來的那一份** —— 那是真的產出，
        但灑得很平均且不可指定，所以篩選是看食材欄位，排名才看這個數字。 */
     ingAll: o.ing,
-    /* 幫忙加成只在隊伍裡才值錢，單獨一隻量不到 —— UI 要標出來。 */
-    teamOnly: me._bs.hasHB,
+    /* 「單獨一隻量不到」的東西要標出來，不能假裝算進去了。三類都要：
+       ① 幫忙加成（副技能）—— 價值主要在加速四個隊友，這裡只看得到自己那 5%
+       ② 幫手加速（Helper Boost）—— 列數看隊上同樹果的物種數，單獨一隻只有第 1 列
+       ③ 正電／負電 —— 加成要隊上有另一半才給，這裡兩邊都沒有
+       回傳的是**原因字串**（沒有就是空字串），UI 直接寫進徽章的說明。 */
+    teamOnly: [me._bs.hasHB && '幫忙加成',
+               /^Helper Boost/.test(me._bs.p.ms) && '幫手加速',
+               /^Plus \(/.test(me._bs.p.ms) && '正電',
+               /^Minus \(/.test(me._bs.p.ms) && '負電'].filter(Boolean).join('、'),
     pay: o.pay,
   };
 }
@@ -505,18 +601,32 @@ function monPowerCached(m){
  *  最後會把**牠自己**也放進候選 —— 否則貪婪漏掉某個組合時「理想值」會比實際低，
  *  百分比超過 100%，看起來像壞掉。
  *
- *  等級刻意跟著被比的那一隻：拿 Lv30 的個體去比 Lv60 的理想值，量到的是
- *  「還沒練滿」而不是「個體好不好」。 */
+ *  **評價等級固定在 `IDEAL_LEVEL`（60），不是牠現在的等級。**
+ *
+ *  以前是跟著牠現在的等級走，理由是「拿 Lv30 去比 Lv60 的理想值，量到的是還沒練滿」。
+ *  但那讓「潛力」變成會自己跳動的數字：升到 50 解鎖第 3 格副技能、升到 60 解鎖第 3 格
+ *  食材 —— 那一格是好是壞，會在跨過門檻的**那一刻**才被算進去，百分比因此往下掉。
+ *  而使用者問的是「我該把糖果餵給哪一隻」，那是關於**練滿之後**的問題。
+ *
+ *  60 而不是 50：第 3 格食材在 Lv60 解鎖（副技能第 3 格是 Lv50）。用 50 當基準會讓
+ *  食材型少算整整一格 —— 那正是食材型主指標的來源。第 4／5 格副技能要 Lv70／80，
+ *  多數箱子到不了，所以不納入；**已經超過 60 的就用牠的實際等級**，不丟掉已知資訊。
+ *
+ *  代價：分子也必須是「牠在同一個等級」的產能（`self`），不是畫面上那個當前產能。 */
+const IDEAL_LEVEL = 60;
 function monIdeal(m){
   const p = D.dex[m.sp];
   const maxSkillLv = (D.ms[p.ms] || {max: 6}).max;
   const ssNames = D.subskills.map(s => s.n);
-  const slots = [0,1,2,3,4].filter(s => m.level >= SS_SLOT_LV[s]);
+  /* 評價等級：至少 60，已經更高就用牠自己的 —— 分子分母都在這個等級上。 */
+  const lvl = Math.max(IDEAL_LEVEL, m.level);
+  const at = {...m, level: lvl};
+  const slots = [0,1,2,3,4].filter(s => lvl >= SS_SLOT_LV[s]);
   const ingOpts = [p.i0, p.i30, p.i60].map(l => (l || []).length);
-  const nIngSlots = Math.min(Math.floor(m.level/30) + 1, 3);
+  const nIngSlots = Math.min(Math.floor(lvl/30) + 1, 3);
   const val = x => powerMain(monPower(x));
 
-  let cur = {...m, ribbon: 4, skillLv: maxSkillLv,
+  let cur = {...at, ribbon: 4, skillLv: maxSkillLv,
              ss: [null,null,null,null,null], ingSet: m.ingSet.slice()};
   // ① 食材組合（只有已解鎖的格子會進 baseStats）
   for (let s = 0; s < nIngSlots; s++){
@@ -549,12 +659,16 @@ function monIdeal(m){
   cur.nature = bestNat;
   cur.ss = fillSs();                                   // ④ 最佳性格會改變哪個副技能最值錢
 
-  // ⑤ 保底：牠自己也是候選，從結構上保證「理想 ≥ 實際」
+  /* ⑤ 保底：**牠自己（在同一個評價等級上）**也是候選，從結構上保證「理想 ≥ 實際」。
+        這裡一定要用 `at` 不是 `m` —— 分母若是 Lv60、分子是 Lv30，比值就沒有意義，
+        而且貪婪漏掉組合時會冒出超過 100% 的數字。 */
   let best = null, bestScore = -Infinity;
-  for (const c of [cur, {...m, ribbon: 4, skillLv: maxSkillLv, ingSet: cur.ingSet.slice()}, {...m}]){
+  for (const c of [cur, {...at, ribbon: 4, skillLv: maxSkillLv, ingSet: cur.ingSet.slice()}, {...at}]){
     const v = val(c); if (v > bestScore){ bestScore = v; best = c; }
   }
-  return {...monPower(best), member: best};
+  /* `self` ＝ 牠**在評價等級上**的產能，也就是百分比的分子。放在這裡回傳，
+     UI 才不用自己再算一次（兩份一定會走鐘）。 */
+  return {...monPower(best), member: best, lvl, self: monPower(at)};
 }
 
 /* ================= SEARCH ================= */

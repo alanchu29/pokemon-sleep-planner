@@ -14022,11 +14022,140 @@
     }
   },
   "meta": {
-    "schema": 1,
+    "schema": 4,
     "src": "nerolis-lab/nerolis-lab",
     "commit": "7814857",
     "commitDate": "2026-08-30",
     "builtAt": "2026-09-07",
-    "zhSrc": "RaenonX i18n + 52poke zh-hant"
+    "zhSrc": "RaenonX i18n + 52poke zh-hant",
+    "typesSrc": "tools/types.txt（本專案維護 —— 上游的寶可夢資料沒有屬性欄位）",
+    "msExtraSrc": "tools/skills-extra.json（本專案維護 —— 上游快照沒有這些表）"
+  },
+  "types": {
+    "dark": [
+      "UMBREON",
+      "MURKROW",
+      "HONCHKROW",
+      "SNEASEL",
+      "WEAVILE",
+      "HOUNDOUR",
+      "HOUNDOOM",
+      "SABLEYE",
+      "ABSOL",
+      "TYRANITAR",
+      "SPIRITOMB",
+      "MEOWSCARADA",
+      "DARKRAI"
+    ],
+    "dragon": [
+      "DRATINI",
+      "DRAGONAIR",
+      "DRAGONITE",
+      "VIBRAVA",
+      "FLYGON",
+      "ALTARIA",
+      "BAGON",
+      "SHELGON",
+      "SALAMENCE",
+      "LATIAS",
+      "LATIOS",
+      "TYRUNT",
+      "TYRANTRUM",
+      "NOIBAT",
+      "NOIVERN",
+      "DRAMPA"
+    ]
+  },
+  "msExtra": {
+    "Draco Meteor (Berry Burst)": {
+      "selfBerryByDragon": [
+        [
+          12,
+          14,
+          18,
+          18,
+          20
+        ],
+        [
+          21,
+          24,
+          29,
+          30,
+          33
+        ],
+        [
+          29,
+          29,
+          35,
+          37,
+          41
+        ],
+        [
+          38,
+          39,
+          42,
+          45,
+          49
+        ],
+        [
+          43,
+          44,
+          48,
+          49,
+          53
+        ],
+        [
+          48,
+          50,
+          55,
+          55,
+          58
+        ]
+      ],
+      "teamBerryByDragon": [
+        [
+          1,
+          1,
+          1,
+          2,
+          2
+        ],
+        [
+          1,
+          1,
+          1,
+          2,
+          2
+        ],
+        [
+          1,
+          2,
+          2,
+          3,
+          3
+        ],
+        [
+          1,
+          2,
+          3,
+          4,
+          4
+        ],
+        [
+          2,
+          3,
+          4,
+          5,
+          5
+        ],
+        [
+          3,
+          4,
+          4,
+          5,
+          5
+        ]
+      ]
+    }
   }
 }

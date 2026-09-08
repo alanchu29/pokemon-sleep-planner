@@ -106,6 +106,8 @@ input[type=range]{width:100%;accent-color:var(--accent)}
 .tag.all{background:color-mix(in srgb,var(--pos) 18%,transparent);color:var(--pos)}
 .tag.fav{background:color-mix(in srgb,var(--berry) 90%,var(--ink));color:#fff}
 .tag.pin{background:var(--surface-3);color:var(--ink-2)}
+/* 惡屬性 —— 只跟達克萊伊「夢魘」的扣活力有關，所以用中性色，不搶專長標籤的位置 */
+.tag.dark{background:color-mix(in srgb,var(--ink) 72%,transparent);color:var(--surface)}
 
 /* ---- bars ---- */
 .barrow{display:grid;grid-template-columns:88px minmax(0,1fr) 74px;gap:10px;align-items:center;font-size:12px;padding:3px 0}
@@ -171,6 +173,8 @@ td.n{font-family:var(--mono);font-variant-numeric:tabular-nums}
 .mon-idl.c b{color:var(--ing)}
 .mon-idl.d b{color:var(--neg)}
 .mon-idl.pend{opacity:.5}
+/* 下界（還有副技能格沒填）：虛下框提醒「這個數字只會被低估」 */
+.mon-idl.lb b{border-bottom:1px dotted currentColor}
 /* 食材固定在第二列、欄 2（`grid-column:2` 一定要寫，不然自動排版會把它丟到欄 1）。 */
 .mon-ings{grid-column:2;display:flex;flex-wrap:wrap;gap:4px 6px;align-items:center;min-width:0}
 .mon-ilbl{font-size:10.5px;color:var(--muted);letter-spacing:.04em;flex:0 0 auto;margin-right:2px}
@@ -194,6 +198,14 @@ td.n{font-family:var(--mono);font-variant-numeric:tabular-nums}
   padding:2px 6px;border-radius:5px;white-space:nowrap;
   background:color-mix(in srgb,var(--ing) 14%,transparent);color:var(--ing)}
 .mon-i.lock{opacity:.42}
+/* 主技能的「已知不完整」徽章。**高估**用警示色（工具會主動推薦一支差的隊伍），
+   低估只用淡色（你頂多錯過一隻好的）—— 兩者的嚴重度差很多，配色要分得開。 */
+.ms-warn{font-size:10.5px;font-weight:600;padding:1px 6px;border-radius:5px;white-space:nowrap;
+  flex:0 0 auto;cursor:help;background:var(--surface-3);color:var(--muted);border:1px solid var(--line-2)}
+.ms-warn.over{background:color-mix(in srgb,var(--neg) 16%,transparent);color:var(--neg);
+  border-color:color-mix(in srgb,var(--neg) 45%,transparent)}
+.ms-warn.data{background:color-mix(in srgb,var(--skill) 14%,transparent);color:var(--skill);
+  border-color:color-mix(in srgb,var(--skill) 40%,transparent)}
 .mon-sk{font-family:var(--mono);font-size:11px;color:var(--muted);flex:0 0 auto}
 /* 主技能：長的有 13 個字（新月祈禱（活力全體療癒S）），所以不設 max-width、
    讓它整串顯示，需要時整列自己折 —— 裁掉就等於沒有。 */

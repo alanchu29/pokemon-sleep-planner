@@ -9,6 +9,7 @@
  *   2. 用 esbuild 把 common/src/index.ts bundle 成 CJS
  *   3. 萃取成本專案用的精簡結構
  *   4. 合併 tools/zh.txt 的繁中對照表（上游沒有這份，務必保留）
+ *   4b. 合併 tools/types.txt 的屬性清單、tools/skills-extra.json 的主技能表（上游都沒有，務必保留）
  *   5. 以 indent-2 寫出（一個欄位一行，動到哪隻寶可夢的哪個數值 diff 會直接顯示）
  *
  * 需要：node 18+、git、網路。會在 .tmp 下 npm i esbuild uuid。
@@ -121,14 +122,49 @@ data.zh = {
   subskills: sec.SUBSKILLS, ssShort: sec.SUBSKILL_SHORT, ms: sec.MAINSKILLS,
   recipes: zhRecipes, pk: zhPk,
 };
+/* ---- 合併惡屬性清單（上游沒有屬性欄位，這份 repo 自己維護）----
+   夢魘的扣活力只打在惡屬性以外的成員身上、流星群看隊上的龍屬性種類數 —— 沒有這份清單就寫不出那些判斷。
+   和 zh.txt 同一個性質：**重建時絕對不能弄丟。** 名字對不上 dex 就直接報錯，
+   因為錯的名字不會有任何症狀 —— 只會讓那一隻被夢魘白扣一次。 */
+const typesTxt = readFileSync(resolve(ROOT, 'tools/types.txt'), 'utf8');
+data.types = {};
+{
+  let cur = null;
+  for (const raw of typesTxt.split(/\r?\n/)) {
+    const l = raw.trim();
+    if (l.startsWith('##')) { cur = l.slice(2).trim().toLowerCase(); data.types[cur] = []; continue; }
+    if (!l || l.startsWith('#') || !cur) continue;
+    data.types[cur].push(l);
+  }
+  const known = new Set(data.dex.map((p) => p.n));
+  for (const [k, v] of Object.entries(data.types)) {
+    const bad = v.filter((n) => !known.has(n));
+    if (bad.length) throw new Error('tools/types.txt 的 ' + k + ' 有不在 dex 裡的名字：' + bad.join(', '));
+  }
+
+/* ---- 合併上游沒有的主技能數值表（tools/skills-extra.json）----
+   例如流星群（樹果遽增）依「隊上不同種類的龍屬性數」決定樹果數的那張表 ——
+   遊戲技能頁有，上游快照沒有。同樣是 repo 自己維護、重建時不能弄丟。
+   `_` 開頭的鍵是註解，不寫進 data。 */
+const msExtraRaw = JSON.parse(readFileSync(resolve(ROOT, 'tools/skills-extra.json'), 'utf8'));
+data.msExtra = {};
+for (const [k, v] of Object.entries(msExtraRaw)) {
+  if (k.startsWith('_')) continue;
+  if (!ms[k]) throw new Error('tools/skills-extra.json 提到不存在的主技能：' + k);
+  data.msExtra[k] = Object.fromEntries(Object.entries(v).filter(([kk]) => !kk.startsWith('_')));
+}
+}
+
 data.meta = {
   // 資料結構版本。app.js 有一份 SCHEMA 常數會斷言它相等 —— 兩者不合就顯示「請重新整理」，
   // 避免瀏覽器拿到「新 app.js ＋ 舊 game.json」這種偏移組合而算出錯的數字。
   // 動到欄位結構（改名／改型別／移除）時，這裡和 app.js 的 SCHEMA 要一起 +1。
-  schema: 1,
+  schema: 4,
   src: 'nerolis-lab/nerolis-lab', commit, commitDate,
   builtAt: new Date().toISOString().slice(0, 10),
   zhSrc: 'RaenonX i18n + 52poke zh-hant',
+  typesSrc: 'tools/types.txt（本專案維護 —— 上游的寶可夢資料沒有屬性欄位）',
+  msExtraSrc: 'tools/skills-extra.json（本專案維護 —— 上游快照沒有這些表）',
 };
 
 /* ---- 缺漏報告：絕對不要自創中文名，缺就留英文並記錄 ---- */

@@ -48,7 +48,7 @@ const esc = s => String(s == null ? '' : s)
    GitHub Pages 送 max-age=600，所以更新後有最多 10 分鐘的窗口，瀏覽器可能
    拿到「新 app.js ＋ 舊 game.json」。純數值過期還好，結構變了就會算出錯的
    數字或直接壞掉 —— 而使用者只會看到壞頁面，不知道重新整理就好。 */
-const SCHEMA = 1;
+const SCHEMA = 4;   // 4: 新增 msExtra{}（上游沒有的主技能數值表，目前是流星群的基礎樹果表）
 
 /* 這一份 app.js 的資源版本。必須等於 index.html 裡的 ASSET_V（以及 app.css 的 ?v=）。
    動到 app.css 或 src/*.js 就三個地方一起往前推。
@@ -57,7 +57,7 @@ const SCHEMA = 1;
    「新的 index.html ＋ 舊的 app.js」—— 畫面畫出舊版 UI，而使用者只會覺得
    「你根本沒改」，完全不知道是快取。有了這個斷言，過期的 app.js 會直接被擋下來
    並要求強制重新整理。tests/smoke.mjs 第 11 節會斷言三處一致。 */
-const APP_V = '20260908m';
+const APP_V = '20260909f';
 
 /** 致命錯誤：整頁換成一段說明。這種狀況下繼續跑只會產生錯的數字。 */
 function fatal(html){
@@ -643,9 +643,13 @@ function scoreNote(){
        + `<b>食材型</b>看食材原始能量（未經料理加成；配不配得上本週食譜是<b>推演</b>要決定的事）、`
        + `<b>技能型</b>看主技能發動次數（不同技能給的東西不同，換算成能量只會是憑空的假設）。`
        + `能比的是<b>同專長內的名次</b>。`
-       + `摺疊列上的 <b>潛力 N%</b> 是<b>牠 ÷ 同物種同等級的理想個體</b>（分子分母同一個單位，所以是純比值）——`
+       + `摺疊列上的 <b>潛力 N%</b> 是<b>牠 ÷ 同物種的理想個體</b>（分子分母同一個單位，所以是純比值）。`
+       + `它的基準是<b>雙方都練到 Lv${IDEAL_LEVEL}</b>（已經超過的就用牠的實際等級）——`
+       + `第 3 格食材要 Lv60 才解鎖，用當前等級當基準的話那一格是好是壞會等到升上去<b>那一刻</b>才被算進去，`
+       + `百分比會自己往下掉。所以<b>潛力問的是「練滿之後有多好」，左邊的產能問的才是「現在有多好」</b>。`
        + `它可以跨專長讀，但說的是「離<b>自己</b>的天花板多近」，不是「哪一隻比較強」：`
        + `100% 的皮卡丘不會比 70% 的妙蛙花強。`
+       + `副技能還有空格沒填時分子只會被低估，所以那種會標成 <b>≥</b>。`
        + `另外，「幫忙加成」這類<b>只對隊友有效</b>的副技能單獨一隻量不到，會另外標徽章。`
        + `<b>這些數字不影響推演</b> —— 每週的推薦還是原本的演算法。`;
 }
@@ -656,7 +660,9 @@ function scoreNote(){
    的最後一步會把**牠自己**也放進候選（保證「理想 ≥ 實際」），那一步和這一隻有關。 */
 const IDEAL_AUTO_MAX = 6;
 const idealCache = new Map();
-const idealKey = m => monPowerKey(m);
+/* 快取鍵要用**評價等級正規化過**的簽章：理想值與分子都只取決於 `{...m, level:T}`，
+   所以 Lv30 和 Lv45 的同一隻共用同一格快取（兩者的 T 都是 60）。 */
+const idealKey = m => monPowerKey({...m, level: Math.max(IDEAL_LEVEL, m.level)});
 function idealOf(m, allowCompute){
   const k = idealKey(m);
   if (idealCache.has(k)) return idealCache.get(k);
@@ -665,10 +671,22 @@ function idealOf(m, allowCompute){
   idealCache.set(k, v);
   return v;
 }
-/** 牠 ÷ 理想個體，取整數百分比。分子分母都是**同一個專長的主指標**。 */
+/** 牠 ÷ 理想個體，取整數百分比。
+ *
+ *  分子是 `ideal.self` ——「**牠自己在評價等級（`ideal.lvl`，至少 60）上**」的產能，
+ *  不是摺疊列上那個當前產能。分母也在同一個等級，所以這是個乾淨的比值；
+ *  但也因此**它回答的是「練滿之後有多好」，不是「牠現在有多好」**。 */
 function idealPctFrom(m, ideal){
   const top = powerMain(ideal);
-  return top > 0 ? Math.round(powerMain(monPowerCached(m)) / top * 100) : null;
+  return top > 0 ? Math.round(powerMain(ideal.self) / top * 100) : null;
+}
+/** 評價等級下「還空著、但已經生效」的副技能格數。
+ *
+ *  空格只會讓分子變小（副技能沒有負值），所以有空格時顯示的百分比是**下界** ——
+ *  UI 要標成「≥」。靜靜地把「還沒記」當成「就是沒有」，那個數字會誤導投資判斷。 */
+function idealUnknownSlots(m, ideal){
+  const lvl = (ideal && ideal.lvl) || IDEAL_LEVEL;
+  return [0,1,2,3,4].filter(s => lvl >= SS_SLOT_LV[s] && !m.ss[s]).length;
 }
 /** 已經算好的百分比；還沒算（或算不出來）就回 null。**不會觸發計算。** */
 function idealPct(m){
@@ -731,24 +749,31 @@ function paintIdealChips(idxs){
 /** 摺疊列第二列、欄 1 的「理想個體百分比」。
  *
  *  **這是比值，不是產能。** 100% 的皮卡丘不會比 70% 的妙蛙花強 —— 它只說
- *  「這一隻離**牠自己**（同物種同等級）的天花板多近」，所以它是唯一一個可以
- *  跨專長讀的數字，而且要和旁邊的產能數字分得開（見 scoreNote）。 */
+ *  「這一隻離**牠自己**的天花板多近」，所以它是唯一一個可以跨專長讀的數字，
+ *  而且要和旁邊的產能數字分得開（見 scoreNote）。
+ *
+ *  **基準是固定的 Lv60（超過就用實際等級），不是牠現在的等級** —— 見 monIdeal。
+ *  所以它問的是「練滿之後有多好」，摺疊列上的產能問的才是「現在有多好」。 */
+const idealPend = why => `<span class="mon-idl pend" title="${why}">潛力 <b>—</b></span>`;
 function idealChip(m){
   const ideal = idealOf(m);
-  if (ideal === undefined)
-    return `<span class="mon-idl pend" title="同物種同等級「理想個體」的百分比 —— 背景計算中（一隻約 15~40ms）">潛力 <b>—</b></span>`;
-  if (!ideal)
-    return `<span class="mon-idl pend" title="這一隻的理想個體算不出來">潛力 <b>—</b></span>`;
+  if (ideal === undefined) return idealPend(`練到 Lv${IDEAL_LEVEL} 時的個體潛力 —— 背景計算中（一隻約 15~40ms）`);
+  if (!ideal) return idealPend('這一隻的理想個體算不出來');
   const pct = idealPctFrom(m, ideal);
-  if (pct == null) return `<span class="mon-idl pend" title="這一隻的理想個體算不出來">潛力 <b>—</b></span>`;
+  if (pct == null) return idealPend('這一隻的理想個體算不出來');
   const band = pct >= 90 ? 'a' : pct >= 78 ? 'b' : pct >= 62 ? 'c' : 'd';
-  const p = monPowerCached(m), t = powerText(p), it = powerText(ideal);
-  return `<span class="mon-idl ${band}" title="牠 ${t.v} ÷ 理想個體 ${it.v}（${t.u}）&#10;`
-       + `理想個體 ＝ 同物種、同等級的最佳性格＋最佳副技能＋緞帶4＋主技能滿級＋最佳食材組合。&#10;`
+  const unk = idealUnknownSlots(m, ideal);
+  const t = powerText(ideal.self), it = powerText(ideal), lv = ideal.lvl;
+  return `<span class="mon-idl ${band}${unk?' lb':''}" title="`
+       + `基準：都練到 Lv${lv}${lv > m.level ? `（牠現在 Lv${m.level}）` : ''}——`
+       + `所以這個數字問的是「練滿之後有多好」，不是「現在有多好」。&#10;`
+       + `牠 ${t.v} ÷ 理想個體 ${it.v}（${t.u}，都在 Lv${lv}）&#10;`
+       + `理想個體 ＝ 同物種、同等級的最佳性格＋最佳副技能＋緞帶4＋主技能滿級＋最佳食材組合：&#10;`
        + `${natZ(NAT[ideal.member.nature]||NAT.Bashful)}／${ideal.member.ss.filter(Boolean).map(ssz).join('、')||'（無副技能）'}&#10;`
-       + `這是**比值**，可以跨專長讀 —— 但它說的是「離自己的天花板多近」，`
+       + (unk ? `⚠ 還有 ${unk} 格副技能沒填 —— 填了只會讓分子變高，所以這是下界（≥）。&#10;` : '')
+       + `這是比值，可以跨專長讀 —— 但它說的是「離自己的天花板多近」，`
        + `不是「哪一隻比較強」：100% 的皮卡丘不會比 70% 的妙蛙花強。&#10;`
-       + `貪婪搜尋出來的參考線，不是證明過的上限。">潛力 <b>${pct}%</b></span>`;
+       + `貪婪搜尋出來的參考線，不是證明過的上限。">潛力 <b>${unk?'≥':''}${pct}%</b></span>`;
 }
 /** 摺疊列上的那兩格：主指標 ＋ 同專長名次。
  *
@@ -777,9 +802,9 @@ function scoreChip(m, idx){
   return `<span class="mon-power" title="${tip}">${t.v}<i>${t.u}</i></span>`
        + (r ? `<span class="mon-rank" title="同專長內的名次 —— 這個才是可以跨專長讀的">`
              + `${SPEC_ZH[p.spec]} ${r.at}/${r.of}</span>` : '')
-       + (p.teamOnly ? `<span class="mon-team" title="牠有「幫忙加成」——&#10;`
-             + `價值主要在加速四個隊友，單獨一隻量不到，所以上面那個數字沒有包含它。&#10;`
-             + `推演會正確計入。">隊伍型</span>` : '');
+       + (p.teamOnly ? `<span class="mon-team" title="牠有「${p.teamOnly}」——&#10;`
+             + `那個價值取決於隊友（誰在隊上、帶什麼樹果），單獨一隻量不到，`
+             + `所以上面那個數字沒有包含它。&#10;推演會正確計入。">隊伍型</span>` : '');
 }
 /** 展開後的產能列：主指標 ＋ 全部原始數字 ＋ 同物種同等級的理想個體。 */
 function scoreRow(m, allowIdeal){
@@ -793,13 +818,17 @@ function scoreRow(m, allowIdeal){
     cmp = `<span class="muted">理想值算不出來</span>`;
   else {
     const pct = idealPctFrom(m, ideal) ?? 0;    // 摺疊列的「潛力 N%」用的是同一條算式
-    const it = powerText(ideal);
-    cmp = `<span class="mon-ideal" title="同物種、同等級的最佳個體：最佳性格＋最佳副技能＋緞帶4＋主技能滿級＋最佳食材組合。&#10;`
+    const it = powerText(ideal), unk = idealUnknownSlots(m, ideal);
+    cmp = `<span class="mon-ideal" title="基準是都練到 Lv${ideal.lvl}${ideal.lvl > m.level ? `（牠現在 Lv${m.level}）` : ''}，`
+        + `所以左邊那個當前產能和這個百分比不是同一個等級的東西。&#10;`
+        + `理想個體 ＝ 同物種、同等級的最佳性格＋最佳副技能＋緞帶4＋主技能滿級＋最佳食材組合。&#10;`
         + `目標就是這個專長的主指標（${t.u}）—— 用別的目標會挑出完全不同的一組副技能。&#10;`
         + `理想個體：${natZ(NAT[ideal.member.nature]||NAT.Bashful)}／`
         + `${ideal.member.ss.filter(Boolean).map(ssz).join('、') || '（無副技能）'}&#10;`
+        + `牠在 Lv${ideal.lvl}：${powerText(ideal.self).v}&#10;`
+        + (unk ? `⚠ 還有 ${unk} 格副技能沒填，所以這是下界（≥）。&#10;` : '')
         + `這是貪婪搜尋，不是證明過的上限 —— 當參考線看，別當天花板。">`
-        + `理想 ${it.v} · <b>${pct}%</b></span>`;
+        + `Lv${ideal.lvl} 理想 ${it.v} · <b>${unk?'≥':''}${pct}%</b></span>`;
   }
   const ings = p.ingTypes.length
     ? p.ingTypes.map(([n, v]) => `${iz(n)} ${v.toFixed(1)}`).join('、') : '無';
@@ -828,6 +857,42 @@ function natBrief(m){
  *  滑過名字有 title，展開後「種類」選單寫的就是學名。 */
 const monName = m => (m.nick || '').trim() || pz(D.dex[m.sp]);
 
+/* ---- 主技能的「已知不完整」清單 ----
+ *
+ *  **方向很重要，兩種的嚴重度差很多：**
+ *    `under` ＝ 附加效果沒讀進來 → 會**低估** → 你可能錯過一隻好的。
+ *    `over`  ＝ 已知的**扣分**沒有模型 → 會**高估** → 工具會主動把一支差的隊伍推薦給你。
+ *
+ *  達克萊伊是目前唯一的 `over`：快照裡「夢魘（能量填充M）」只有 `strength` 一欄，
+ *  扣活力那一面完全不存在；而且 `data/game.json` 的 dex **沒有屬性欄位**
+ *  （只有 n d no sp f ip sk b cs pe re ms i0 i30 i60），所以「全隊都是惡屬性」
+ *  這個條件在這份資料裡根本表達不出來 —— 不是還沒做，是資料不夠。
+ *
+ *  靜靜地只算加成那一面，就是「文案說謊」那類 bug 裡最貴的一種。 */
+const MS_CAVEAT = {
+  'Bad Dreams (Charge Strength M)': {dir:'data', why:
+    '扣活力那一面**有算**（每次發動讓隊上惡屬性以外的成員 −12 活力），但「誰是惡屬性」'
+    + '不在上游資料裡 —— 那份清單由 repo 自己維護（tools/dark.txt，目前 13 隻）。'
+    + '清單錯了不會有任何錯誤訊息，只會讓分數偏掉，所以惡屬性的寶可夢在箱子裡會標「惡」，可以自己核對。'},
+  'Moonlight (Charge Energy S)':      {dir:'under', why:'暴擊加成沒讀進來（主要的補活力效果有算）。'},
+  'Hyper Cutter (Ingredient Draw S)': {dir:'under', why:'暴擊時的額外食材沒讀進來（主要的食材效果有算）。'},
+  /* 治癒波動：三個欄位現在都有算（補活力、額外幫忙、隊上有拉帝歐斯時的加碼），
+     所以不再列 caveat。 */
+  /* 流星群：基礎表（MS_EXTRA）＋ 拉帝亞斯那一份都算了，所以不再列 caveat。 */
+  'Dream Shard Magnet S':             {dir:'under', why:'夢之碎片不計分 —— 這個工具只算能量。'},
+  'Aura Sphere (Dream Shard Magnet S)':{dir:'under', why:'夢之碎片不計分 —— 這個工具只算能量。'},
+  'Super Luck (Ingredient Draw S)':   {dir:'under', why:'夢之碎片不計分（食材那一面有算）。'},
+};
+/** 主技能旁邊的警告徽章。沒有 caveat 就回空字串。 */
+function msCaveat(ms){
+  const c = MS_CAVEAT[ms]; if (!c) return '';
+  const over = c.dir === 'over', data = c.dir === 'data';
+  const tail = over ? '方向是「高估」—— 這個數字比實際好，看到牠入選要自己再判斷一次。'
+             : data ? '方向不確定 —— 效果有算，但它吃一份 repo 自己維護的資料，那份錯了分數就會偏。'
+                    : '方向是「低估」—— 這個數字比實際保守，牠實際上可能更好。';
+  return `<span class="ms-warn${over?' over':''}${data?' data':''}" title="${msz(ms)}：${c.why}&#10;&#10;${tail}">`
+       + `${over?'⚠ 會高估':data?'※ 看惡屬性清單':'△ 會低估'}</span>`;
+}
 /** 摺疊列：唯讀、密、**兩列 × 兩欄的 grid**。
  *
  *  欄 1（`.mon-idy`）是**身分**：`▶ #圖鑑號 暱稱 Lv`。寬度**固定**，這樣所有卡片的
@@ -873,8 +938,8 @@ function monHead(m, idx, open){
         <span class="mon-lv">Lv${m.level}</span>
       </span>
       <span class="mon-rest">
-        <span class="tag ${SPEC_TAG[p.sp]}" title="專長">${SPEC_ZH[p.sp]}</span>
-        <span class="mon-ms" title="主技能（由種類決定）">${msz(p.ms)}</span>
+        <span class="tag ${SPEC_TAG[p.sp]}" title="專長">${SPEC_ZH[p.sp]}</span>${DARK.has(p.n)?`<span class="tag dark" title="惡屬性 —— 只影響達克萊伊「夢魘」的扣活力（惡屬性免疫）。這份清單由 repo 維護在 tools/dark.txt，上游資料沒有屬性欄位">惡</span>`:``}
+        <span class="mon-ms" title="主技能（由種類決定）">${msz(p.ms)}</span>${msCaveat(p.ms)}
         <span class="mon-nat">${natBrief(m)}</span>
         <span class="mon-sum">${ss}</span>
         <span class="mon-sk" title="主技能 ${msz(p.ms)} 的基礎等級（副技能加成另計）">技Lv${m.skillLv}</span>
@@ -1835,7 +1900,7 @@ function memberCard(rank, i, r, o){
            暱稱分得出來。但學名也一定要在（不然不知道要看哪一隻的數值），所以並列。 */
         (m.nick||'').trim() ? `<span class="nm-sci">${pz(p)}</span>` : ''
       }<span class="tag ${SPEC_TAG[p.sp]}">${SPEC_ZH[p.sp]}</span>${wk.fav.has(p.b)?`<span class="tag fav">加成樹果</span>`:''}${m.pin?`<span class="tag pin">固定</span>`:''}</div>
-      <div class="meta">Lv${m.level} · ${natZ(NAT[m.nature]||NAT.Bashful)} · ${act.length?act.join('／'):'無副技能'} · 頻率 ${Math.round(o.sim.freqBase/60*10)/10}分</div>\n      <div class="meta">${msz(p.ms)} Lv${bs.skillLv} · 每日發動 ${f1(o.sim.procs)} 次</div>
+      <div class="meta">Lv${m.level} · ${natZ(NAT[m.nature]||NAT.Bashful)} · ${act.length?act.join('／'):'無副技能'} · 頻率 ${Math.round(o.sim.freqBase/60*10)/10}分</div>\n      <div class="meta">${msz(p.ms)} Lv${bs.skillLv} · 每日發動 ${f1(o.sim.procs)} 次 ${msCaveat(p.ms)}</div>
       <div class="meta" style="color:var(--ing)">${ingList.length?ingList.join('　'):'（無食材產出）'}</div>
     </div>
     <div class="out">

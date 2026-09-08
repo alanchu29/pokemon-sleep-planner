@@ -244,12 +244,226 @@ console.log('\n[5] 幫手加速依同樹果種類數放大');
     const go = (names) => { roster = names.map(mk); roster.forEach(m => (m._bs = baseStats(m, wk)));
       return scoreTeam([0,1,2,3,4], roster, wk, new Map()); };
     const mono = go([hb.n, ...same]), mixed = go([hb.n, ...diff]);
-    return { monoU: mono.ctx.hbU, mixedU: mixed.ctx.hbU, monoHelps: mono.ctx.extraHelps, mixedHelps: mixed.ctx.extraHelps };
+    const row = c => (c.hbRows && c.hbRows[hb.b]) || 1;
+
+    /* regression（2026-09-08）：一隊有**兩個以上** Helper Boost 持有者時，以前
+       `idxs.find(...)` 只取第一個，整隊共用那一個列 —— 而三神獸的樹果各不相同
+       （雷公 GREPA／炎帝 LEPPA／水君 ORAN）。`find` 取的是 roster 索引最小的那隻，
+       所以**同一支隊伍只要換 roster 順序，答案就會變**（實測 helpsGiven 差 2.3 倍）。
+       這違反第 4 節的順序不變量，但第 4 節抽樣抽不到兩隻神獸（整個 dex 只有 3 隻，
+       而且圖鑑號連號），所以一直沒被抓到。 */
+    const hbs = D.dex.filter(x => /^Helper Boost/.test(x.ms || ''));
+    let two = null;
+    if (hbs.length >= 2){
+      const [a, b2] = hbs;                        // 樹果不同的兩隻
+      const fill = D.dex.filter(x => x.b === a.b && x.n !== a.n).slice(0, 3).map(x => x.n);
+      const outs = names => { const r2 = go(names).ctx;
+        return names.map((n, i) => /^Helper Boost/.test(D.dex.find(x=>x.n===n).ms)
+          ? Math.round(memberOutput(roster[i], wk, r2).helpsGiven * 100) / 100 : null);
+      };
+      const fwd = outs([a.n, b2.n, ...fill]), rev = outs([b2.n, a.n, ...fill]);
+      two = {fwd, rev, berries: [a.b, b2.b],
+             // 換順序 → 每一隻拿到的東西必須一樣（比對時把順序對回去）
+             sameSet: JSON.stringify(fwd.filter(v=>v!=null).sort()) ===
+                      JSON.stringify(rev.filter(v=>v!=null).sort())};
+    }
+    return { monoU: row(mono.ctx), mixedU: row(mixed.ctx),
+             monoHelps: mono.ctx.extraHelps, mixedHelps: mixed.ctx.extraHelps, two };
   });
-  ok('同樹果隊的 unique 計數較高', r && r.monoU > r.mixedU, JSON.stringify(r));
-  ok('同樹果隊拿到更多額外幫手', r && r.monoHelps > r.mixedHelps, JSON.stringify(r));
+  ok('同樹果隊的 unique 計數較高', r && r.monoU > r.mixedU, JSON.stringify(r).slice(0, 120));
+  ok('同樹果隊拿到更多額外幫手', r && r.monoHelps > r.mixedHelps, JSON.stringify(r).slice(0, 120));
+  /* 每個持有者要吃**自己那個樹果**的列，所以 ctx.hbRows 是 map 不是純量。 */
+  ok('兩隻 Helper Boost 同隊時，換 roster 順序不改變任何一隻的產出',
+     !r.two || r.two.sameSet, JSON.stringify(r.two));
 }
 
+/* 正電／負電**互為條件**：兩邊都要隊上有另一半才給加成。
+   以前正電那一側是「無條件加一半」—— 單獨帶會被高估、正負配對會被低估，
+   於是搜尋會系統性地錯過那個配對（實測配對後食材 137.8 vs 單獨 91.5，1.51 倍）。
+   算錯的方向不會讓任何校驗碼破掉，所以沒有測試就沒人擋得住。 */
+console.log('\n[5b] 正電／負電：互為條件的搭配加成');
+{
+  const r = await page.evaluate(() => {
+    const plus  = D.dex.find(x => /^Plus \(/.test(x.ms || ''));
+    const minus = D.dex.find(x => /^Minus \(/.test(x.ms || ''));
+    if (!plus || !minus) return null;
+    const mk = n => ({sp: D.dex.findIndex(x => x.n === n), level:60, nature:'Bashful',
+      ss:[null,null,null,null,null], ingSet:[0,0,0], skillLv:6, ribbon:0, pin:false, ex:false});
+    const other = D.dex.filter(x => !/^(Plus|Minus) \(/.test(x.ms || '')).slice(0, 4).map(x => x.n);
+    wk.recipe = D.recipes[0]; wk.recipeScope = 'all'; buildPool(wk);
+    const go = names => { roster = names.map(mk); roster.forEach(m => (m._bs = baseStats(m, wk)));
+      const ctx = teamContext([0,1,2,3,4], roster, wk, new Map());
+      return {ctx, out: i => memberOutput(roster[i], wk, ctx)}; };
+    const ingSum = o => o.ing.reduce((a, b) => a + b, 0);
+    const paired = go([plus.n, minus.n, ...other.slice(0, 3)]);
+    const soloP  = go([plus.n,  ...other]);
+    const soloM  = go([minus.n, ...other]);
+    return {
+      plusPaired: ingSum(paired.out(0)), plusSolo: ingSum(soloP.out(0)),
+      minusPaired: paired.out(1).energyGiven, minusSolo: soloM.out(0).energyGiven,
+      // 新的 team-level 效果一定要進 ctxKey，否則會拿到別種組成算出來的結果
+      keyDiff: ctxKey(paired.ctx) !== ctxKey(soloP.ctx),
+    };
+  });
+  ok('正電：隊上有負電時食材更多（以前是無條件加一半）',
+     r && r.plusPaired > r.plusSolo * 1.05,
+     r && ('配對 ' + r.plusPaired.toFixed(2) + ' vs 單獨 ' + r.plusSolo.toFixed(2)));
+  ok('負電：沒有正電就完全不給能量',
+     r && r.minusSolo === 0 && r.minusPaired > 0,
+     r && ('配對 ' + r.minusPaired.toFixed(2) + ' vs 單獨 ' + r.minusSolo.toFixed(2)));
+  /* CLAUDE.md 陷阱 6：加新的 team-level 效果沒進 ctxKey，記憶化就會串味。 */
+  ok('hasMinus 有進 ctxKey（否則記憶化會拿到別隊的結果）', r && r.keyDiff, String(r && r.keyDiff));
+}
+
+/* 拉帝亞斯／拉帝歐斯：第三組**互為條件**的搭配。
+   資料裡的欄位名稱本身就說明了 —— `latiasBerries`（拉帝歐斯的）與 `latiosHelps`（拉帝亞斯的）。
+   以前 `latiasBerries` 被無條件當成 selfBerry，等於拉帝歐斯單獨上場也照領那 29.5%。 */
+console.log('\n[5c] 拉帝亞斯／拉帝歐斯：條件式的搭配樹果');
+{
+  const r = await page.evaluate(() => {
+    const has = n => D.dex.some(x => x.n === n);
+    if (!has('LATIAS') || !has('LATIOS')) return null;
+    const mk = n => ({sp: D.dex.findIndex(x => x.n === n), level:60, nature:'Bashful',
+      ss:[null,null,null,null,null], ingSet:[0,0,0], skillLv:6, ribbon:0, pin:false, ex:false});
+    wk.recipe = D.recipes[0]; wk.recipeScope = 'all'; buildPool(wk);
+    const berryOf = names => { roster = names.map(mk);
+      roster.forEach(m => (m._bs = baseStats(m, wk)));
+      const c = teamContext([0,1,2,3,4], roster, wk, new Map());
+      return {b: memberOutput(roster[0], wk, c).berryStrength, c};
+    };
+    const fill = D.dex.filter(x => !/^LATI/.test(x.n)).slice(0, 3).map(x => x.n);
+    const paired = berryOf(['LATIOS', 'LATIAS', ...fill]);
+    const solo   = berryOf(['LATIOS', D.dex.find(x => x.n === 'RAICHU') ? 'RAICHU' : fill[0], ...fill.slice(0, 2), fill[2]].slice(0, 5));
+    return {pairedB: paired.b, soloB: solo.b,
+            keyDiff: ctxKey(paired.c) !== ctxKey(solo.c),
+            // latiasBerries 不該再直接變成無條件的 selfBerry
+            latiasPaired: (() => { roster = ['LATIAS','LATIOS',...fill].map(mk);
+              roster.forEach(m => (m._bs = baseStats(m, wk)));
+              const c = teamContext([0,1,2,3,4], roster, wk, new Map());
+              return memberOutput(roster[0], wk, c).helpsGiven; })(),
+            latiasSolo: (() => { roster = ['LATIAS', ...fill, fill[0]].map(mk);
+              roster.forEach(m => (m._bs = baseStats(m, wk)));
+              const c = teamContext([0,1,2,3,4], roster, wk, new Map());
+              return memberOutput(roster[0], wk, c).helpsGiven; })(),
+            additive: (() => { const h = D.ms['Heal Pulse (Energizing Cheer S)'];
+              return h.helps.every((v, i) => v + h.latiosHelps[i] === [2,3,4,5,6,7][i]); })(),
+            sums: (() => { const h = D.ms['Heal Pulse (Energizing Cheer S)'];
+              return h.helps.map((v, i) => v + h.latiosHelps[i]).join(','); })(),
+            tableOk: (() => { const x = D.msExtra['Draco Meteor (Berry Burst)'];
+              if (!x) return false;
+              const want = [[12,14,18,18,20],[21,24,29,30,33],[29,29,35,37,41],
+                            [38,39,42,45,49],[43,44,48,49,53],[48,50,55,55,58]];
+              const wantT = [[1,1,1,2,2],[1,1,1,2,2],[1,2,2,3,3],
+                             [1,2,3,4,4],[2,3,4,5,5],[3,4,4,5,5]];
+              return JSON.stringify(x.selfBerryByDragon) === JSON.stringify(want)
+                  && JSON.stringify(x.teamBerryByDragon) === JSON.stringify(wantT); })(),
+            tableRows: (() => { const x = D.msExtra['Draco Meteor (Berry Burst)'];
+              return x ? x.selfBerryByDragon.map(r2 => r2.join('/')).join('  ') : '(缺)'; })(),
+            dragon1: (() => { roster = ['LATIOS', ...fill, fill[0]].map(mk);
+              roster.forEach(m => (m._bs = baseStats(m, wk)));
+              return teamContext([0,1,2,3,4], roster, wk, new Map()).nDragon; })(),
+            dragon5: (() => { const dr = D.dex.filter(x => x.n !== 'LATIOS'
+                && ['DRAGONITE','SALAMENCE','FLYGON','ALTARIA'].includes(x.n)).map(x => x.n);
+              roster = ['LATIOS', ...dr].map(mk);
+              roster.forEach(m => (m._bs = baseStats(m, wk)));
+              return teamContext([0,1,2,3,4], roster, wk, new Map()).nDragon; })(),
+            self1: D.msExtra['Draco Meteor (Berry Burst)'].selfBerryByDragon[5][0],
+            self5: D.msExtra['Draco Meteor (Berry Burst)'].selfBerryByDragon[5][4],
+            rawHasSelf: 'selfBerry' in skillPayload('Draco Meteor (Berry Burst)', 6)};
+  });
+  ok('拉帝歐斯：隊上有拉帝亞斯時樹果更多（以前無條件照領）',
+     r && r.pairedB > r.soloB * 1.05,
+     r && `配對 ${r.pairedB.toFixed(1)} vs 單獨 ${r.soloB.toFixed(1)}`);
+  ok('latiasBerries 不再無條件當成 selfBerry', r && r.rawHasSelf === false, String(r && r.rawHasSelf));
+  ok('hasLatias 有進 ctxKey', r && r.keyDiff, String(r && r.keyDiff));
+
+  /* 拉帝亞斯的「額外幫忙」以前**完全沒讀**（helpsGiven 是 0）。
+     `latiosHelps` 是加碼不是取代 —— 遊戲技能頁寫「基礎 + 額外 = 總計」，
+     而 helps+latiosHelps 逐級等於那個總計欄（1+1=2 … 4+3=7）。 */
+  ok('拉帝亞斯的額外幫忙有算，而且隊上有拉帝歐斯時加碼',
+     r && r.latiasPaired > r.latiasSolo * 1.2 && r.latiasSolo > 0,
+     r && `配對 ${r.latiasPaired.toFixed(2)} vs 單獨 ${r.latiasSolo.toFixed(2)}`);
+  ok('latiosHelps 是加碼不是取代（helps+latiosHelps 等於技能頁的總計欄）',
+     r && r.additive, r && r.sums);
+
+  /* 流星群的基礎表（repo 維護在 tools/skills-extra.json，上游快照沒有）。
+     逐格對照遊戲技能頁的截圖 —— 這是目前少數有**絕對數值**的斷言之一。 */
+  ok('流星群的基礎樹果表和遊戲技能頁逐格相符（6 級 × 5 種）',
+     r && r.tableOk, r && r.tableRows);
+  ok('隊上龍屬性種類數會改變牠的樹果（含牠自己，1~5）',
+     r && r.dragon1 === 1 && r.dragon5 === 5 && r.self5 > r.self1,
+     r && `nDragon ${r.dragon1}→${r.dragon5}　自身樹果 ${r.self1}→${r.self5}`);
+}
+
+/* 達克萊伊「夢魘（能量填充M）」：每次發動讓幫手隊伍中**惡屬性以外**的成員活力 −12
+   （固定值，不隨技能等級變 —— 加成那一欄才隨等級）。惡屬性成員與牠自己免疫。
+
+   兩件事要守住：
+   ① 扣活力真的有算，而且**全隊惡屬性時完全不扣**（這正是這隻的用法）。
+   ② 「誰是惡屬性」不在上游資料裡 —— 那份清單是 repo 維護的 `tools/dark.txt`，
+      清單錯了**不會有任何錯誤訊息**，只會讓分數靜靜地偏掉。所以要斷言它還在、
+      而且每個名字都對得上 dex。 */
+console.log('\n[6b] 夢魘：惡屬性以外的隊友會被扣活力');
+{
+  const r = await page.evaluate(() => {
+    const DK = 'Bad Dreams (Charge Strength M)';
+    const dk = D.dex.find(x => x.ms === DK);
+    const mk = n => ({sp: D.dex.findIndex(x => x.n === n), level:60, nature:'Bashful',
+      ss:[null,null,null,null,null], ingSet:[0,0,0], skillLv:7, ribbon:0, pin:false, ex:false});
+    wk.recipe = D.recipes[0]; wk.recipeScope = 'all'; buildPool(wk);
+    /* 同一支隊伍，只把扣活力關掉 —— 那就是改動之前的行為。 */
+    const score = (names, withDrain) => {
+      roster = names.map(mk); roster.forEach(m => (m._bs = baseStats(m, wk)));
+      const c0 = teamContext([0,1,2,3,4], roster, wk, new Map());
+      const c = withDrain ? c0 : {...c0, darkDrain: 0};
+      let t = 0;
+      for (let i = 0; i < 5; i++){ const o = memberOutput(roster[i], wk, c);
+        t += o.berryStrength + o.skillStrength; }
+      return {t, drain: c0.darkDrain};
+    };
+    const darkMates = [...DARK].filter(n => n !== 'DARKRAI').slice(0, 4);
+    const plainMates = D.dex.filter(x => !DARK.has(x.n)).slice(0, 4).map(x => x.n);
+    const mixed  = score(['DARKRAI', ...plainMates], true);
+    const mixedOff = score(['DARKRAI', ...plainMates], false);
+    const allDark = score(['DARKRAI', ...darkMates], true);
+    const allDarkOff = score(['DARKRAI', ...darkMates], false);
+    const noDk  = score(plainMates.concat(plainMates[0] === 'BULBASAUR' ? ['IVYSAUR'] : ['BULBASAUR']), true);
+    const noDkOff = score(plainMates.concat(plainMates[0] === 'BULBASAUR' ? ['IVYSAUR'] : ['BULBASAUR']), false);
+    // 惡屬性的免疫是逐一判斷的，不是整隊開關
+    roster = ['DARKRAI', ...plainMates].map(mk);
+    roster.forEach(m => (m._bs = baseStats(m, wk)));
+    const c = teamContext([0,1,2,3,4], roster, wk, new Map());
+    const wake = [0,1,2,3,4].map(i => ({dark: roster[i]._bs.dark,
+      e: Math.round(memberOutput(roster[i], wk, c).sim.wakeEnergy)}));
+    return {
+      dk: !!dk, darkList: [...DARK], schema: D.meta.schema,
+      allInDex: [...DARK].every(n => D.dex.some(x => x.n === n)),
+      dragonInDex: [...DRAGON].every(n => D.dex.some(x => x.n === n)),
+      nDragon: [...DRAGON].length,
+      drain: mixed.drain,
+      mixedDrop: mixed.t / mixedOff.t - 1,
+      allDarkDrop: allDark.t / allDarkOff.t - 1,
+      noDkSame: noDk.t === noDkOff.t,
+      selfExempt: wake[0].dark && wake.slice(1).every(w => !w.dark && w.e < wake[0].e),
+    };
+  });
+  ok('惡屬性清單在資料裡，而且每個名字都對得上 dex',
+     r.darkList.length > 0 && r.allInDex, `${r.darkList.length} 隻 / allInDex=${r.allInDex}`);
+  ok('屬性資料進了 types{} 且 schema 有跟著 +1（否則舊資料配新程式會靜靜少算）',
+     r.schema >= 3, String(r.schema));
+  /* 流星群吃「隊上不同種類的龍屬性」，所以龍屬性清單也要對得上 dex。 */
+  ok('龍屬性清單也在資料裡，而且對得上 dex',
+     r.nDragon > 0 && r.dragonInDex, String(r.nDragon) + ' 隻'),
+  ok('隊上有達克萊伊時 darkDrain 是負的', r.drain < 0, String(r.drain));
+  /* 這就是「全隊都是惡屬性才不虧」那句話的驗證。 */
+  ok('隊友非惡屬性 → 週能量被扣（以前完全沒算）',
+     r.mixedDrop < -0.02, (r.mixedDrop * 100).toFixed(1) + '%');
+  ok('全隊惡屬性 → 完全不扣', Math.abs(r.allDarkDrop) < 1e-9,
+     (r.allDarkDrop * 100).toFixed(4) + '%');
+  ok('沒有達克萊伊的隊伍完全不受影響', r.noDkSame, String(r.noDkSame));
+  ok('免疫是逐一判斷的：牠自己起床活力最高，非惡屬性隊友都被扣低',
+     r.selfExempt, String(r.selfExempt));
+}
 console.log('\n[6] 揮指類技能不再算 0');
 {
   const r = await page.evaluate(() => {
@@ -1464,9 +1678,11 @@ console.log('\n[11g] 寶可夢箱：個體產能（三種專長各自的軸）')
     // 展開 → 產能列有四個原始數字；理想值不得低於實際值
     $('boxList').querySelector('[data-i="2"] .mon-head').click();
     const rowText = $('boxList').querySelector('[data-i="2"] .mon-scorerow').textContent.replace(/\s+/g,' ').trim();
+    /* 分子是 `ideal.self`（＝牠在評價等級上的產能），不是當前產能 —— 這一隻本來
+       就是 Lv60，所以兩者相同，但斷言要照實際用的那條算式寫。 */
     const ideal2 = idealCache.get(idealKey(roster[2]));
-    const idealGE = !!ideal2 && powerMain(ideal2) >= powerMain(P[2]) - 1e-9;
-    const pct = ideal2 ? Math.round(powerMain(P[2]) / powerMain(ideal2) * 100) : -1;
+    const idealGE = !!ideal2 && powerMain(ideal2) >= powerMain(ideal2.self) - 1e-9;
+    const pct = ideal2 ? Math.round(powerMain(ideal2.self) / powerMain(ideal2) * 100) : -1;
     /* 理想個體的目標函式必須是**那個專長的**主指標。技能型看發動次數，
        所以牠的理想副技能應該挑得到技能觸發那一類，而不是食材／樹果那一類。 */
     const idealSs2 = ideal2 ? ideal2.member.ss.filter(Boolean) : [];
@@ -1637,6 +1853,25 @@ console.log('\n[11i] 寶可夢箱：潛力（理想個體 %）與雙向排序');
       return c ? c.textContent.trim() : null;
     });
     const pcts = roster.map(m => idealPct(m));
+    /* 基準是固定的 Lv60（超過就用實際等級），不是牠現在的等級。
+       所以同一隻在 Lv30 和 Lv45 必須給出**完全一樣**的潛力 —— 升級不會讓
+       這個數字自己跳動（以前會：跨過 50／60 才把第 3 格副技能／食材算進去）。 */
+    const lvls = roster.map(m => idealOf(m).lvl);
+    // 這一段直接叫引擎，所以 sp 要是 dex 索引（roster 裡的形式），不是內部名
+    const at = (n, lv, ss) => ({...mk(n, lv, 'Adamant', ss, 3, 4), sp: D.dex.findIndex(p => p.n === n)});
+    const r30 = monIdeal(at('RAICHU', 30, ['Berry Finding S','Helping Speed M']));
+    const r45 = monIdeal(at('RAICHU', 45, ['Berry Finding S','Helping Speed M']));
+    const r75 = monIdeal(at('WIGGLYTUFF', 75, ['Skill Trigger M']));
+    const pctOf = x => Math.round(powerMain(x.self) / powerMain(x) * 100);
+    const fixed = {lv30: r30.lvl, lv45: r45.lvl, lv75: r75.lvl,
+      pct30: pctOf(r30), pct45: pctOf(r45),
+      // 快取鍵也要正規化，否則 Lv30／Lv45 會各算一次同樣的東西
+      sameKey: idealKey(at('RAICHU', 30, [])) === idealKey(at('RAICHU', 45, []))};
+    /* 副技能還有空格 → 分子只會被低估 → 顯示成下界（≥）。填滿就不該有 ≥。 */
+    const partial = at('RAICHU', 60, ['Berry Finding S','Helping Speed M']);
+    const filled  = at('RAICHU', 60, ['Berry Finding S','Helping Speed M','Inventory Up M']);
+    idealOf(partial, true); idealOf(filled, true);
+    const bound = {partial: idealChip(partial).includes('≥'), full: idealChip(filled).includes('≥')};
     /* 版面：潛力在摺疊列的**第二列、欄 1**（名字／等級底下）。DOM 上它必須是
        `.mon-head` 的直接子元素，而且排在 `.mon-rest` 之後、`.mon-ings` 之前 ——
        grid 的自動排版照 DOM 走，順序錯了就會掉到別的格子。 */
@@ -1676,13 +1911,28 @@ console.log('\n[11i] 寶可夢箱：潛力（理想個體 %）與雙向排序');
     const optTexts = [...$('fltSort').options].map(o => o.text);
     $('fltSort').value = 'added'; fire('fltSort', 'change');
     monOpen.clear(); clearBoxFilter(); renderBox();
-    return {chips, pcts, layout, rowPct, headPct, byIdeal, fwdPcts, revIdeal,
+    return {chips, pcts, layout, rowPct, headPct, byIdeal, fwdPcts, revIdeal, lvls, fixed, bound,
             dirFwd, dirRev, addedFwd, addedRev, addedDir, lvFwd, lvRev, revLabel, optTexts,
             note: $('scoreNote').textContent.trim()};
   });
-  ok('摺疊列每一隻都有「潛力 N%」', r.chips.every(t => t && /潛力\s*\d+%/.test(t)), r.chips.join(' | '));
-  ok('潛力是比值，不會超過 100%（理想個體含牠自己）',
+  ok('摺疊列每一隻都有「潛力 N%」', r.chips.every(t => t && /潛力\s*≥?\d+%/.test(t)), r.chips.join(' | '));
+  ok('潛力是比值，不會超過 100%（理想個體含牠自己、且同在評價等級上）',
      r.pcts.every(v => v > 0 && v <= 100), r.pcts.join(', '));
+  /* 基準固定在 Lv60（超過就用實際等級）。以前跟著當前等級走，於是升到 50／60
+     跨過門檻時第 3 格副技能／食材才被算進去，百分比會自己往下掉 —— 而使用者問的是
+     「該把糖果餵給哪一隻」，那是關於練滿之後的問題。 */
+  ok(`評價等級固定在 Lv${60}（Lv30／Lv45 都評在 60）`,
+     r.fixed.lv30 === 60 && r.fixed.lv45 === 60, `${r.fixed.lv30} / ${r.fixed.lv45}`);
+  ok('已經超過 60 的用牠的實際等級（不丟掉已知的第 4 格副技能）',
+     r.fixed.lv75 === 75, String(r.fixed.lv75));
+  ok('同一隻在 Lv30 和 Lv45 的潛力完全相同（升級不會讓這個數字自己跳動）',
+     r.fixed.pct30 === r.fixed.pct45, `${r.fixed.pct30}% vs ${r.fixed.pct45}%`);
+  ok('快取鍵也依評價等級正規化（Lv30／Lv45 共用同一格）', r.fixed.sameKey, String(r.fixed.sameKey));
+  ok('箱子裡的每一隻都評在 ≥60', r.lvls.every(v => v >= 60), r.lvls.join(', '));
+  /* 空著的副技能格只會讓分子變小（副技能沒有負值），所以那個百分比是下界。
+     靜靜地把「還沒記」當成「就是沒有」，會誤導投資判斷。 */
+  ok('副技能有空格時標成下界（≥），填滿就不標',
+     r.bound.partial && !r.bound.full, JSON.stringify(r.bound));
   /* 同物種同等級：練得好的那一隻百分比一定比白板高 —— 這正是「個體潛力」要回答的問題。 */
   ok('同物種同等級時，副技能／性格好的那一隻百分比比較高',
      r.pcts[0] > r.pcts[1], `${r.pcts[0]}% vs ${r.pcts[1]}%`);
@@ -1716,6 +1966,9 @@ console.log('\n[11i] 寶可夢箱：潛力（理想個體 %）與雙向排序');
   ok('說明文案講明潛力是比值、不是「誰比較強」',
      /離.{0,4}自己.{0,4}的天花板多近/.test(r.note) && /100% 的皮卡丘/.test(r.note),
      r.note.slice(-120));
+  /* 一個沒有出處的數字比沒有數字更糟 —— 基準等級一定要寫出來。 */
+  ok('說明文案講明基準是「雙方都練到 Lv60」與「練滿之後」',
+     /都練到 Lv60/.test(r.note) && /練滿之後有多好/.test(r.note), r.note.slice(-200));
 }
 
 /* 用另開的頁面跑 —— 這一節刻意觸發致命錯誤，不能污染上面的 errors 收集。 */

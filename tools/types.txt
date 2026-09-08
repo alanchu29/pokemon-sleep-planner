@@ -1,0 +1,46 @@
+# 寶可夢屬性（內部名，一行一個；## 開頭是分區）
+#
+# 為什麼要有這個檔：上游的 COMPLETE_POKEDEX 萃取出來的欄位裡**沒有屬性**
+# （dex 只有 n d no sp f ip sk b cs pe re ms i0 i30 i60），但有兩個主技能吃屬性：
+#
+#   達克萊伊「夢魘（能量填充M）」 —— 讓幫手隊伍中**惡屬性以外**的寶可夢活力下降 12
+#   拉帝歐斯「流星群（樹果遽增）」 —— 隊伍中**不同種類的龍屬性**幫手越多，樹果越多
+#
+# 和 tools/zh.txt 同一個性質：**repo 自己維護、上游沒有、重建時絕對不能弄丟。**
+# 來源：Pokémon 本傳的屬性設定（主副屬性皆算）。只需要涵蓋這份快照的 246 隻。
+# 之後若上游開始提供屬性欄位，就改成從那裡抓，並刪掉這個檔。
+#
+# 只列**有人用得到的屬性**。加新屬性時 engine.js 那邊也要接。
+
+## DARK
+UMBREON
+MURKROW
+HONCHKROW
+SNEASEL
+WEAVILE
+HOUNDOUR
+HOUNDOOM
+SABLEYE
+ABSOL
+TYRANITAR
+SPIRITOMB
+MEOWSCARADA
+DARKRAI
+
+## DRAGON
+DRATINI
+DRAGONAIR
+DRAGONITE
+VIBRAVA
+FLYGON
+ALTARIA
+BAGON
+SHELGON
+SALAMENCE
+LATIAS
+LATIOS
+TYRUNT
+TYRANTRUM
+NOIBAT
+NOIVERN
+DRAMPA
