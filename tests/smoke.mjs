@@ -1112,12 +1112,16 @@ console.log('\n[11d] 寶可夢箱 UI：篩選、真實索引、完整顯示');
     $('fltClear').click();
     const cleared = vis();
 
-    // 新增一隻要清掉篩選並自動展開，否則新的那隻（皮卡丘＝樹果型）會被篩掉、看起來像沒反應
+    /* 新增一隻要清掉篩選並自動展開，否則新的那隻（皮卡丘＝樹果型）會被篩掉、
+       看起來像沒反應。**但排序不能一起清** —— 先設成「圖鑑編號」再新增。 */
+    $('fltSort').value = 'no'; fire('fltSort', 'change');
     $('fltSpec').value = 'skill'; fire('fltSpec', 'change');
     $('addBtn').click();
     const newIdx = roster.length - 1;
     const newCard = $('boxList').querySelector(`[data-i="${newIdx}"]`);
     const afterAdd = {n: roster.length, spec: $('fltSpec').value,
+      sort: boxFlt.sort, sortSel: $('fltSort').value,
+      order: [...$('boxList').querySelectorAll('[data-i]')].map(e => D.dex[roster[+e.dataset.i].sp].no),
       newVisible: !newCard.hidden, newOpen: !!newCard.querySelector('.mon-edit')};
 
     // 完整顯示：副技能選項是全名（不是 Help M 這種縮寫）、食材選項只放名稱、數量在旁邊
@@ -1225,6 +1229,13 @@ console.log('\n[11d] 寶可夢箱 UI：篩選、真實索引、完整顯示');
   ok('新增一隻會清篩選、看得到、而且自動展開',
      r.afterAdd.n === 5 && r.afterAdd.spec === '' && r.afterAdd.newVisible && r.afterAdd.newOpen,
      JSON.stringify(r.afterAdd));
+  /* 排序不是篩選。以前 clearBoxFilter() 連排序一起清掉 —— 用「圖鑑編號」在看箱子，
+     按一下「新增一隻」整個列表就跳回加入順序，看起來像排序自己壞掉（實際踩過）。
+     清除篩選、截圖存入、JSON 匯入三條路徑都走同一個函式，所以三條都中。 */
+  ok('新增一隻不會把排序打掉（排序不是篩選）',
+     r.afterAdd.sort === 'no' && r.afterAdd.sortSel === 'no' &&
+     r.afterAdd.order.join(',') === [...r.afterAdd.order].sort((a,b)=>a-b).join(','),
+     `sort=${r.afterAdd.sort}/${r.afterAdd.sortSel} order=#${r.afterAdd.order.join(' #')}`);
   ok('副技能選項顯示全名', r.ssText === '幫忙速度M', r.ssText);
   ok('食材選項只放名稱，數量顯示在旁邊', r.ingText === '特選蘋果' && r.amount === '×1',
      `「${r.ingText}」 / 「${r.amount}」`);
@@ -1266,9 +1277,12 @@ console.log('\n[11e] 寶可夢箱：排序、展開全部、重複偵測');
       ss:[...(ss||[]), ...Array(5-(ss||[]).length).fill(null)], ingSet:[0,0,0], skillLv:1, ribbon:0});
     // RAICHU=樹果 SLOWKING=技能 VICTREEBEL=食材 ；等級刻意亂序
     deserialize({roster: [mk('RAICHU',30), mk('SLOWKING',60), mk('VICTREEBEL',45)]});
-    clearBoxFilter(); monOpen.clear(); renderBox();
     const order = () => [...$('boxList').querySelectorAll('[data-i]')].map(e => +e.dataset.i);
     const fire = (id, ev) => $(id).dispatchEvent(new Event(ev, {bubbles:true}));
+    /* 排序要**明確**設回加入順序 —— clearBoxFilter() 刻意不動排序（見 11d 的
+       「新增一隻不會把排序打掉」），所以不能靠它把上一節留下的排序清掉。 */
+    clearBoxFilter(); $('fltSort').value = 'added'; fire('fltSort', 'change');
+    monOpen.clear(); renderBox();
 
     const added = order();
     /* 圖鑑編號：摺疊列第一個顯示的就是 #圖鑑號，所以這是唯一「照畫面上的數字排」

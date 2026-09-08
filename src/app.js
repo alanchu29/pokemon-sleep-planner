@@ -842,11 +842,19 @@ for (const [id, key] of [['fltSpec','spec'], ['fltState','state']])
 $('fltName').addEventListener('input', e=>{ boxFlt.q = e.target.value.trim(); applyBoxFilter(); });
 // 排序會改渲染順序 → 必須重畫，不能只切 hidden
 $('fltSort').addEventListener('change', e=>{ boxFlt.sort = e.target.value; renderBox(); });
-/** 清掉篩選與排序（排序也算，否則新增的那隻會跑到中間去）。 */
+/** 清掉**篩選**（專長／狀態／搜尋字）。**排序刻意保留。**
+ *
+ *  以前這裡連排序一起清掉，理由寫的是「否則新增的那隻會跑到中間去」——
+ *  但那是把兩件事混在一起了：**篩選會讓新增的那隻完全不出現**（預設的皮卡丘
+ *  常常不符合目前的條件，按了「新增一隻」卻什麼都沒有），而**排序只是換位置**，
+ *  而換位置早就由 addBtn 的 `scrollIntoView(data-i)` 解決了。
+ *
+ *  實際踩過（2026-09-08）：使用者用「圖鑑編號」排序在看箱子，按一下「新增一隻」
+ *  整個列表就跳回加入順序 —— 看起來像排序自己壞掉。清除篩選、截圖存入、JSON
+ *  匯入三條路徑全都有這個問題，因為它們都走這個函式。 */
 function clearBoxFilter(){
-  boxFlt = {spec:'', state:'', q:'', sort:'added'};
+  boxFlt = {...boxFlt, spec:'', state:'', q:''};
   $('fltSpec').value = ''; $('fltState').value = ''; $('fltName').value = '';
-  $('fltSort').value = 'added';
 }
 $('fltClear').addEventListener('click', ()=>{ clearBoxFilter(); renderBox(); });
 /* 展開／收起全部。只展開「目前看得到的」—— 一次攤開 60 隻要建一萬多個
@@ -879,7 +887,8 @@ $('boxList').addEventListener('click', e=>{
   renderBox(); save();
 });
 /* 新增時先清掉篩選 —— 新的那隻（預設皮卡丘）常常不符合目前的篩選條件，
-   結果按了「新增一隻」卻什麼都沒出現。 */
+   結果按了「新增一隻」卻什麼都沒出現。**但排序要留著**（見 clearBoxFilter），
+   新的那隻在哪裡靠下面的 scrollIntoView 帶過去。 */
 $('addBtn').addEventListener('click', ()=>{
   roster.push(BLANK());
   clearBoxFilter();
