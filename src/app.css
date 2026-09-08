@@ -160,6 +160,17 @@ td.n{font-family:var(--mono);font-variant-numeric:tabular-nums}
 .mon-nat{font-size:12px;color:var(--ink-2);flex:0 0 auto}
 .mon-nat .up{color:var(--pos)} .mon-nat .dn{color:var(--neg)}
 .mon-sum{display:flex;flex-wrap:wrap;gap:4px;align-items:center;flex:1 1 260px;min-width:0}
+/* 「潛力 N%」＝ 牠 ÷ 同物種同等級的理想個體。固定在第二列、欄 1 —— 就在名字／等級
+   底下那個原本空著的位置。`grid-column:1` 一定要寫（理由同下面的 .mon-ings）。
+   色階只是**粗略**的視覺分級，真正的數字就寫在旁邊；它是比值，不是產能。 */
+.mon-idl{grid-column:1;font-family:var(--mono);font-variant-numeric:tabular-nums;
+  font-size:11px;cursor:help;color:var(--muted);padding-left:19px;white-space:nowrap}
+.mon-idl b{font-size:12px;font-weight:700}
+.mon-idl.a b{color:var(--pos)}
+.mon-idl.b b{color:var(--skill)}
+.mon-idl.c b{color:var(--ing)}
+.mon-idl.d b{color:var(--neg)}
+.mon-idl.pend{opacity:.5}
 /* 食材固定在第二列、欄 2（`grid-column:2` 一定要寫，不然自動排版會把它丟到欄 1）。 */
 .mon-ings{grid-column:2;display:flex;flex-wrap:wrap;gap:4px 6px;align-items:center;min-width:0}
 .mon-ilbl{font-size:10.5px;color:var(--muted);letter-spacing:.04em;flex:0 0 auto;margin-right:2px}
@@ -188,6 +199,11 @@ td.n{font-family:var(--mono);font-variant-numeric:tabular-nums}
    讓它整串顯示，需要時整列自己折 —— 裁掉就等於沒有。 */
 .mon-ms{font-size:11.5px;padding:2px 7px;border-radius:5px;white-space:nowrap;flex:0 0 auto;
   background:color-mix(in srgb,var(--skill) 13%,transparent);color:var(--skill);font-weight:500}
+/* 「剛新增」：那張卡被暫時提到列表最前面（見 app.js 的 boxNew）。一定要標出來 ——
+   在「加入順序」排序下把最新的一隻放到最前面，不講就等於排序的名稱在說謊。 */
+.mon-new{font-size:11px;font-weight:700;padding:2px 6px;border-radius:5px;white-space:nowrap;
+  flex:0 0 auto;background:color-mix(in srgb,var(--accent) 16%,transparent);color:var(--accent);
+  border:1px solid color-mix(in srgb,var(--accent) 45%,transparent)}
 .mon-dup{font-size:11px;font-weight:700;padding:2px 6px;border-radius:5px;white-space:nowrap;
   flex:0 0 auto;background:color-mix(in srgb,var(--neg) 16%,transparent);color:var(--neg);
   border:1px solid color-mix(in srgb,var(--neg) 45%,transparent)}

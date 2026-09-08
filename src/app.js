@@ -57,7 +57,7 @@ const SCHEMA = 1;
    「新的 index.html ＋ 舊的 app.js」—— 畫面畫出舊版 UI，而使用者只會覺得
    「你根本沒改」，完全不知道是快取。有了這個斷言，過期的 app.js 會直接被擋下來
    並要求強制重新整理。tests/smoke.mjs 第 11 節會斷言三處一致。 */
-const APP_V = '20260908l';
+const APP_V = '20260908m';
 
 /** 致命錯誤：整頁換成一段說明。這種狀況下繼續跑只會產生錯的數字。 */
 function fatal(html){
@@ -643,6 +643,9 @@ function scoreNote(){
        + `<b>食材型</b>看食材原始能量（未經料理加成；配不配得上本週食譜是<b>推演</b>要決定的事）、`
        + `<b>技能型</b>看主技能發動次數（不同技能給的東西不同，換算成能量只會是憑空的假設）。`
        + `能比的是<b>同專長內的名次</b>。`
+       + `摺疊列上的 <b>潛力 N%</b> 是<b>牠 ÷ 同物種同等級的理想個體</b>（分子分母同一個單位，所以是純比值）——`
+       + `它可以跨專長讀，但說的是「離<b>自己</b>的天花板多近」，不是「哪一隻比較強」：`
+       + `100% 的皮卡丘不會比 70% 的妙蛙花強。`
        + `另外，「幫忙加成」這類<b>只對隊友有效</b>的副技能單獨一隻量不到，會另外標徽章。`
        + `<b>這些數字不影響推演</b> —— 每週的推薦還是原本的演算法。`;
 }
@@ -661,6 +664,91 @@ function idealOf(m, allowCompute){
   const v = monIdeal(m);
   idealCache.set(k, v);
   return v;
+}
+/** 牠 ÷ 理想個體，取整數百分比。分子分母都是**同一個專長的主指標**。 */
+function idealPctFrom(m, ideal){
+  const top = powerMain(ideal);
+  return top > 0 ? Math.round(powerMain(monPowerCached(m)) / top * 100) : null;
+}
+/** 已經算好的百分比；還沒算（或算不出來）就回 null。**不會觸發計算。** */
+function idealPct(m){
+  const ideal = idealOf(m);
+  return ideal ? idealPctFrom(m, ideal) : null;
+}
+
+/* ---- 理想值的背景填算 ----
+   摺疊列要顯示百分比，但一隻要跑約 210 次 monPower（≈15~40ms）—— 60 隻就是
+   1~2 秒的凍結，而 renderBox 每改一個欄位就會跑一次。所以**畫面先出來、數字後到**：
+   還沒算的顯示「—」，背景一次算幾隻，算完就地補上去。
+
+   只算**目前看得到的那些**（`visibleIdx()`）—— 被篩掉的卡片看不到，付那個錢沒有意義。
+   快取鍵是整隻的簽章，所以算過的改天再看是免費的；改了欄位才會重算那一隻。 */
+const IDEAL_CHUNK = 2;              // 一批算幾隻。2 隻 ≈ 30~80ms，中間讓出去給瀏覽器
+let idealJob = 0;                   // 每輪的號碼；renderBox 會 +1，舊的那輪自己停下來
+let idealProg = null;               // {done, total}，給 boxCount 顯示進度用
+function idealFillAsync(){
+  idealProg = null;
+  // 看不到的頁面不用付這個錢（開在推演頁時整個箱子都不必算）。切過去時 showView 會補開一輪。
+  if ($('view-box').hidden){ idealJob++; return; }
+  const todo = visibleIdx().filter(i => idealOf(roster[i]) === undefined);
+  if (!todo.length){ idealJob++; return; }
+  const job = ++idealJob, total = todo.length;
+  idealProg = {done: 0, total};
+  applyBoxFilter();                           // 進度文字要馬上出現，不是等第一批算完
+  const step = ()=>{
+    if (job !== idealJob) return;             // 已經有新的一輪（改了欄位／換了篩選）
+    const batch = todo.splice(0, IDEAL_CHUNK);
+    for (const i of batch){
+      if (i < roster.length) idealOf(roster[i], true);
+      idealProg.done++;
+    }
+    if (todo.length){
+      paintIdealChips(batch);                 // 只補剛算好的那幾張，不要每批重寫 60 個
+      applyBoxFilter();
+      setTimeout(step, 0);
+      return;
+    }
+    idealProg = null;
+    /* 「潛力」排序的**順序**就是這些值 —— 算完一定要重畫，只補文字的話順序是錯的。
+       其他排序不重畫：重畫會讓正在編輯的 select／input 掉焦點。 */
+    if (boxFlt.sort === 'ideal') renderBox();
+    else { paintIdealChips(batch); applyBoxFilter(); }
+  };
+  setTimeout(step, 0);
+}
+/** 就地把算好的百分比補進摺疊列（不重畫，才不會把正在編輯的欄位焦點弄掉）。
+ *  `idxs` 省略就全部重寫。 */
+function paintIdealChips(idxs){
+  const sel = idxs ? idxs.map(i=>`[data-i="${i}"] > .mon-head > .mon-idl`).join(',')
+                   : '[data-i] > .mon-head > .mon-idl';
+  if (!sel) return;
+  // querySelectorAll 回傳的是靜態列表，所以邊走邊換 outerHTML 是安全的
+  for (const el of $('boxList').querySelectorAll(sel)){
+    const i = +el.closest('[data-i]').dataset.i;
+    if (i < roster.length) el.outerHTML = idealChip(roster[i]);
+  }
+}
+/** 摺疊列第二列、欄 1 的「理想個體百分比」。
+ *
+ *  **這是比值，不是產能。** 100% 的皮卡丘不會比 70% 的妙蛙花強 —— 它只說
+ *  「這一隻離**牠自己**（同物種同等級）的天花板多近」，所以它是唯一一個可以
+ *  跨專長讀的數字，而且要和旁邊的產能數字分得開（見 scoreNote）。 */
+function idealChip(m){
+  const ideal = idealOf(m);
+  if (ideal === undefined)
+    return `<span class="mon-idl pend" title="同物種同等級「理想個體」的百分比 —— 背景計算中（一隻約 15~40ms）">潛力 <b>—</b></span>`;
+  if (!ideal)
+    return `<span class="mon-idl pend" title="這一隻的理想個體算不出來">潛力 <b>—</b></span>`;
+  const pct = idealPctFrom(m, ideal);
+  if (pct == null) return `<span class="mon-idl pend" title="這一隻的理想個體算不出來">潛力 <b>—</b></span>`;
+  const band = pct >= 90 ? 'a' : pct >= 78 ? 'b' : pct >= 62 ? 'c' : 'd';
+  const p = monPowerCached(m), t = powerText(p), it = powerText(ideal);
+  return `<span class="mon-idl ${band}" title="牠 ${t.v} ÷ 理想個體 ${it.v}（${t.u}）&#10;`
+       + `理想個體 ＝ 同物種、同等級的最佳性格＋最佳副技能＋緞帶4＋主技能滿級＋最佳食材組合。&#10;`
+       + `${natZ(NAT[ideal.member.nature]||NAT.Bashful)}／${ideal.member.ss.filter(Boolean).map(ssz).join('、')||'（無副技能）'}&#10;`
+       + `這是**比值**，可以跨專長讀 —— 但它說的是「離自己的天花板多近」，`
+       + `不是「哪一隻比較強」：100% 的皮卡丘不會比 70% 的妙蛙花強。&#10;`
+       + `貪婪搜尋出來的參考線，不是證明過的上限。">潛力 <b>${pct}%</b></span>`;
 }
 /** 摺疊列上的那兩格：主指標 ＋ 同專長名次。
  *
@@ -704,8 +792,7 @@ function scoreRow(m, allowIdeal){
   else if (!ideal)
     cmp = `<span class="muted">理想值算不出來</span>`;
   else {
-    const mine = powerMain(p), top = powerMain(ideal);
-    const pct = top > 0 ? Math.round(mine / top * 100) : 0;
+    const pct = idealPctFrom(m, ideal) ?? 0;    // 摺疊列的「潛力 N%」用的是同一條算式
     const it = powerText(ideal);
     cmp = `<span class="mon-ideal" title="同物種、同等級的最佳個體：最佳性格＋最佳副技能＋緞帶4＋主技能滿級＋最佳食材組合。&#10;`
         + `目標就是這個專長的主指標（${t.u}）—— 用別的目標會挑出完全不同的一組副技能。&#10;`
@@ -748,7 +835,11 @@ const monName = m => (m.nick || '').trim() || pz(D.dex[m.sp]);
  *  掃 60 隻時反而更亂。名字太長會在欄內自己折，不裁切（裁掉等於沒有）。
  *
  *  欄 2 第 1 列（`.mon-rest`）：`[專長] [主技能] 性格 副技能… 技Lv [📌 🚫 ✕]`
+ *  欄 1 第 2 列（`.mon-idl`）：**潛力 N%**（理想個體百分比），就在名字／等級底下。
  *  欄 2 第 2 列（`.mon-ings`）：**只有食材**，起點對齊上一列的專長標籤。
+ *
+ *  DOM 順序必須是 `.mon-idy` → `.mon-rest` → `.mon-idl` → `.mon-ings`：grid 的自動
+ *  排版是照 DOM 走的，而 `.mon-idl`／`.mon-ings` 各自寫死了欄號（1／2）。
  *
  *  為什麼食材要獨立一列：原本副技能和食材同在一個 `.mon-sum` 裡靠 flex-wrap 自然
  *  換行，兩種標籤混排、斷行位置又隨寬度浮動 —— 掃 60 隻時分不出哪個是哪個。
@@ -775,6 +866,7 @@ function monHead(m, idx, open){
   return `<div class="mon-head" data-act="toggle" title="點一下展開／收起">
       <span class="mon-idy">
         <span class="car">${open?'▼':'▶'}</span>
+        ${idx === boxNew && isBoxNew() ? '<span class="mon-new" title="剛新增的，暫時放在最前面方便填 —— 收起來就會回到目前排序該有的位置">剛新增</span>' : ''}
         ${monDup.has(idx) ? '<span class="mon-dup" title="有另一隻的每一個欄位都和牠完全相同 —— 可能是重複輸入">⚠ 重複</span>' : ''}
         <span class="mon-no">#${p.no}</span>
         <span class="mon-name${nick?' is-nick':''}" title="${nick ? `暱稱「${esc(nick)}」 · 學名 ${pz(p)}（${p.d}）` : `${pz(p)}（${p.d}）`}">${nick ? esc(nick) : pz(p)}</span>
@@ -793,6 +885,7 @@ function monHead(m, idx, open){
           <button class="btn sm ghost" data-act="del" title="刪除">✕</button>
         </span>
       </span>
+      ${idealChip(m)}
       <span class="mon-ings"><span class="mon-ilbl">食材</span>${ing}</span>
     </div>`;
 }
@@ -861,7 +954,7 @@ function setMonValues(el, m){
 
    實作用 `hidden` 切換而不是重建 innerHTML：一張卡有 246 個種類選項，60 隻就是
    一萬多個 <option>，每次打字都重建會卡。 */
-let boxFlt = {spec:'', state:'', q:'', ing:new Set(), ingMode:'any', sort:'added'};
+let boxFlt = {spec:'', state:'', q:'', ing:new Set(), ingMode:'any', sort:'added', dir:1};
 
 /* ---- 重複偵測 ----
    簽章用**每一個會影響計算的欄位**。兩隻同物種同等級但副技能不同是完全合法的
@@ -905,16 +998,71 @@ const BOX_SORTS = {
      所以「誰產最多品鮮蘑菇」是一個有意義的問題，答案也可能是一隻全能型。
      沒選食材時退回加入順序（`boxCount` 會提示要先選）。 */
   ingAmt: (a,b)=> boxFlt.ing.size ? ingSum(roster[b]) - ingSum(roster[a]) : 0,
+  /* 理想個體的百分比，高→低。**這個可以跨專長排** —— 它是比值（牠 ÷ 同物種同等級
+     的理想個體），不是產能。但它排的是「離自己的天花板多近」，不是「哪一隻比較強」，
+     所以 `boxCount` 會把這句話寫出來。
+     還沒算完的排最後（`-1`）—— 拿一半的值排出來的名次是錯的，而背景算完會重畫。 */
+  ideal: (a,b)=> (idealPct(roster[b]) ?? -1) - (idealPct(roster[a]) ?? -1),
   level: (a,b)=> roster[b].level - roster[a].level,
   spec:  (a,b)=> SPEC_ORD.indexOf(D.dex[roster[a].sp].sp) - SPEC_ORD.indexOf(D.dex[roster[b].sp].sp),
   ms:    (a,b)=> msz(D.dex[roster[a].sp].ms).localeCompare(msz(D.dex[roster[b].sp].ms), 'zh-Hant'),
 };
+/* ---- 排序方向 ----
+   每個排序的「正向」是上面那些比較器本來的方向，`boxFlt.dir === -1` 就整個反過來。
+
+   **方向只寫在按鈕上，不寫在 `<option>` 裡。** 兩個地方各寫一次方向，按了反轉之後
+   其中一個一定會變成謊話 —— 和「文案不能寫死檔名」同一類的問題。
+
+   反轉的是**整個比較器**，包含同鍵時的加入順序，所以結果就是列表倒過來 ——
+   「產能」那個連專長的分組順序也一起倒（樹果在最前 → 全能在最前），這樣才不會出現
+   「按了反轉但前半段沒動」的怪狀態。按鈕的 title 會寫出這件事。 */
+const SORT_DIR = {
+  added:  ['先加的在前', '後加的在前'],
+  no:     ['編號小→大', '編號大→小'],
+  power:  ['產能高→低', '產能低→高'],
+  ingAmt: ['產量高→低', '產量低→高'],
+  ideal:  ['潛力高→低', '潛力低→高'],
+  level:  ['等級高→低', '等級低→高'],
+  spec:   ['專長順序', '專長反序'],
+  ms:     ['主技能 A→Z', '主技能 Z→A'],
+};
+/** 按鈕上的箭頭與文字。**方向的唯一真實來源是 `boxFlt.dir`**，這裡只是把它畫出來。 */
+function syncSortDirUI(){
+  const b = $('fltDir'), rev = boxFlt.dir === -1;
+  const lab = (SORT_DIR[boxFlt.sort] || ['正向','反向'])[rev ? 1 : 0];
+  b.textContent = `${rev ? '↑' : '↓'} ${lab}`;
+  b.setAttribute('aria-pressed', rev ? 'true' : 'false');
+  b.title = `點一下反轉排序方向。目前：${lab}。\n`
+          + `反轉的是整份列表（同分時的加入順序也一起倒）`
+          + `${boxFlt.sort === 'power' ? '，「產能」連專長的分組順序也會倒過來' : ''}。`;
+}
+/* 剛按「新增一隻」建出來的那一隻的**真實 roster 索引**，會被暫時提到列表最前面。
+ *
+ *  「新增一隻」的按鈕在篩選列上（＝畫面最上面），但 `roster.push` 讓新的那隻排在
+ *  最後 —— 60 隻的箱子就得往下拉到底才找得到那張要填的表單，填完再拉回來按下一次。
+ *
+ *  **只在它還展開著的時候提前**（＝還在編輯它）。收起來就回到排序該有的位置，
+ *  所以「加入順序」這個排序名稱不會因此變成謊話 —— 而且提前的那一張會標「剛新增」，
+ *  不是靜靜地把順序換掉。 */
+let boxNew = null;
 function boxOrder(){
   const idx = roster.map((_,i)=>i);
   const cmp = BOX_SORTS[boxFlt.sort];
-  // `|| a-b`：同鍵時回到加入順序，結果才是穩定且可預測的
-  return cmp ? idx.sort((a,b)=> cmp(a,b) || a-b) : idx;
+  const dir = boxFlt.dir === -1 ? -1 : 1;
+  /* `|| a-b`：同鍵時回到加入順序，結果才是穩定且可預測的。
+     `* dir` 整個乘進去（含那個 tie-break），反轉出來的就是完整倒過來的列表；
+     「加入順序」沒有比較器，靠的就是這條 tie-break 反過來。 */
+  const ord = idx.sort((a,b)=> ((cmp ? cmp(a,b) : 0) || a-b) * dir);
+  /* 不再算數就**就地丟掉**，不要留著一個過期的索引 —— del／整批取代都會
+     `monOpen.clear()`，那之後 `boxNew` 指到的已經是別隻了，留著就會在使用者
+     下次展開那個索引時冒出一個「剛新增」的標記並把牠置頂。 */
+  if (!isBoxNew()){ boxNew = null; return ord; }
+  const at = ord.indexOf(boxNew);
+  if (at > 0){ ord.splice(at, 1); ord.unshift(boxNew); }
+  return ord;
 }
+/** 置頂那一隻還算數嗎（索引還在範圍內、而且還展開著）。 */
+const isBoxNew = () => boxNew != null && boxNew < roster.length && monOpen.has(boxNew);
 
 /* 「產這個食材的寶可夢」：看的是**食材欄位**，不是實際產量。
    食材磁鐵那類主技能會把食材灑遍 `MAGNET_POOL`（除了尾巴以外全部），所以按產量
@@ -989,8 +1137,12 @@ function applyBoxFilter(){
   /* 「選定食材的產量」排序在沒選食材時等於沒作用 —— 靜靜地不排序就是「文案說謊」
      那類 bug 的一種，所以直接寫出來要先選哪個。 */
   const need = (boxFlt.sort === 'ingAmt' && !boxFlt.ing.size) ? '　（排序要先選食材）' : '';
+  /* 理想值是背景算的，算到一半的名次是錯的 —— 進度要看得到，而且要寫出這個排序
+     排的到底是什麼（「離自己的天花板多近」≠「哪一隻比較強」）。 */
+  const busy = idealProg ? `　潛力計算中 ${idealProg.done}/${idealProg.total}…` : '';
+  const what = (boxFlt.sort === 'ideal' && !busy) ? '　（比的是離自己天花板多近，不是誰比較強）' : '';
   $('boxCount').textContent = !roster.length ? ''
-    : (on ? `顯示 ${shown} / ${roster.length} 隻` : `共 ${roster.length} 隻`) + dup + need;
+    : (on ? `顯示 ${shown} / ${roster.length} 隻` : `共 ${roster.length} 隻`) + dup + need + busy + what;
   // 展開／收起全部的按鈕文字要跟著目前狀態走
   $('boxExpand').textContent = monOpen.size ? '收起全部' : '展開全部';
   $('boxExpand').disabled = !roster.length;
@@ -1008,6 +1160,10 @@ function renderBox(){
   host.innerHTML = boxOrder().map(idx => monCard(roster[idx], idx, {allowIdeal})).join('');
   for (const el of host.querySelectorAll('[data-i]')) setMonValues(el, roster[+el.dataset.i]);
   applyBoxFilter();
+  /* 摺疊列的「潛力 N%」是背景算的 —— 一定要放在 applyBoxFilter 之後，
+     它算的是**目前看得到的那些**（`visibleIdx()` 只看 monMatch，和 hidden 無關，
+     但進度文字要蓋在剛寫好的 boxCount 上）。 */
+  idealFillAsync();
 }
 $('boxList').addEventListener('change', e=>{
   const row = e.target.closest('[data-i]'); if (!row) return;
@@ -1047,8 +1203,17 @@ $('fltIngMode').addEventListener('click', e=>{
   if (boxFlt.ing.size) renderBox();
 });
 $('fltName').addEventListener('input', e=>{ boxFlt.q = e.target.value.trim(); applyBoxFilter(); });
-// 排序會改渲染順序 → 必須重畫，不能只切 hidden
-$('fltSort').addEventListener('change', e=>{ boxFlt.sort = e.target.value; renderBox(); });
+/* 排序會改渲染順序 → 必須重畫，不能只切 hidden。
+   換排序時**方向回到正向** —— 「等級低→高」按完換去看「主技能」，繼承一個反向會
+   讓人以為排序壞了；而且每個排序的正向本來就是它最常用的方向。 */
+$('fltSort').addEventListener('change', e=>{
+  boxFlt.sort = e.target.value; boxFlt.dir = 1;
+  syncSortDirUI(); renderBox();
+});
+$('fltDir').addEventListener('click', ()=>{
+  boxFlt.dir = boxFlt.dir === -1 ? 1 : -1;
+  syncSortDirUI(); renderBox();
+});
 /** 清掉**篩選**（專長／狀態／搜尋字）。**排序刻意保留。**
  *
  *  以前這裡連排序一起清掉，理由寫的是「否則新增的那隻會跑到中間去」——
@@ -1102,14 +1267,16 @@ $('boxList').addEventListener('click', e=>{
 });
 /* 新增時先清掉篩選 —— 新的那隻（預設皮卡丘）常常不符合目前的篩選條件，
    結果按了「新增一隻」卻什麼都沒出現。**但排序要留著**（見 clearBoxFilter），
-   新的那隻在哪裡靠下面的 scrollIntoView 帶過去。 */
+   新的那隻靠 `boxNew` 暫時置頂，收起來就回到排序該有的位置。 */
 $('addBtn').addEventListener('click', ()=>{
   roster.push(BLANK());
   clearBoxFilter();
   const at = roster.length - 1;
   monOpen.clear(); monOpen.add(at);      // 新的那隻直接展開好編輯
+  boxNew = at;                           // → 渲染到列表最前面，就在「新增一隻」按鈕底下
   renderBox(); save();
-  // 用 data-i 找，不要用「最後一張」—— 排序模式下新的那隻不一定在最後
+  /* 置頂之後還是要捲 —— 使用者可能正停在列表中段，那時第一張卡在視窗外。
+     用 data-i 找，不要用「第一張」：`boxNew` 只在展開時才置頂。 */
   const card = $('boxList').querySelector(`[data-i="${at}"]`);
   if (card) card.scrollIntoView({block:'nearest'});
 });
@@ -1800,6 +1967,8 @@ function showView(name){
   for (const b of $('viewNav').querySelectorAll('[data-view]'))
     b.setAttribute('aria-pressed', b.dataset.view === name ? 'true' : 'false');
   if (name === 'recipes') renderRecipeLevels();
+  // 潛力值只在看得到箱子的時候才背景算（見 idealFillAsync），所以切過來要補開一輪
+  if (name === 'box') idealFillAsync();
   window.scrollTo({top:0, behavior:'instant'});
 }
 $('viewNav').addEventListener('click', e=>{
@@ -1906,7 +2075,7 @@ $('themeBtn').addEventListener('click', ()=>{
 /* ================= INIT ================= */
 function renderAll(){ syncWeeklyUI(); renderBox(); renderResults(); renderVersion(); if (!$('view-recipes').hidden) renderRecipeLevels(); }
 buildWeekly();
-buildBoxBar(); syncIngFilterUI();
+buildBoxBar(); syncIngFilterUI(); syncSortDirUI();
 buildImport();
 if (!wk.fav.size) wk.fav = new Set(['ORAN','PAMTRE','PECHA']);
 boot().then(()=>{ if (roster.length>=5) run(); });

@@ -1122,7 +1122,14 @@ console.log('\n[11d] 寶可夢箱 UI：篩選、真實索引、完整顯示');
     const afterAdd = {n: roster.length, spec: $('fltSpec').value,
       sort: boxFlt.sort, sortSel: $('fltSort').value,
       order: [...$('boxList').querySelectorAll('[data-i]')].map(e => D.dex[roster[+e.dataset.i].sp].no),
-      newVisible: !newCard.hidden, newOpen: !!newCard.querySelector('.mon-edit')};
+      newVisible: !newCard.hidden, newOpen: !!newCard.querySelector('.mon-edit'),
+      /* 新增的那隻要**渲染在最前面**（「新增一隻」的按鈕就在畫面最上面 ——
+         push 到最後的話 60 隻的箱子得往下拉到底才找得到那張要填的表單）。
+         而且一定要標「剛新增」：在「加入順序」排序下把最新的一隻提到最前面，
+         不講就等於排序的名稱在說謊。 */
+      newFirst: +$('boxList').querySelector('[data-i]').dataset.i === newIdx,
+      newTag: $('boxList').querySelectorAll('.mon-new').length,
+      newTagOnIt: !!newCard.querySelector('.mon-new')};
 
     // 完整顯示：副技能選項是全名（不是 Help M 這種縮寫）、食材選項只放名稱、數量在旁邊
     const ssSel = newCard.querySelector('[data-k="ss"]');
@@ -1130,6 +1137,14 @@ console.log('\n[11d] 寶可夢箱 UI：篩選、真實索引、完整顯示');
     const ingSel = newCard.querySelector('[data-k="ingSet"]');
     const ingText = ingSel.options[0].text;
     const amount = ingSel.closest('.ingpick').querySelector('b').textContent;
+
+    /* 收起來 ＝ 填完了 → 回到目前排序該有的位置，標記也要跟著消失。
+       （置頂是「我正在編輯這一隻」的暫時狀態，不是一個新的排序規則。）
+       重新 querySelector：上面那次 click 已經整個重畫過，舊的節點是脫離的。 */
+    $('boxList').querySelector(`[data-i="${newIdx}"] .mon-head`).click();
+    const afterCollapse = {
+      order: [...$('boxList').querySelectorAll('[data-i]')].map(e => D.dex[roster[+e.dataset.i].sp].no),
+      tag: $('boxList').querySelectorAll('.mon-new').length};
 
     /* 刪除會讓後面的索引整批位移 → 展開狀態必須清掉，
        不然會展開到「原本是下一隻」的那一隻身上。
@@ -1204,7 +1219,7 @@ console.log('\n[11d] 寶可夢箱 UI：篩選、真實索引、完整顯示');
     };
 
     return {openAfterLoad, all, collapsedControls, summary, ingOnly, countText, targetIdx, openedControls,
-            levels, reclosed, searched, bySs, cleared, afterAdd, afterCancel, afterDel,
+            levels, reclosed, searched, bySs, cleared, afterAdd, afterCollapse, afterCancel, afterDel,
             toggleAsked, ssText, ingText, amount, mewSlot3, locked, natTexts};
   });
   ok('整批載入 roster 會清掉展開狀態（否則展開到別隻身上）', r.openAfterLoad === 0, String(r.openAfterLoad));
@@ -1231,11 +1246,23 @@ console.log('\n[11d] 寶可夢箱 UI：篩選、真實索引、完整顯示');
      JSON.stringify(r.afterAdd));
   /* 排序不是篩選。以前 clearBoxFilter() 連排序一起清掉 —— 用「圖鑑編號」在看箱子，
      按一下「新增一隻」整個列表就跳回加入順序，看起來像排序自己壞掉（實際踩過）。
-     清除篩選、截圖存入、JSON 匯入三條路徑都走同一個函式，所以三條都中。 */
+     清除篩選、截圖存入、JSON 匯入三條路徑都走同一個函式，所以三條都中。
+     置頂只影響新增的**那一張**，其餘仍照排序 —— 所以這裡比的是「去掉第一張之後」。 */
   ok('新增一隻不會把排序打掉（排序不是篩選）',
      r.afterAdd.sort === 'no' && r.afterAdd.sortSel === 'no' &&
-     r.afterAdd.order.join(',') === [...r.afterAdd.order].sort((a,b)=>a-b).join(','),
+     r.afterAdd.order.slice(1).join(',') === [...r.afterAdd.order.slice(1)].sort((a,b)=>a-b).join(','),
      `sort=${r.afterAdd.sort}/${r.afterAdd.sortSel} order=#${r.afterAdd.order.join(' #')}`);
+  /* 「新增一隻」的按鈕在篩選列上（畫面最上面），但 roster.push 讓新的那隻排在最後 ——
+     60 隻的箱子就得往下拉到底才找得到那張要填的表單，填完再拉回來按下一次。 */
+  ok('新增的那一隻渲染在最前面，就在「新增一隻」按鈕底下',
+     r.afterAdd.newFirst && r.afterAdd.order[0] === 25, JSON.stringify(r.afterAdd.order));
+  ok('置頂的那一張標「剛新增」（否則等於排序的名稱在說謊）',
+     r.afterAdd.newTag === 1 && r.afterAdd.newTagOnIt,
+     `tag=${r.afterAdd.newTag} onIt=${r.afterAdd.newTagOnIt}`);
+  ok('收起來就回到排序該有的位置，標記也消失（置頂只是「正在編輯」的暫時狀態）',
+     r.afterCollapse.tag === 0 &&
+     r.afterCollapse.order.join(',') === [...r.afterCollapse.order].sort((a,b)=>a-b).join(','),
+     `tag=${r.afterCollapse.tag} order=#${r.afterCollapse.order.join(' #')}`);
   ok('副技能選項顯示全名', r.ssText === '幫忙速度M', r.ssText);
   ok('食材選項只放名稱，數量顯示在旁邊', r.ingText === '特選蘋果' && r.amount === '×1',
      `「${r.ingText}」 / 「${r.amount}」`);
@@ -1578,6 +1605,117 @@ console.log('\n[11h] 寶可夢箱：食材篩選（可複選）與選中食材�
   ok('沒選食材就用這個排序時會講出來', /排序要先選食材/.test(r.hint), r.hint);
   ok('清除篩選會清掉食材選取，chips 也彈回來',
      r.cleared.size === 0 && r.cleared.n === 4 && r.cleared.pressed === 0, JSON.stringify(r.cleared));
+}
+
+/* 摺疊列上的「潛力 N%」（＝ 牠 ÷ 同物種同等級的理想個體）與**雙向**排序。
+   守兩件事：
+   ① 那個百分比和展開後產能列上的是**同一個數字**（兩份算式一定會走鐘）。
+   ② 方向只寫在按鈕上。`<option>` 裡再寫一次「高→低」，按了反轉就有一個變成謊話。 */
+console.log('\n[11i] 寶可夢箱：潛力（理想個體 %）與雙向排序');
+{
+  const r = await page.evaluate(() => {
+    const mk = (n, lv, nat, ss, sk, rib) => ({
+      sp:n, level:lv, nature:nat||'Bashful',
+      ss:[...(ss||[]), ...Array(5-(ss||[]).length).fill(null)],
+      ingSet:[0,0,0], skillLv:sk||1, ribbon:rib||0, pin:false, ex:false, nick:''});
+    deserialize({roster: [
+      mk('RAICHU', 60, 'Adamant', ['Berry Finding S','Helping Speed M'], 3, 4),  // 0 練得不錯
+      mk('RAICHU', 60, 'Bashful', [], 1, 0),                                     // 1 同物種同等級，白板
+      mk('VENUSAUR', 30, 'Quiet', ['Ingredient Finder M'], 3, 4),                // 2 別的專長、別的等級
+    ]});
+    showView('box'); clearBoxFilter(); monOpen.clear();
+    $('fltSort').value = 'added'; $('fltSort').dispatchEvent(new Event('change', {bubbles:true}));
+    const fire = (id, ev) => $(id).dispatchEvent(new Event(ev, {bubbles:true}));
+    /* 背景填算是 setTimeout 排的，在同一個 evaluate 裡不會跑到 —— 這裡直接
+       同步算完，測的才是排序與顯示，不是計時器。 */
+    roster.forEach(m => idealOf(m, true));
+    renderBox();
+
+    const order = () => [...$('boxList').querySelectorAll('[data-i]')].map(e => +e.dataset.i);
+    const chips = [...$('boxList').querySelectorAll('[data-i]')].map(e => {
+      const c = e.querySelector('.mon-idl');
+      return c ? c.textContent.trim() : null;
+    });
+    const pcts = roster.map(m => idealPct(m));
+    /* 版面：潛力在摺疊列的**第二列、欄 1**（名字／等級底下）。DOM 上它必須是
+       `.mon-head` 的直接子元素，而且排在 `.mon-rest` 之後、`.mon-ings` 之前 ——
+       grid 的自動排版照 DOM 走，順序錯了就會掉到別的格子。 */
+    const head = $('boxList').querySelector('[data-i="0"] .mon-head');
+    const kids = [...head.children].map(e => e.className.split(' ')[0]);
+    const layout = {kids, direct: head.querySelector(':scope > .mon-idl') !== null,
+      inIdy: head.querySelectorAll('.mon-idy .mon-idl').length,
+      inIngs: head.querySelectorAll('.mon-ings .mon-idl').length};
+
+    // 摺疊列的百分比必須等於展開後產能列上的那一個
+    $('boxList').querySelector('[data-i="0"] .mon-head').click();
+    const rowPct = ($('boxList').querySelector('[data-i="0"] .mon-ideal b')||{}).textContent;
+    const headPct = $('boxList').querySelector('[data-i="0"] .mon-idl b').textContent;
+    monOpen.clear(); renderBox();
+
+    // 潛力排序（正向＝高→低）
+    $('fltSort').value = 'ideal'; fire('fltSort', 'change');
+    const byIdeal = order(), dirFwd = $('fltDir').textContent.trim();
+    const fwdPcts = byIdeal.map(i => idealPct(roster[i]));
+    // 反轉 → 整份倒過來
+    $('fltDir').click();
+    const revIdeal = order(), dirRev = $('fltDir').textContent.trim();
+
+    // 「加入順序」也要能反轉（它沒有比較器，靠的是同鍵時的 tie-break）
+    $('fltSort').value = 'added'; fire('fltSort', 'change');
+    const addedFwd = order(), addedDir = boxFlt.dir;      // 換排序時方向要回到正向
+    $('fltDir').click();
+    const addedRev = order();
+    // 等級：正向是高→低，反轉就是低→高
+    $('fltSort').value = 'level'; fire('fltSort', 'change');
+    const lvFwd = order().map(i => roster[i].level);
+    $('fltDir').click();
+    const lvRev = order().map(i => roster[i].level);
+    const revLabel = $('fltDir').textContent.trim();
+
+    /* 方向不能同時寫在 `<option>` 裡 —— 反轉之後其中一個一定變成謊話。 */
+    const optTexts = [...$('fltSort').options].map(o => o.text);
+    $('fltSort').value = 'added'; fire('fltSort', 'change');
+    monOpen.clear(); clearBoxFilter(); renderBox();
+    return {chips, pcts, layout, rowPct, headPct, byIdeal, fwdPcts, revIdeal,
+            dirFwd, dirRev, addedFwd, addedRev, addedDir, lvFwd, lvRev, revLabel, optTexts,
+            note: $('scoreNote').textContent.trim()};
+  });
+  ok('摺疊列每一隻都有「潛力 N%」', r.chips.every(t => t && /潛力\s*\d+%/.test(t)), r.chips.join(' | '));
+  ok('潛力是比值，不會超過 100%（理想個體含牠自己）',
+     r.pcts.every(v => v > 0 && v <= 100), r.pcts.join(', '));
+  /* 同物種同等級：練得好的那一隻百分比一定比白板高 —— 這正是「個體潛力」要回答的問題。 */
+  ok('同物種同等級時，副技能／性格好的那一隻百分比比較高',
+     r.pcts[0] > r.pcts[1], `${r.pcts[0]}% vs ${r.pcts[1]}%`);
+  ok('潛力在摺疊列第二列欄 1（.mon-head 的直接子元素，排在 .mon-rest 之後）',
+     r.layout.direct && r.layout.inIdy === 0 && r.layout.inIngs === 0 &&
+     r.layout.kids.join(',') === 'mon-idy,mon-rest,mon-idl,mon-ings', r.layout.kids.join(','));
+  /* 兩份算式一定會走鐘，而走鐘的那份會靜靜地顯示錯的數字。 */
+  ok('摺疊列的百分比和展開後產能列上的是同一個數字',
+     r.headPct === r.rowPct && /%$/.test(r.headPct), `摺疊 ${r.headPct} / 展開 ${r.rowPct}`);
+  ok('依潛力排序（高→低）',
+     r.fwdPcts.join(',') === [...r.fwdPcts].sort((a,b)=>b-a).join(','), r.fwdPcts.join(', '));
+  ok('反轉之後就是整份倒過來',
+     r.revIdeal.join(',') === [...r.byIdeal].reverse().join(','),
+     `${r.byIdeal.join(',')} → ${r.revIdeal.join(',')}`);
+  ok('「加入順序」也反轉得了（它沒有比較器，靠 tie-break）',
+     r.addedFwd.join(',') === '0,1,2' && r.addedRev.join(',') === '2,1,0',
+     `${r.addedFwd.join(',')} → ${r.addedRev.join(',')}`);
+  /* 「等級低→高」按完換去看「主技能」，繼承一個反向會讓人以為排序壞了。 */
+  ok('換排序時方向回到正向', r.addedDir === 1, String(r.addedDir));
+  ok('等級：正向高→低、反轉低→高',
+     r.lvFwd.join(',') === [...r.lvFwd].sort((a,b)=>b-a).join(',') &&
+     r.lvRev.join(',') === [...r.lvRev].sort((a,b)=>a-b).join(','),
+     `${r.lvFwd.join(',')} → ${r.lvRev.join(',')}`);
+  ok('按鈕上寫著目前的方向（↓／↑ ＋ 文字）',
+     /^↓/.test(r.dirFwd) && /潛力高→低/.test(r.dirFwd) &&
+     /^↑/.test(r.dirRev) && /潛力低→高/.test(r.dirRev) && /等級低→高/.test(r.revLabel),
+     `${r.dirFwd} / ${r.dirRev} / ${r.revLabel}`);
+  /* 方向寫在兩個地方，按了反轉就有一個在說謊。 */
+  ok('排序選單本身不寫方向（方向只在按鈕上）',
+     !r.optTexts.some(t => /高→低|低→高/.test(t)), r.optTexts.join(' | '));
+  ok('說明文案講明潛力是比值、不是「誰比較強」',
+     /離.{0,4}自己.{0,4}的天花板多近/.test(r.note) && /100% 的皮卡丘/.test(r.note),
+     r.note.slice(-120));
 }
 
 /* 用另開的頁面跑 —— 這一節刻意觸發致命錯誤，不能污染上面的 errors 收集。 */
