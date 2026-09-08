@@ -77,6 +77,10 @@ const errors = [];
 const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
 page.on('pageerror', (e) => errors.push(String(e.message)));
 page.on('console', (m) => { if (m.type() === 'error' && !/net::ERR|Failed to load resource/.test(m.text())) errors.push('console: ' + m.text()); });
+/* Playwright 預設會自動「取消」所有原生對話框，所以按了刪除的 confirm 會被拒。
+   這裡集中處理，讓測試能明確控制要按確定還是取消，並留下訊息內容供斷言。 */
+let dialogAccept = true, lastDialog = '';
+page.on('dialog', async (d) => { lastDialog = d.message(); await (dialogAccept ? d.accept() : d.dismiss()); });
 
 const seed = `
   const mk = (n, lv, nat, ss, ing, sk, rib) => ({
@@ -494,9 +498,13 @@ console.log('\n[11] 文案一致性 — 不能提到不存在的檔案或指令'
      await page.evaluate(() => window.ASSET_V === APP_V));
 }
 
-/* 截圖匯入。這一節的 golden case 是**兩隻真實的寶可夢**（使用者 2026-09-07 提供的
-   遊戲截圖），期望值是逐欄手算對照過的 —— 不是程式自己算出來再存回去，所以動到
-   baseStats / helpInterval / impSolve 的係數時這裡會紅。 */
+/* 截圖匯入。這一節的 golden case 是**七隻真實的寶可夢**（使用者 2026-09-07 與
+   2026-09-08 提供的遊戲截圖），期望值是逐欄手算對照過的 —— 不是程式自己算出來再
+   存回去，所以動到 baseStats / helpInterval / impSolve 的係數時這裡會紅。
+
+   每一隻的 `intervalSec` / `carry` 都是截圖上的字面值，而且都解出**唯一**的
+   (物種, 緞帶)。第三個獨立校驗碼是樹果顆數（樹果專長 2 顆 ＋ 樹果數量S 1 顆），
+   在後面單獨驗。 */
 console.log('\n[11b] 截圖匯入：反解物種／緞帶／食材欄位');
 const IMP_CASES = [
   { label: '大食花 Lv60 頑皮',
@@ -504,14 +512,54 @@ const IMP_CASES = [
            skillDisplayLv:6, skillPayload:43, nature:'Naughty',
            ss:['Skill Level Up M','Ingredient Finder M','Helping Speed M','Ingredient Finder S','Helping Speed S'],
            ingCounts:[2,4,6], intervalSec:1911, carry:35, camp:false },
-    want: { sp:'VICTREEBEL', ribbon:4, ingSet:'0,1,1', skillLv:4, amb:'' } },
+    want: { sp:'VICTREEBEL', ribbon:4, ingSet:'0,1,1', skillLv:4, amb:'', berry:1 } },
   { label: '水箭龜 Lv62 馬虎',
     obs: { level:62, specialty:'ingredient', mainSkill:'Ingredient Magnet S',
            skillDisplayLv:3, skillPayload:11, nature:'Rash',
            ss:['Inventory Up M','Helping Bonus','Inventory Up L','Ingredient Finder S','Skill Trigger S'],
            ingCounts:[2,3,7], intervalSec:2458, carry:65, camp:false },
     // i60 是 牛奶×7 / 可可×5 / 豆製肉×7 —— ×7 有兩個選項，所以第 3 格一定是歧義
-    want: { sp:'BLASTOISE', ribbon:4, ingSet:'0,1,0', skillLv:3, amb:'3' } },
+    want: { sp:'BLASTOISE', ribbon:4, ingSet:'0,1,0', skillLv:3, amb:'3', berry:1 } },
+  /* 以下五隻：2026-09-08 的截圖。挑這幾隻是因為每一隻都壓到一個不同的邊界。 */
+  { label: '嘎啦嘎啦 Lv55 害羞',
+    // 害羞是**無修正**性格（畫面「沒有性格帶來的特色」）—— nat.f = 1 這條路徑
+    obs: { level:55, specialty:'berry', mainSkill:'Charge Energy S',
+           skillDisplayLv:6, skillPayload:43, nature:'Bashful',
+           ss:['Helping Bonus','Berry Finding S','Skill Trigger M','Helping Speed S','Inventory Up S'],
+           ingCounts:[1,2,4], intervalSec:49*60+3, carry:26, camp:false },
+    // 第 2 格：暖暖薑×2 與 放鬆可可×2 數量相同 → 一定是歧義，要標出來
+    want: { sp:'MAROWAK', ribbon:3, ingSet:'0,0,0', skillLv:6, amb:'2', berry:3 } },
+  { label: '耿鬼 Lv50 怕寂寞',
+    // 能量填充S 畫面顯示的是**區間**「393〜1,570」→ 走 impEffFromPayload 第二段
+    obs: { level:50, specialty:'ingredient', mainSkill:'Charge Strength S',
+           skillDisplayLv:3, skillPayload:393, nature:'Lonely',
+           ss:['Helping Speed M','Helping Speed S','Inventory Up S','Skill Level Up S','Ingredient Finder M'],
+           ingCounts:[2,5,6], intervalSec:23*60+30, carry:40, camp:false },
+    // Lv50 第 3 格還沒解鎖，但畫面預告了「品鮮蘑菇×6」→ 必須解成 1，不是預設的 0
+    want: { sp:'GENGAR', ribbon:3, ingSet:'0,0,1', skillLv:3, amb:'', berry:1, src:'payload-range' } },
+  { label: '嘟嘟利 Lv53 害羞',
+    // 主技能等級 Lv.1（下界）＋ 持有上限提升L（+18）
+    obs: { level:53, specialty:'berry', mainSkill:'Charge Energy S',
+           skillDisplayLv:1, skillPayload:12, nature:'Bashful',
+           ss:['Inventory Up L','Berry Finding S','Helping Speed M','Ingredient Finder S','Research EXP Bonus'],
+           ingCounts:[1,2,4], intervalSec:29*60+32, carry:50, camp:false },
+    want: { sp:'DODRIO', ribbon:3, ingSet:'0,0,0', skillLv:1, amb:'', berry:3 } },
+  { label: '隆隆岩 Lv60 怕寂寞',
+    // 緞帶 1（RIBBON_CARRY 的 +1）—— 其他六隻都不是 1，這格單獨壓一次
+    obs: { level:60, specialty:'ingredient', mainSkill:'Charge Strength S',
+           skillDisplayLv:2, skillPayload:285, nature:'Lonely',
+           ss:['Helping Speed M','Ingredient Finder M','Helping Speed S','Sleep EXP Bonus','Skill Level Up M'],
+           ingCounts:[2,4,6], intervalSec:32*60+24, carry:27, camp:false },
+    want: { sp:'GOLEM', ribbon:1, ingSet:'0,1,1', skillLv:2, amb:'', berry:1, src:'payload-range' } },
+  { label: '妙蛙花 Lv61 樂天',
+    /* 這隻是「畫面顯示的是加成後等級」的第二個獨立憑據：技能等級提升M 在第 3 格
+       （Lv50 解鎖）而牠 Lv61 → 加成 +2 生效；說明數字 17 反查出有效等級 5，
+       正好等於畫面顯示的 Lv.5 → 基礎值 3。 */
+    obs: { level:61, specialty:'ingredient', mainSkill:'Ingredient Magnet S',
+           skillDisplayLv:5, skillPayload:17, nature:'Lax',
+           ss:['Ingredient Finder M','Ingredient Finder S','Skill Level Up M','Skill Trigger M','Sleep EXP Bonus'],
+           ingCounts:[2,4,6], intervalSec:41*60+4, carry:35, camp:false },
+    want: { sp:'VENUSAUR', ribbon:4, ingSet:'0,1,2', skillLv:3, amb:'', berry:1 } },
 ];
 {
   for (const c of IMP_CASES) {
@@ -522,6 +570,7 @@ const IMP_CASES = [
       return { n: res.cands.length, sp: D.dex[t.m.sp].n, ribbon: t.m.ribbon,
         ingSet: t.m.ingSet.join(','), skillLv: t.m.skillLv, eff: t.skill.effective,
         src: t.skill.source, iv: t.interval, cr: t.carry,
+        berry: baseStats(t.m, {camp:0}).berriesPerDrop,
         amb: [0,1,2].filter(s => t.amb[s] && t.amb[s].length > 1).map(s => s+1).join(','),
         vOk: v.interval.ok === true && v.carry.ok === true };
     }, c.obs);
@@ -531,12 +580,81 @@ const IMP_CASES = [
     ok(`${c.label}：食材欄位 [${c.want.ingSet}]`, r.ingSet === c.want.ingSet, `得到 [${r.ingSet}]`);
     ok(`${c.label}：主技能基礎等級 ${c.want.skillLv}（畫面顯示的是加成後）`,
        r.skillLv === c.want.skillLv, `得到 ${r.skillLv}，有效 ${r.eff}，來源 ${r.src}`);
-    ok(`${c.label}：有效等級是從技能說明的數字反查`, r.src === 'payload', r.src);
+    ok(`${c.label}：有效等級是從技能說明的數字反查`, r.src === (c.want.src || 'payload'), r.src);
     ok(`${c.label}：兩個校驗碼都重算得回截圖上的值`,
        r.iv === c.obs.intervalSec && r.cr === c.obs.carry && r.vOk,
        `${r.iv}s / ${r.cr}個`);
+    /* 第三個獨立校驗碼：畫面「樹果 ×N」。樹果專長 2 顆 ＋ 樹果數量S 1 顆。
+       它不吃幫忙間隔也不吃持有上限，所以是一條真正獨立的驗算。 */
+    ok(`${c.label}：樹果顆數 ×${c.want.berry}（第三個獨立校驗碼）`, r.berry === c.want.berry, `得到 ×${r.berry}`);
     ok(`${c.label}：歧義欄位標示正確（第 ${c.want.amb || '無'} 格）`, r.amb === c.want.amb, `得到「${r.amb}」`);
   }
+
+  /* 範圍型主技能。遊戲對耿鬼的「能量填充S」顯示「卡比獸的能量增加393〜1,570」，
+     而快照只存一個固定值 785 —— 區間剛好是 [v/2, 2v]。這一段保證：
+       (1) 區間的**兩端**都反查得出同一個等級
+       (2) 精確比對有唯一解時**不會**被第二段影響（大食花的 43 還是走第一段）
+       (3) 掃過全部技能 × 全部等級的兩端，第二段不會給出「錯的唯一解」
+     第 (3) 條是關鍵：這種放寬比對很容易靜靜地算錯，而算錯的技能等級不會讓任何
+     校驗碼破掉（幫忙間隔與持有上限都不吃 skillLv）—— 沒有這條就沒人擋得住。 */
+  const rng = await page.evaluate(() => {
+    const pick = (nm, pay) => { const h = impEffFromPayload(nm, pay); return h ? [h.lv, h.ranged] : null; };
+    let good = 0, ambig = 0, exact = 0, wrong = 0;
+    for (const nm of Object.keys(D.ms)) {
+      for (const k of Object.keys(D.ms[nm])) {
+        const arr = D.ms[nm][k];
+        if (!Array.isArray(arr)) continue;
+        arr.forEach((v, i) => {
+          if (typeof v !== 'number') return;
+          for (const pay of [Math.round(v/2), v*2]) {
+            const h = impEffFromPayload(nm, pay);
+            if (!h) { ambig++; continue; }
+            if (!h.ranged) { exact++; continue; }
+            if (h.lv === i+1) good++; else wrong++;
+          }
+        });
+      }
+    }
+    return { lo: pick('Charge Strength S', 393), hi: pick('Charge Strength S', 1570),
+             lo2: pick('Charge Strength S', 285), hi2: pick('Charge Strength S', 1138),
+             exact43: pick('Charge Energy S', 43), exact11: pick('Ingredient Magnet S', 11),
+             sweep: { good, ambig, exact, wrong } };
+  });
+  ok('範圍型技能：區間低端 393 → 有效等級 3', rng.lo && rng.lo[0] === 3 && rng.lo[1] === true, JSON.stringify(rng.lo));
+  ok('範圍型技能：區間高端 1570 → 同一個等級 3', rng.hi && rng.hi[0] === 3 && rng.hi[1] === true, JSON.stringify(rng.hi));
+  ok('範圍型技能：285／1138 都 → 有效等級 2',
+     rng.lo2 && rng.lo2[0] === 2 && rng.hi2 && rng.hi2[0] === 2, JSON.stringify([rng.lo2, rng.hi2]));
+  ok('精確比對優先（43 與 11 不受第二段影響）',
+     rng.exact43 && rng.exact43[0] === 6 && rng.exact43[1] === false &&
+     rng.exact11 && rng.exact11[0] === 3 && rng.exact11[1] === false, JSON.stringify([rng.exact43, rng.exact11]));
+  ok('全技能 × 全等級掃描：第二段不會給出錯的唯一解',
+     rng.sweep.wrong === 0 && rng.sweep.good > 0, JSON.stringify(rng.sweep));
+
+  /* 還沒解鎖的食材格也要解。`baseStats` 只讀 min(floor(level/30)+1,3) 格，所以
+     這一格存錯**不會讓任何數字跑掉** —— 一路等到升級才發現。實際踩過：耿鬼 Lv50
+     的第 3 格畫面預告「品鮮蘑菇×6」，跳過的話會存成預設的「火辣香草×7」。 */
+  const lock = await page.evaluate(() => {
+    const gp = D.dex.findIndex(x => x.n === 'GENGAR');
+    const set = impIngSets(gp, 50, [2, 5, 6]);
+    const i60 = D.dex[gp].i60;
+    const mk = i2 => ({ sp: gp, level: 50, nature: 'Lonely',
+      ss: ['Helping Speed M','Helping Speed S','Inventory Up S','Skill Level Up S','Ingredient Finder M'],
+      ingSet: [0, 0, i2], skillLv: 3, ribbon: 3, pin: false, ex: false });
+    // 換遍第 3 格，看兩個校驗碼與樹果顆數會不會變（不會 → 錯了也無聲）
+    const sigs = new Set(i60.map((_, i) => {
+      const bs = baseStats(mk(i), {camp:0});
+      return [impInterval(mk(i), false), impCarry(mk(i), false), bs.berriesPerDrop].join('/');
+    }));
+    return { pick: set.pick.join(','), slots: set.slots,
+             name: D.zh.ings[ING_NAME[i60[set.pick[2]][0]]], amt: i60[set.pick[2]][1],
+             silent: sigs.size === 1 };
+  });
+  ok('未解鎖的第 3 格照樣用 ×N 解出來（耿鬼 Lv50 → 品鮮蘑菇×6）',
+     lock.pick === '0,0,1' && lock.name === '品鮮蘑菇' && lock.amt === 6,
+     `${lock.pick} / ${lock.name}×${lock.amt}`);
+  ok('回傳的 slots 仍然是 2（UI 才知道那格還不生效）', lock.slots === 2, String(lock.slots));
+  ok('而第 3 格存錯不會讓任何校驗碼破掉 —— 所以只能靠上面那條擋',
+     lock.silent === true, String(lock.silent));
 
   // 中文反向查表（含全形 Ｍ —— 遊戲字型可能是全形，zh 表裡是半形）
   const rev = await page.evaluate(() => ({
@@ -683,13 +801,31 @@ console.log('\n[11c] JSON 匯入：追加 vs 取代');
     deserialize({roster: [mk('EEVEE')], wk: {areaBonus: 5}});
     const tookWk = wk.areaBonus;
     wk.areaBonus = 15;
-    return {start, appended, replaced, keptWk, tookWk};
+
+    /* `sp` 的還原。serialize() 寫的是內部名，但手寫或別處產生的 JSON 可能用
+       dex 索引。以前認不出來就靜靜退回索引 0 —— 五隻不同的寶可夢會一起變成
+       妙蛙種子，畫面上沒有任何提示。實際踩過（2026-09-08）。 */
+    const gi = D.dex.findIndex(x => x.n === 'GENGAR');
+    const vi = D.dex.findIndex(x => x.n === 'VENUSAUR');
+    const byIdx = deserialize({roster: [{...mk('MEW'), sp: gi}, {...mk('MEW'), sp: vi}]});
+    const idxNames = names();
+    const bad = deserialize({roster: [{...mk('MEW'), sp: 'NOT_A_POKEMON'}, {...mk('MEW'), sp: 9999}]});
+    const badNames = names();
+    return {start, appended, replaced, keptWk, tookWk,
+            idxNames, idxBad: byIdx.badSp.length, badNames, bad: bad.badSp};
   });
   ok('起始兩隻', r.start === 'PIKACHU,RAICHU', r.start);
   ok('追加會接在現有的後面', r.appended === 'PIKACHU,RAICHU,GENGAR', r.appended);
   ok('取代會換掉整箱（備份還原用的）', r.replaced === 'MEW', r.replaced);
   ok('追加不會動到本週條件', r.keptWk === 35, String(r.keptWk));
   ok('取代會套用 JSON 裡的本週條件', r.tookWk === 5, String(r.tookWk));
+  ok('sp 也接受 dex 索引（impSolve 產出的就是索引）',
+     r.idxNames === 'GENGAR,VENUSAUR' && r.idxBad === 0, r.idxNames);
+  ok('認不出來的 sp 會被回報，不是靜靜變成第一隻',
+     r.bad.length === 2 && r.bad.includes('NOT_A_POKEMON') && r.bad.includes('9999'),
+     JSON.stringify(r.bad));
+  ok('（回報之後才退回第一隻，讓使用者有東西可以改）',
+     r.badNames === 'BULBASAUR,BULBASAUR', r.badNames);
 }
 
 /* 箱子 UI 重做（一隻一張卡、三列、加篩選）。最要守住的是 data-i：
@@ -716,6 +852,12 @@ console.log('\n[11d] 寶可夢箱 UI：篩選、真實索引、完整顯示');
       rrClass: firstHead.querySelector('.rr').className,
       ing: firstHead.querySelectorAll('.mon-i').length,
       ingText: firstHead.querySelector('.mon-i').textContent,
+      /* 食材必須在**自己那一列**（`.mon-ings`），不能混在副技能的 `.mon-sum` 裡 ——
+         兩種標籤混排、斷行位置又隨寬度浮動，掃 60 隻時分不出哪個是哪個。 */
+      ingsRow: firstHead.querySelectorAll('.mon-ings').length,
+      ingInSum: firstHead.querySelectorAll('.mon-sum .mon-i').length,
+      ingInRow: firstHead.querySelectorAll('.mon-ings .mon-i').length,
+      ssInRow: firstHead.querySelectorAll('.mon-ings .rr').length,
     };
 
     $('fltSpec').value = 'ingredient'; fire('fltSpec', 'change');
@@ -761,21 +903,80 @@ console.log('\n[11d] 寶可夢箱 UI：篩選、真實索引、完整顯示');
     const amount = ingSel.closest('.ingpick').querySelector('b').textContent;
 
     /* 刪除會讓後面的索引整批位移 → 展開狀態必須清掉，
-       不然會展開到「原本是下一隻」的那一隻身上。 */
+       不然會展開到「原本是下一隻」的那一隻身上。
+       ✕ 現在會先問一次 —— 這裡把 confirm 換掉，才能同時測「取消」和「確定」。
+       （不用原生對話框：它會擋住 renderer，在 page.evaluate 裡容易卡死。） */
+    const realConfirm = window.confirm;
+    let askedMsg = '';
     monOpen.clear(); monOpen.add(2);
     renderBox();
+
+    // 先按取消 —— 一隻都不能少
+    window.confirm = (msg) => { askedMsg = msg; return false; };
+    const beforeDel = roster.length;
+    $('boxList').querySelector('[data-i="0"] [data-act="del"]').click();
+    const afterCancel = {n: roster.length, msg: askedMsg};
+
+    // 再按確定
+    window.confirm = () => true;
     $('boxList').querySelector('[data-i="0"] [data-act="del"]').click();
     const afterDel = {n: roster.length, open: monOpen.size,
-      anyEdit: $('boxList').querySelectorAll('.mon-edit').length};
+      anyEdit: $('boxList').querySelectorAll('.mon-edit').length, before: beforeDel};
+
+    // 📌 和 🚫 就在 ✕ 旁邊，它們**不該**問 —— 隨手切換用的，而且可逆
+    let askedForToggle = false;
+    window.confirm = () => { askedForToggle = true; return true; };
+    $('boxList').querySelector('[data-i="0"] [data-act="pin"]').click();
+    $('boxList').querySelector('[data-i="0"] [data-act="ex"]').click();
+    const toggleAsked = askedForToggle;
+    window.confirm = realConfirm;
 
     // regression：夢幻／達克萊伊的 [null,0] 空欄位以前會顯示成 "undefined×0"
     deserialize({roster: [mk('MEW')]});
     clearBoxFilter(); monOpen.clear(); monOpen.add(0); renderBox();
     const mewSlot3 = [...$('boxList').querySelectorAll('[data-k="ingSet"]')][2].options[0].text;
 
+    /* 未解鎖的食材格：和副技能同一個處理方式 —— 變淡但照樣顯示、照樣可改。
+       以前是 disabled ＋ 顯示「未解鎖」，結果截圖校對時那一格根本改不了，而遊戲
+       畫面明明預告了它（🔒Lv.60 加食材圖與 ×N）。 */
+    const g = D.dex.findIndex(x => x.n === 'GENGAR');
+    deserialize({roster: [{sp:g, level:50, nature:'Lonely', ss:[null,null,null,null,null],
+                           ingSet:[0,0,1], skillLv:3, ribbon:3, pin:false, ex:false}]});
+    clearBoxFilter(); monOpen.clear(); monOpen.add(0); renderBox();
+    const gCard = $('boxList').querySelector('[data-i="0"]');
+    const heads = [...gCard.querySelectorAll('.mon-i')];
+    const picks = [...gCard.querySelectorAll('.ingpick')];
+    const locked = {
+      heads: heads.length,
+      headLock: heads.map(e => e.classList.contains('lock')).join(','),
+      headText: heads[2].textContent,
+      pickLock: picks.map(e => e.classList.contains('locked')).join(','),
+      disabled: picks.filter(e => e.querySelector('select').disabled).length,
+      amount3: picks[2].querySelector('b').textContent,
+      sel3: picks[2].querySelector('select').value,
+    };
+
+    /* 無修正的性格（`p === 'neutral'`，25 種裡有 5 種）以前會渲染成
+       「害羞 +undefined −undefined」—— `'neutral'` 是 truthy，直接查 NAT_AB 就是
+       undefined。性格選單（natLabel）和摺疊列（natBrief）都中。 */
+    deserialize({roster: [{sp:'GENGAR', level:60, nature:'Bashful', ss:[null,null,null,null,null],
+                           ingSet:[0,0,0], skillLv:1, ribbon:0, pin:false, ex:false},
+                          {sp:'GENGAR', level:60, nature:'Lonely', ss:[null,null,null,null,null],
+                           ingSet:[0,0,0], skillLv:1, ribbon:0, pin:false, ex:false}]});
+    clearBoxFilter(); monOpen.clear(); monOpen.add(0); renderBox();
+    const natTexts = {
+      neutral: $('boxList').querySelector('[data-i="0"] .mon-nat').textContent.trim(),
+      normal:  $('boxList').querySelector('[data-i="1"] .mon-nat').textContent.trim(),
+      // 性格選單裡那 5 種也不能有 undefined
+      optNeutral: [...$('boxList').querySelector('[data-k="nature"]').options]
+                    .find(o => o.value === 'Bashful').text,
+      optAll: [...$('boxList').querySelector('[data-k="nature"]').options]
+                    .filter(o => /undefined/.test(o.text)).length,
+    };
+
     return {all, collapsedControls, summary, ingOnly, countText, targetIdx, openedControls,
-            levels, reclosed, searched, bySs, cleared, afterAdd, afterDel,
-            ssText, ingText, amount, mewSlot3};
+            levels, reclosed, searched, bySs, cleared, afterAdd, afterCancel, afterDel,
+            toggleAsked, ssText, ingText, amount, mewSlot3, locked, natTexts};
   });
   ok('未篩選時四隻都看得到', r.all.join(',') === '0,1,2,3', r.all.join(','));
   ok('預設摺疊：完全沒有編輯控制項（這才省得下版面）', r.collapsedControls === 0, String(r.collapsedControls));
@@ -783,6 +984,9 @@ console.log('\n[11d] 寶可夢箱 UI：篩選、真實索引、完整顯示');
      r.summary.rr === 1 && /\b(gold|silver|white)\b/.test(r.summary.rrClass), JSON.stringify(r.summary));
   ok('摺疊列有食材摘要（含 ×N）', r.summary.ing === 3 && /×\d/.test(r.summary.ingText),
      JSON.stringify(r.summary));
+  ok('食材獨立成第二列，不和副技能混在同一個容器',
+     r.summary.ingsRow === 1 && r.summary.ingInSum === 0 &&
+     r.summary.ingInRow === 3 && r.summary.ssInRow === 0, JSON.stringify(r.summary));
   ok('依專長篩選（食材型是索引 1 和 3）', r.ingOnly.join(',') === '1,3', r.ingOnly.join(','));
   ok('會顯示篩選後的數量', /顯示 2 \/ 4/.test(r.countText), r.countText);
   ok('點摺疊列會展開出編輯控制項', r.openedControls > 8, String(r.openedControls));
@@ -798,9 +1002,33 @@ console.log('\n[11d] 寶可夢箱 UI：篩選、真實索引、完整顯示');
   ok('副技能選項顯示全名', r.ssText === '幫忙速度M', r.ssText);
   ok('食材選項只放名稱，數量顯示在旁邊', r.ingText === '特選蘋果' && r.amount === '×1',
      `「${r.ingText}」 / 「${r.amount}」`);
-  ok('刪除後清掉展開狀態（否則會展開到別隻身上）',
-     r.afterDel.n === 4 && r.afterDel.open === 0 && r.afterDel.anyEdit === 0, JSON.stringify(r.afterDel));
+  /* ✕ 就在 📌 和 🚫 旁邊，手滑一格就少一隻，而且 save() 是即時的、雲端馬上跟著
+     覆蓋 —— 沒有 undo。所以刪除一定要問，而且訊息要寫出是哪一隻。 */
+  ok('按 ✕ 會先問，按取消一隻都不會少',
+     r.afterCancel.n === r.afterDel.before, `${r.afterCancel.n} vs ${r.afterDel.before}`);
+  ok('確認訊息寫出是哪一隻（排序／篩選後才分得出按到誰）',
+     /#\d+/.test(r.afterCancel.msg) && /Lv\d+/.test(r.afterCancel.msg) && /雷丘|皮卡丘|大食花|呆殼獸|河馬獸|水箭龜|耿鬼/.test(r.afterCancel.msg),
+     `「${r.afterCancel.msg}」`);
+  ok('按確定才真的刪，並清掉展開狀態（否則會展開到別隻身上）',
+     r.afterDel.n === 4 && r.afterDel.before === 5 && r.afterDel.open === 0 && r.afterDel.anyEdit === 0,
+     JSON.stringify(r.afterDel));
+  ok('📌 / 🚫 不會問（隨手切換用的，而且可逆）', r.toggleAsked === false, String(r.toggleAsked));
   ok('空食材欄位顯示「（無）」而不是 undefined', r.mewSlot3 === '（無）', r.mewSlot3);
+  ok('摺疊列三格食材都顯示，未解鎖那格變淡（和副技能一致）',
+     r.locked.heads === 3 && r.locked.headLock === 'false,false,true', JSON.stringify(r.locked));
+  ok('摺疊列的未解鎖格仍然寫出食材與數量（品鮮蘑菇×6）',
+     /品鮮蘑菇×6/.test(r.locked.headText), r.locked.headText);
+  ok('展開後未解鎖那格變淡但**不 disable**（校對時要改得動）',
+     r.locked.pickLock === 'false,false,true' && r.locked.disabled === 0, JSON.stringify(r.locked));
+  ok('未解鎖那格顯示 ×6，不是「未解鎖」',
+     r.locked.amount3 === '×6' && r.locked.sel3 === '1', JSON.stringify(r.locked));
+  /* `'neutral'` 是 truthy，所以 `n.p ? NAT_AB[n.p] : …` 會走 true 分支拿到 undefined。
+     25 種性格裡有 5 種是這樣（害羞／勤奮／坦率／浮躁／認真）。 */
+  ok('無修正的性格顯示「無修正」，不是 +undefined −undefined',
+     r.natTexts.neutral === '害羞 無修正', `「${r.natTexts.neutral}」`);
+  ok('有修正的性格照樣顯示 +／−', /怕寂寞\s*\+速度\s*−活力/.test(r.natTexts.normal), `「${r.natTexts.normal}」`);
+  ok('性格選單裡沒有任何 undefined',
+     r.natTexts.optNeutral === '害羞 無修正' && r.natTexts.optAll === 0, JSON.stringify(r.natTexts));
 }
 
 /* 排序、展開／收起全部、重複偵測、主技能顯示。

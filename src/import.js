@@ -32,7 +32,11 @@
    而且不能靠「假設遊戲顯示的是加成後」來反推 —— 那是猜的。技能說明裡的數字才是
    真憑據：`Charge Energy S.energy[5] = 43.4` 對上畫面的「回復活力43」，
    `Ingredient Magnet S.ingredient[2] = 11` 對上「隨機獲得11個食材」。所以
-   `impSkillLv` 用說明數字**反查有效等級**，再減掉副技能加成得到基礎值。 */
+   `impSkillLv` 用說明數字**反查有效等級**，再減掉副技能加成得到基礎值。
+
+   範圍型技能（耿鬼的「能量填充S」畫面寫「卡比獸的能量增加393〜1,570」）在快照裡
+   只有一個固定值，但那個區間剛好是 [v/2, 2v] —— 所以照樣反查得出來，見
+   `impEffFromPayload` 的第二段。 */
 
 /* ---------- 文字正規化與反向查表 ---------- */
 
@@ -108,10 +112,9 @@ function impSkillBonus(ss, level){
   }
   return b;
 }
-/** 用技能說明裡的數字反查有效等級。對不到唯一解就回 null（不猜）。 */
-function impEffFromPayload(msName, payload){
-  const e = D.ms[msName];
-  if (!e || payload == null || !isFinite(payload)) return null;
+/** 掃 D.ms[msName] 的所有數值陣列，回傳「哪些有效等級的值等於 payload」。
+ *  `ranged` 改成拿 v/2 與 2v 去比對（範圍型技能顯示的兩端）。 */
+function impPayloadHits(e, payload, ranged){
   const hits = new Set();
   for (const k of Object.keys(e)){
     const arr = e[k];
@@ -119,44 +122,79 @@ function impEffFromPayload(msName, payload){
     for (let i = 0; i < arr.length; i++){
       const v = arr[i];
       if (typeof v !== 'number') continue;
-      if (Math.round(v) === payload || Math.floor(v) === payload) hits.add(i + 1);
+      for (const c of (ranged ? [v / 2, v * 2] : [v]))
+        if (Math.round(c) === payload || Math.floor(c) === payload){ hits.add(i + 1); break; }
     }
   }
-  return hits.size === 1 ? [...hits][0] : null;
+  return hits;
+}
+/** 用技能說明裡的數字反查有效等級。對不到唯一解就回 null（不猜）。
+ *  回傳 {lv, ranged}。
+ *
+ *  兩段式。**第一段**拿 payload 直接比對快照裡的值 —— 畫面「回復活力43」對上
+ *  `Charge Energy S.energy[5] = 43.4`。
+ *
+ *  **第二段**處理範圍型技能。遊戲對能量填充類的某些技能顯示的是一個區間
+ *  （耿鬼「卡比獸的能量增加393〜1,570」），而快照只存一個固定值
+ *  `Charge Strength S.strength[2] = 785` —— 區間剛好就是 [v/2, 2v]
+ *  （393 = round(785/2)、1570 = 785×2；隆隆岩的 285〜1,138 對 569 也一樣）。
+ *  所以不管使用者填的是區間的哪一端都反解得出來。
+ *
+ *  第二段**只在第一段一個都對不到時**啟用，所以原本就有唯一解的情形不受影響。
+ *  掃過 D.ms 全部技能 × 全部等級的兩端：唯一且正確 298 筆、多解退回 null 68 筆、
+ *  **唯一但錯 0 筆** —— 不會靜靜地給出錯的等級。 */
+function impEffFromPayload(msName, payload){
+  const e = D.ms[msName];
+  if (!e || payload == null || !isFinite(payload)) return null;
+  const exact = impPayloadHits(e, payload, false);
+  if (exact.size === 1) return {lv: [...exact][0], ranged: false};
+  if (exact.size) return null;                    // 精確比對就已經多解 —— 不猜
+  const wide = impPayloadHits(e, payload, true);
+  return wide.size === 1 ? {lv: [...wide][0], ranged: true} : null;
 }
 /** 決定 roster 要存的基礎 skillLv。
  *  payload（說明裡的數字）優先；沒有就退回畫面顯示的等級當有效等級。 */
 function impSkillLv(msName, displayedLv, payload, bonus){
   const max = (D.ms[msName] || {max:6}).max;
-  const fromPay = impEffFromPayload(msName, payload);
+  const hit = impEffFromPayload(msName, payload);
+  const fromPay = hit ? hit.lv : null;
   const disp = (displayedLv != null && isFinite(displayedLv)) ? Math.round(displayedLv) : null;
   const effective = fromPay != null ? fromPay : (disp != null ? disp : 1);
   const base = Math.max(1, Math.min(max, effective - bonus));
   const notes = [];
+  if (hit && hit.ranged)
+    notes.push(`說明裡的「${payload}」是範圍型技能區間的一端（遊戲顯示 v/2〜2v），反查出有效等級 ${fromPay}`);
   if (fromPay != null && disp != null && disp !== fromPay){
     notes.push(disp === fromPay - bonus
       ? `畫面的 Lv.${disp} 看起來是基礎值，說明數字推出有效等級 ${fromPay}`
       : `畫面的 Lv.${disp} 與說明數字推出的有效等級 ${fromPay} 不一致 —— 請確認`);
   }
   if (fromPay == null && payload != null)
-    notes.push('技能說明的數字對不到任何等級，改用畫面顯示的等級');
+    notes.push('技能說明的數字對不到唯一的等級，改用畫面顯示的等級（請自己確認）');
   if (bonus > 0 && effective >= max)
     notes.push(`有效等級已達上限 ${max}，基礎值只能推到「至少 ${base}」（再高也一樣，不影響計算）`);
-  return {base, effective, max, bonus, source: fromPay != null ? 'payload' : 'displayed', notes};
+  return {base, effective, max, bonus,
+          source: fromPay != null ? (hit.ranged ? 'payload-range' : 'payload') : 'displayed', notes};
 }
 
 /* ---------- 食材欄位 ---------- */
 
 /** 用 ×N 的數字收斂食材欄位。
  *  格1（i0）246 隻裡有 244 隻只有一個選項 → 物種一定就確定。
- *  格2／格3 光靠數字唯一判定的比例是 65.0% / 45.9%，其餘留成 2~3 選 1。 */
+ *  格2／格3 光靠數字唯一判定的比例是 65.0% / 45.9%，其餘留成 2~3 選 1。
+ *
+ *  **還沒解鎖的格子也一樣要解。** 遊戲會把它預告出來（🔒Lv.60 加上食材圖與 ×N），
+ *  所以 `counts` 裡本來就有那個數字 —— 跳過它就等於靜靜地填了「選項 0」。實際
+ *  踩過：耿鬼 Lv50 的第 3 格畫面是「品鮮蘑菇×6」，跳過的話會存成「火辣香草×7」，
+ *  而且因為 `baseStats` 只讀 `slots` 格，錯了也不會有任何數字跑掉 —— 一路等到
+ *  升上 Lv.60 才會發現。回傳的 `slots` 只給 UI 標「這格還沒生效」用。 */
 function impIngSets(sp, level, counts){
   const p = D.dex[sp], opts = [p.i0, p.i30, p.i60];
   const slots = Math.min(Math.floor(level / 30) + 1, 3);
   const pick = [0, 0, 0], amb = [null, null, null];
   for (let s = 0; s < 3; s++){
     const list = opts[s] || [];
-    if (s >= slots || !list.length) continue;
+    if (!list.length) continue;
     const want = counts && counts[s] != null ? Number(counts[s]) : null;
     if (!(want > 0)){                       // 沒讀到數字 → 整格都是候選
       amb[s] = list.map((_, i) => i);

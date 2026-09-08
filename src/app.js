@@ -50,7 +50,7 @@ const SCHEMA = 1;
    「新的 index.html ＋ 舊的 app.js」—— 畫面畫出舊版 UI，而使用者只會覺得
    「你根本沒改」，完全不知道是快取。有了這個斷言，過期的 app.js 會直接被擋下來
    並要求強制重新整理。tests/smoke.mjs 第 11 節會斷言三處一致。 */
-const APP_V = '20260908c';
+const APP_V = '20260908e';
 
 /** 致命錯誤：整頁換成一段說明。這種狀況下繼續跑只會產生錯的數字。 */
 function fatal(html){
@@ -86,7 +86,14 @@ const SPEC_TAG = {berry:"berry",ingredient:"ing",skill:"skill",all:"all"};
 const RIBBON_LABEL = ['無','200h','500h','1000h','2000h'];
 const NAT_AB = {speed:"速度",ingredient:"食材",skill:"技能",energy:"活力",exp:"EXP"};
 const natZ = n => (Z.natures && Z.natures[n.n]) || n.n;
-const natLabel = n => natZ(n) + (n.p ? " +"+NAT_AB[n.p]+" −"+NAT_AB[n.m] : " 無修正");
+/* 無修正的性格在資料裡是字串 `'neutral'`，**不是空值** —— 而 `'neutral'` 是 truthy。
+   所以 `n.p ? NAT_AB[n.p] : ...` 會走進 true 分支拿到 undefined，畫面變成
+   「害羞 +undefined −undefined」。25 種性格裡有 5 種是這樣（害羞／勤奮／坦率／
+   浮躁／認真），而性格選單和摺疊列都中。實際踩過。
+   對照表查不到的鍵就顯示原始鍵 —— 也不要變成 undefined。 */
+const natAb = k => NAT_AB[k] || String(k);
+const natMod = n => (n.p && n.p !== 'neutral') ? {up: natAb(n.p), dn: natAb(n.m)} : null;
+const natLabel = n => { const d = natMod(n); return natZ(n) + (d ? ` +${d.up} −${d.dn}` : ' 無修正'); };
 const recipeZh = n => (Z.recipes && Z.recipes[n]) || n.split('_').map(w=>w[0]+w.slice(1).toLowerCase()).join(' ');
 const fmt = n => n>=1e6 ? (n/1e6).toFixed(2)+'M' : n>=1e4 ? Math.round(n/1e3)+'k' : Math.round(n).toLocaleString();
 const f1 = n => (Math.round(n*10)/10).toFixed(1);
@@ -119,11 +126,10 @@ function serialize(){
  *  —— 一次貼一隻卻把整箱換掉，會把前面輸入的都吃掉。雲端同步與開機還原走的是
  *  預設的「整份取代」，不要改。 */
 function deserialize(o, opts){
-  if (!o) return;
-  const revive = r => {
-    const sp = D.dex.findIndex(p=>p.n===r.sp);
-    return {...BLANK(), ...r, sp: sp<0?0:sp, ss:(r.ss||[null,null,null,null,null]).slice(0,5), ingSet:(r.ingSet||[0,0,0]).slice(0,3)};
-  };
+  if (!o) return {badSp: []};
+  const badSp = [];
+  const revive = r => ({...BLANK(), ...r, sp: reviveSp(r.sp, badSp),
+    ss:(r.ss||[null,null,null,null,null]).slice(0,5), ingSet:(r.ingSet||[0,0,0]).slice(0,3)});
   if (Array.isArray(o.roster)){
     const incoming = o.roster.map(revive);
     roster = (opts && opts.append) ? roster.concat(incoming) : incoming;
@@ -132,6 +138,23 @@ function deserialize(o, opts){
     const f = o.wk.fav||[];
     wk = {...wk, ...o.wk, fav:new Set(f), recipeLevels:o.wk.recipeLevels||{}};
   }
+  return {badSp};
+}
+/** 還原 `sp`。`serialize()` 寫的是**內部名**（`VENUSAUR`），這是唯一穩定的形式。
+ *
+ *  以前認不出來就靜靜退回索引 0 —— 一份用圖鑑索引寫的 JSON 會讓**每一隻都變成
+ *  妙蛙種子**，而畫面上沒有任何提示。實際踩過（2026-09-08）。所以現在兩件事都做：
+ *
+ *  1. **整數當 dex 索引接受**，因為 `impSolve` 產出的就是索引。注意索引只在同一份
+ *     `data/game.json` 快照裡穩定，重建資料可能位移 —— 但沒有任何地方會**寫出**
+ *     索引（`serialize` 一律寫名字），所以風險只在貼上那一瞬間。
+ *  2. 真的認不出來就記進 `badSp` 讓呼叫端**講出來**，不要默默給一隻錯的。 */
+function reviveSp(v, bad){
+  if (Number.isInteger(v) && v >= 0 && v < D.dex.length) return v;
+  const i = D.dex.findIndex(p=>p.n===v);
+  if (i >= 0) return i;
+  bad.push(String(v));
+  return 0;
 }
 /** A human-readable mirror of the roster, so the Sheet is worth opening. */
 function rosterTable(){
@@ -411,14 +434,21 @@ const monOpen = new Set();
 let monDup = new Set();
 /** 目前解鎖的食材格數。 */
 const ingSlots = m => Math.min(Math.floor(m.level/30)+1, 3);
-/** 性格摘要：「頑皮 +速度 −技能」，加減用顏色分開。 */
+/** 性格摘要：「頑皮 +速度 −技能」，加減用顏色分開。無修正的走 natMod 的 null 分支。 */
 function natBrief(m){
-  const n = NAT[m.nature] || NAT.Bashful;
-  return n.p
-    ? `${natZ(n)} <span class="up">+${NAT_AB[n.p]}</span> <span class="dn">−${NAT_AB[n.m]}</span>`
+  const n = NAT[m.nature] || NAT.Bashful, d = natMod(n);
+  return d
+    ? `${natZ(n)} <span class="up">+${d.up}</span> <span class="dn">−${d.dn}</span>`
     : `${natZ(n)} <span class="muted">無修正</span>`;
 }
-/** 摺疊列：唯讀、一行、密。
+/** 摺疊列：唯讀、密、**兩列**。
+ *  第 1 列是身分與能力（圖鑑號／名稱／專長／主技能／等級／性格／副技能／技能Lv），
+ *  第 2 列**只有食材**。
+ *
+ *  為什麼分開：副技能和食材原本同在一個 `.mon-sum` 裡靠 flex-wrap 自然換行，結果
+ *  兩種標籤混在同一列、斷行位置又隨寬度浮動 —— 掃 60 隻時分不出哪個是哪個。食材
+ *  獨立一列之後，位置固定在同一個地方，掃過去只要看第 2 列。
+ *
  *  副技能的底色就是**稀有度**（`game.json` 的 `subskills[].r`：gold／silver／white）——
  *  這是資料裡本來就有的分級，不是我編的配色。未解鎖的那幾格會變淡。 */
 function monHead(m, idx, open){
@@ -428,9 +458,14 @@ function monHead(m, idx, open){
     return `<span class="rr ${(SS[m.ss[s]]||{}).r||'white'}${lock?' lock':''}"`
          + ` title="第 ${s+1} 格${lock?` — Lv${SS_SLOT_LV[s]} 才解鎖，目前不生效`:''}">${ssz(m.ss[s])}</span>`;
   }).join('');
-  const ing = [0,1,2].filter(s=>s<ingSlots(m)).map(s=>{
-    const k = ingPick(m, s);
-    return k ? `<span class="mon-i">${k[0]!=null?iz(ING_NAME[k[0]]):'（無）'}×${k[1]}</span>` : '';
+  /* 未解鎖的食材格**照樣顯示，只是變淡** —— 和上面的副技能同一個處理方式。
+     遊戲畫面會把它預告出來（🔒Lv.60 加食材圖與 ×N），藏起來反而看不出存錯了。 */
+  const ing = [0,1,2].map(s=>{
+    const k = ingPick(m, s); if (!k) return '';
+    const lock = s >= ingSlots(m);
+    return `<span class="mon-i${lock?' lock':''}"`
+         + ` title="第 ${s+1} 格${lock?` — Lv${[1,30,60][s]} 才解鎖，目前不計入產出`:''}">`
+         + `${k[0]!=null?iz(ING_NAME[k[0]]):'（無）'}×${k[1]}</span>`;
   }).join('');
   return `<div class="mon-head" data-act="toggle" title="點一下展開／收起">
       <span class="car">${open?'▼':'▶'}</span>
@@ -441,13 +476,14 @@ function monHead(m, idx, open){
       <span class="mon-ms" title="主技能（由種類決定）">${msz(p.ms)}</span>
       <span class="mon-lv">Lv${m.level}</span>
       <span class="mon-nat">${natBrief(m)}</span>
-      <span class="mon-sum">${ss}${ing}</span>
+      <span class="mon-sum">${ss}</span>
       <span class="mon-sk" title="主技能 ${msz(p.ms)} 的基礎等級（副技能加成另計）">技Lv${m.skillLv}</span>
       <span class="mon-acts">
         <button class="btn sm ghost" data-act="pin" title="固定在隊上（一定入選）">${m.pin?'📌':'📍'}</button>
         <button class="btn sm ghost" data-act="ex" title="從推演中排除">${m.ex?'🚫':'○'}</button>
         <button class="btn sm ghost" data-act="del" title="刪除">✕</button>
       </span>
+      <span class="mon-ings"><span class="mon-ilbl">食材</span>${ing}</span>
     </div>`;
 }
 /** 展開後的編輯區。兩列：①種類／專長／等級/性格 ②食材、副技能、技能Lv、緞帶。 */
@@ -465,10 +501,13 @@ function monEdit(m, o){
         <label class="f w-nat">性格<select data-k="nature">${NATURE_OPTS}</select></label>
       </div>
       <div class="mon-row"><span class="mon-lbl">食材</span><div class="mon-ing">${[0,1,2].map(s=>{
-        const pick = ingPick(m, s);
-        return `<span class="ingpick${s>=slots?' locked':''}" title="第 ${s+1} 格 — Lv${[1,30,60][s]} 解鎖">`
-             + `<select data-k="ingSet" data-s="${s}"${s>=slots?' disabled':ambIng(s)}>${ingSetOpts(m,s)}</select>`
-             + `<b>${s>=slots ? '未解鎖' : (pick ? '×'+pick[1] : '—')}</b></span>`;
+        const pick = ingPick(m, s), lock = s >= slots;
+        /* 未解鎖的格子**不 disable**，理由和副技能一樣：遊戲畫面上看得到，先記
+           下來是對的，而 disable 的話截圖校對時根本改不了那一格。 */
+        return `<span class="ingpick${lock?' locked':''}"`
+             + ` title="第 ${s+1} 格 — Lv${[1,30,60][s]} 解鎖${lock?'（目前不計入產出）':''}">`
+             + `<select data-k="ingSet" data-s="${s}"${ambIng(s)}>${ingSetOpts(m,s)}</select>`
+             + `<b>${pick ? '×'+pick[1] : '—'}</b></span>`;
       }).join('')}</div></div>
       <div class="mon-row"><span class="mon-lbl">副技能</span><div class="mon-ss">${[0,1,2,3,4].map(s=>
         /* 未解鎖的欄位只是變淡，**不 disable** —— 遊戲畫面上看得到（🔒Lv.70），
@@ -634,7 +673,14 @@ $('boxList').addEventListener('click', e=>{
     renderBox();              // 展開狀態是檢視偏好，不必 save()
     return;
   }
-  if (a==='del'){ roster.splice(i,1); monOpen.clear(); }   // 索引整批位移，全收起最安全
+  /* 刪除一定要問。✕ 就在 📌 和 🚫 旁邊，而那兩個是隨手切換用的 —— 手滑一格就
+     少一隻，而且沒有 undo（`save()` 是即時的，雲端也馬上跟著覆蓋）。訊息裡要寫出
+     是**哪一隻**，不然在排序或篩選過的列表上根本分不出按到誰。 */
+  if (a==='del'){
+    const m = roster[i], p = D.dex[m.sp];
+    if (!confirm(`確定要刪除「#${p.no} ${pz(p)} Lv${m.level} ${natZ(NAT[m.nature]||NAT.Bashful)}」嗎？\n\n刪掉之後沒辦法復原。`)) return;
+    roster.splice(i,1); monOpen.clear();                    // 索引整批位移，全收起最安全
+  }
   else if (a==='pin'){ roster[i].pin = !roster[i].pin; if (roster[i].pin) roster[i].ex = false; }
   else if (a==='ex'){ roster[i].ex = !roster[i].ex; if (roster[i].ex) roster[i].pin = false; }
   renderBox(); save();
@@ -672,10 +718,19 @@ $('importBtn').addEventListener('click', ()=>{
                    + `取消＝取代整箱（現有的 ${roster.length} 隻會被丟掉）`);
   }
   try {
-    deserialize(o, {append});
+    const rep = deserialize(o, {append});
     clearBoxFilter();          // 匯入的可能不符合目前篩選，會看起來像沒進去
     renderAll(); save();
-    setStatus(append ? `已追加 ${n} 隻（共 ${roster.length} 隻）` : `已匯入 ${roster.length} 隻`);
+    let msg = append ? `已追加 ${n} 隻（共 ${roster.length} 隻）` : `已匯入 ${roster.length} 隻`;
+    /* 認不出來的「種類」一定要講。默默退回第一隻的話，畫面上會是一整排看起來
+       很正常的妙蛙種子 —— 使用者只會發現「後面算出來的東西怪怪的」。 */
+    if (rep.badSp.length){
+      const uniq = [...new Set(rep.badSp)];
+      msg += ` ⚠ 但有 ${rep.badSp.length} 筆的「種類」認不出來（${uniq.slice(0,3).join('、')}`
+           + `${uniq.length > 3 ? ' 等 '+uniq.length+' 種' : ''}），已暫時設成第一隻 —— 請自己改掉。`
+           + `種類要填內部名（例如 VENUSAUR）或圖鑑索引數字。`;
+    }
+    setStatus(msg);
   } catch(e){ setStatus('匯入失敗：' + e.message); }
 });
 
