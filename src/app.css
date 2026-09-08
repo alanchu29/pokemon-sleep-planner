@@ -199,6 +199,20 @@ td.n{font-family:var(--mono);font-variant-numeric:tabular-nums}
   padding:2px 6px;border-radius:5px;white-space:nowrap;flex:0 0 auto;cursor:help;
   color:var(--ink-2);border:1px solid var(--line);background:var(--surface-2)}
 .mon-power i,.mon-scv i{font-style:normal;font-weight:400;opacity:.66;font-size:.85em;margin-left:3px}
+/* 選了食材篩選時，欄位有但還沒解鎖的那幾隻產量是 0 —— 變淡但照樣顯示，
+   和摺疊列的未解鎖食材格同一個處理方式（藏起來反而看不出為什麼排在最後）。 */
+.mon-power.zero{opacity:.5}
+/* 食材篩選：攤平的可複選 chips。20 種攤開需要整行，所以自己一列，不擠在 .boxbar 裡。 */
+.ingflt{margin-top:10px;padding-top:10px;border-top:1px dashed var(--line)}
+.ingflt-hd{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center;margin-bottom:7px}
+.ingflt-hd .mon-lbl{min-width:0}
+.chips.ing .chip[aria-pressed="true"]{background:var(--ing);color:var(--chip-on-ink)}
+/* 任一種／全部都要。用分段按鈕而不是第二排 chips —— 它是「怎麼比對」，不是「比對什麼」。 */
+.segbtn{display:flex;gap:2px;padding:2px;background:var(--surface-2);border:1px solid var(--line);border-radius:999px}
+.segbtn button{border:none;background:none;color:var(--muted);font-family:var(--body);font-size:11.5px;
+  padding:3px 10px;border-radius:999px;cursor:pointer}
+.segbtn button[aria-pressed="true"]{background:var(--surface);color:var(--ink);font-weight:600;
+  box-shadow:0 1px 2px rgba(0,0,0,.12)}
 .mon-rank{font-size:11px;padding:2px 6px;border-radius:5px;white-space:nowrap;flex:0 0 auto;cursor:help;
   color:var(--muted);background:var(--surface-3)}
 .mon-team{font-size:11px;padding:2px 6px;border-radius:5px;white-space:nowrap;flex:0 0 auto;cursor:help;

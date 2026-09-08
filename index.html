@@ -14,7 +14,7 @@
      這裡、下面載入器的 ASSET_V、以及 src/app.js 的 APP_V。
      光靠 ?v= 只是降低機率，APP_V 的斷言才會真的擋下過期的 app.js。
      tests/smoke.mjs 第 11 節會斷言三處一致。 -->
-<link rel="stylesheet" href="./src/app.css?v=20260908j">
+<link rel="stylesheet" href="./src/app.css?v=20260908l">
 </head>
 <body>
 <div class="wrap">
@@ -297,6 +297,7 @@
           <option value="added">加入順序</option>
           <option value="no">圖鑑編號</option>
           <option value="power">產能（專長內高→低）</option>
+          <option value="ingAmt">選定食材的產量</option>
           <option value="level">等級（高→低）</option>
           <option value="spec">專長</option>
           <option value="ms">主技能</option>
@@ -308,6 +309,21 @@
       <button class="btn sm ghost" id="fltClear" type="button">清除篩選</button>
       <button class="btn sm ghost" id="boxExpand" type="button" title="展開／收起目前看得到的卡片">展開全部</button>
       <span class="status" id="boxCount"></span>
+    </div>
+    <!-- 食材篩選：攤平成可複選的 chips（不是下拉），選項由 buildBoxBar() 依
+         game.json 填。攤平是因為食譜要的是**一組**食材 —— 下拉一次只能選一個，
+         沒辦法問「誰供得起這道菜」。選了之後摺疊列的數字會換成「選中那幾種的
+         每日總產量」，配「選定食材的產量」排序就能看出誰貢獻最多。 -->
+    <div class="ingflt">
+      <div class="ingflt-hd">
+        <span class="mon-lbl">食材</span>
+        <div class="segbtn" id="fltIngMode" role="group" aria-label="食材篩選的比對方式">
+          <button type="button" data-mode="any" aria-pressed="true" title="產出其中任何一種就顯示 —— 找「誰供得起這道菜的某一味」">任一種</button>
+          <button type="button" data-mode="all" aria-pressed="false" title="選中的每一種都要產 —— 找「一隻抵好幾隻」的那種">全部都要</button>
+        </div>
+        <span class="muted" id="fltIngNote" style="font-size:11.5px"></span>
+      </div>
+      <div class="chips ing" id="fltIng"></div>
     </div>
     <!-- #scoreNote 由 renderStorageNote() 一併填 —— 評分的參考基準一定要顯示出來，
          否則摺疊列上那個數字就是憑空來的。文案只有一份，在 app.js 的 scoreNote()。 -->
@@ -417,7 +433,7 @@ try {
      也放到 window 上：app.js 有一份自己的 APP_V，兩者不符就整頁擋下來。
      理由和 game.json 的 SCHEMA 一樣 —— 過期的 app.js 會靜靜地畫出舊版 UI，
      而使用者只會覺得「你根本沒改」，完全不知道是快取。 */
-  const ASSET_V = '20260908j';
+  const ASSET_V = '20260908l';
   window.ASSET_V = ASSET_V;
   for (const src of ['./src/engine.js', './src/import.js', './src/app.js']) {
     await new Promise((ok, bad) => {

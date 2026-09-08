@@ -57,7 +57,7 @@ const SCHEMA = 1;
    「新的 index.html ＋ 舊的 app.js」—— 畫面畫出舊版 UI，而使用者只會覺得
    「你根本沒改」，完全不知道是快取。有了這個斷言，過期的 app.js 會直接被擋下來
    並要求強制重新整理。tests/smoke.mjs 第 11 節會斷言三處一致。 */
-const APP_V = '20260908j';
+const APP_V = '20260908l';
 
 /** 致命錯誤：整頁換成一段說明。這種狀況下繼續跑只會產生錯的數字。 */
 function fatal(html){
@@ -662,9 +662,24 @@ function idealOf(m, allowCompute){
   idealCache.set(k, v);
   return v;
 }
-/** 摺疊列上的那兩格：主指標 ＋ 同專長名次。 */
+/** 摺疊列上的那兩格：主指標 ＋ 同專長名次。
+ *
+ *  **選了食材篩選時，主指標會換成那一種食材的每日產量。** 不換的話，用
+ *  「選定食材的產量」排序時畫面上顯示的還是各專長的主指標 —— 順序看起來就像壞了。 */
 function scoreChip(m, idx){
   const p = monPowerCached(m);
+  if (boxFlt.ing.size){
+    const sel = [...boxFlt.ing];
+    const v = ingSum(m);
+    const each = sel.map(i => `${iz(ING_NAME[i])} ${p.ingAll[i].toFixed(1)}`).join('　');
+    const label = sel.length === 1 ? iz(ING_NAME[sel[0]]) : `${sel.length} 種食材`;
+    return `<span class="mon-power${v > 1e-9 ? '' : ' zero'}" title="選中食材的每日總產量。`
+         + `&#10;${each}`
+         + `&#10;篩選看的是食材欄位，這個數字是實際產量 —— 所以未解鎖的欄位會顯示 0。`
+         + `&#10;含食材磁鐵那類主技能灑出來的份（灑得很平均，不可指定）。`
+         + `&#10;${SPEC_ZH[p.spec]}型的主指標是 ${powerText(p).v} ${powerText(p).u}。">`
+         + `${v.toFixed(1)}<i>${label}/日</i></span>`;
+  }
   const t = powerText(p);
   const r = idx == null ? null : rankOf(idx);
   const tip = `${SPEC_ZH[p.spec]}型的主指標：${t.v} ${t.u}&#10;`
@@ -846,7 +861,7 @@ function setMonValues(el, m){
 
    實作用 `hidden` 切換而不是重建 innerHTML：一張卡有 246 個種類選項，60 隻就是
    一萬多個 <option>，每次打字都重建會卡。 */
-let boxFlt = {spec:'', state:'', q:'', sort:'added'};
+let boxFlt = {spec:'', state:'', q:'', ing:new Set(), ingMode:'any', sort:'added'};
 
 /* ---- 重複偵測 ----
    簽章用**每一個會影響計算的欄位**。兩隻同物種同等級但副技能不同是完全合法的
@@ -886,6 +901,10 @@ const BOX_SORTS = {
     const pa = monPowerCached(roster[a]), pb = monPowerCached(roster[b]);
     return SPEC_ORD.indexOf(pa.spec) - SPEC_ORD.indexOf(pb.spec) || powerMain(pb) - powerMain(pa);
   },
+  /* 選定食材的每日產量，高→低。**這個可以跨專長排** —— 同一種食材、同一個單位，
+     所以「誰產最多品鮮蘑菇」是一個有意義的問題，答案也可能是一隻全能型。
+     沒選食材時退回加入順序（`boxCount` 會提示要先選）。 */
+  ingAmt: (a,b)=> boxFlt.ing.size ? ingSum(roster[b]) - ingSum(roster[a]) : 0,
   level: (a,b)=> roster[b].level - roster[a].level,
   spec:  (a,b)=> SPEC_ORD.indexOf(D.dex[roster[a].sp].sp) - SPEC_ORD.indexOf(D.dex[roster[b].sp].sp),
   ms:    (a,b)=> msz(D.dex[roster[a].sp].ms).localeCompare(msz(D.dex[roster[b].sp].ms), 'zh-Hant'),
@@ -897,9 +916,48 @@ function boxOrder(){
   return cmp ? idx.sort((a,b)=> cmp(a,b) || a-b) : idx;
 }
 
+/* 「產這個食材的寶可夢」：看的是**食材欄位**，不是實際產量。
+   食材磁鐵那類主技能會把食材灑遍 `MAGNET_POOL`（除了尾巴以外全部），所以按產量
+   篩的話幾乎每一隻都會中，這個篩選就沒用了。欄位才是你能規劃的東西。
+
+   **未解鎖的欄位也算中**（遊戲畫面本來就把它預告出來）。那種會排到最後，
+   因為排名看的是實際產量，而未解鎖的那格產量是 0 —— 看得到、也看得出還沒生效。 */
+/** 牠的食材欄位（三格，含未解鎖）產不產出食材 `ii`。 */
+const producesIng = (m, ii) => [0,1,2].some(s => { const k = ingPick(m, s); return k && k[0] === ii; });
+/** 選中那幾種食材的每日**總**產量。排序與摺疊列都用這個。 */
+function ingSum(m){
+  const p = monPowerCached(m);
+  let v = 0;
+  for (const i of boxFlt.ing) v += p.ingAll[i];
+  return v;
+}
+/* 食材 chips。依中文名排序，而不是 game.json 的內部順序 —— 使用者是照名字找的。 */
+function buildBoxBar(){
+  const opts = ING_NAME.map((n, i) => [i, iz(n)]).sort((a, b) => a[1].localeCompare(b[1], 'zh-Hant'));
+  $('fltIng').innerHTML = opts.map(([i, z]) =>
+    `<button type="button" class="chip" data-ing="${i}" aria-pressed="false" title="${iz(ING_NAME[i])}　能量 ${ING_VAL[i]}">${z}</button>`).join('');
+}
+/** chips 的按下狀態與說明文字 —— 篩選狀態由 `boxFlt.ing` 決定，這裡只是把它畫出來。 */
+function syncIngFilterUI(){
+  for (const b of $('fltIng').querySelectorAll('[data-ing]'))
+    b.setAttribute('aria-pressed', boxFlt.ing.has(+b.dataset.ing) ? 'true' : 'false');
+  for (const b of $('fltIngMode').querySelectorAll('[data-mode]'))
+    b.setAttribute('aria-pressed', boxFlt.ingMode === b.dataset.mode ? 'true' : 'false');
+  const n = boxFlt.ing.size;
+  $('fltIngNote').textContent = !n ? '不限（點食材可複選）'
+    : boxFlt.ingMode === 'all' ? `選了 ${n} 種 —— 只顯示${n > 1 ? '全部都產' : '有產'}的`
+    : `選了 ${n} 種 —— 產其中任一種就顯示`;
+}
 function monMatch(m, idx){
   const p = D.dex[m.sp];
   if (boxFlt.spec && p.sp !== boxFlt.spec) return false;
+  if (boxFlt.ing.size){
+    const hit = [...boxFlt.ing];
+    const ok = boxFlt.ingMode === 'all'
+      ? hit.every(i => producesIng(m, i))     // 一隻抵好幾隻
+      : hit.some(i => producesIng(m, i));     // 供得起其中一味
+    if (!ok) return false;
+  }
   if (boxFlt.state === 'pin' && !m.pin) return false;
   if (boxFlt.state === 'ex' && !m.ex) return false;
   if (boxFlt.state === 'plain' && (m.pin || m.ex)) return false;
@@ -925,11 +983,14 @@ function applyBoxFilter(){
     el.hidden = !ok;
     if (ok) shown++;
   }
-  const on = !!(boxFlt.spec || boxFlt.state || boxFlt.q);
+  const on = !!(boxFlt.spec || boxFlt.state || boxFlt.q || boxFlt.ing.size);
   $('boxNone').hidden = !(roster.length && !shown);
   const dup = monDup.size ? `　⚠ ${monDup.size} 隻重複` : '';
+  /* 「選定食材的產量」排序在沒選食材時等於沒作用 —— 靜靜地不排序就是「文案說謊」
+     那類 bug 的一種，所以直接寫出來要先選哪個。 */
+  const need = (boxFlt.sort === 'ingAmt' && !boxFlt.ing.size) ? '　（排序要先選食材）' : '';
   $('boxCount').textContent = !roster.length ? ''
-    : (on ? `顯示 ${shown} / ${roster.length} 隻` : `共 ${roster.length} 隻`) + dup;
+    : (on ? `顯示 ${shown} / ${roster.length} 隻` : `共 ${roster.length} 隻`) + dup + need;
   // 展開／收起全部的按鈕文字要跟著目前狀態走
   $('boxExpand').textContent = monOpen.size ? '收起全部' : '展開全部';
   $('boxExpand').disabled = !roster.length;
@@ -971,6 +1032,20 @@ $('boxList').addEventListener('change', e=>{
 /* ---- 篩選列 ---- */
 for (const [id, key] of [['fltSpec','spec'], ['fltState','state']])
   $(id).addEventListener('change', e=>{ boxFlt[key] = e.target.value; applyBoxFilter(); });
+/* 食材篩選要**重畫**，不能只切 hidden —— 選了之後摺疊列的數字會換成「選中那幾種
+   的總產量」（見 scoreChip），只切 hidden 的話顯示的還是各專長的主指標。 */
+$('fltIng').addEventListener('click', e=>{
+  const b = e.target.closest('[data-ing]'); if (!b) return;
+  const i = +b.dataset.ing;
+  if (boxFlt.ing.has(i)) boxFlt.ing.delete(i); else boxFlt.ing.add(i);
+  syncIngFilterUI(); renderBox();
+});
+$('fltIngMode').addEventListener('click', e=>{
+  const b = e.target.closest('[data-mode]'); if (!b) return;
+  boxFlt.ingMode = b.dataset.mode;
+  syncIngFilterUI();
+  if (boxFlt.ing.size) renderBox();
+});
 $('fltName').addEventListener('input', e=>{ boxFlt.q = e.target.value.trim(); applyBoxFilter(); });
 // 排序會改渲染順序 → 必須重畫，不能只切 hidden
 $('fltSort').addEventListener('change', e=>{ boxFlt.sort = e.target.value; renderBox(); });
@@ -985,8 +1060,9 @@ $('fltSort').addEventListener('change', e=>{ boxFlt.sort = e.target.value; rende
  *  整個列表就跳回加入順序 —— 看起來像排序自己壞掉。清除篩選、截圖存入、JSON
  *  匯入三條路徑全都有這個問題，因為它們都走這個函式。 */
 function clearBoxFilter(){
-  boxFlt = {...boxFlt, spec:'', state:'', q:''};
+  boxFlt = {...boxFlt, spec:'', state:'', q:'', ing:new Set()};
   $('fltSpec').value = ''; $('fltState').value = ''; $('fltName').value = '';
+  syncIngFilterUI();
 }
 $('fltClear').addEventListener('click', ()=>{ clearBoxFilter(); renderBox(); });
 /* 展開／收起全部。只展開「目前看得到的」—— 一次攤開 60 隻要建一萬多個
@@ -1830,6 +1906,7 @@ $('themeBtn').addEventListener('click', ()=>{
 /* ================= INIT ================= */
 function renderAll(){ syncWeeklyUI(); renderBox(); renderResults(); renderVersion(); if (!$('view-recipes').hidden) renderRecipeLevels(); }
 buildWeekly();
+buildBoxBar(); syncIngFilterUI();
 buildImport();
 if (!wk.fav.size) wk.fav = new Set(['ORAN','PAMTRE','PECHA']);
 boot().then(()=>{ if (roster.length>=5) run(); });

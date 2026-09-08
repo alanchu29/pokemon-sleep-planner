@@ -466,6 +466,10 @@ function monPower(m){
     snack: o.sim.snack,               // 背包滿了之後的「零食」幫忙，越多代表越該補持有上限
     total: o.berryStrength + ingE + o.skillStrength,
     ingTypes: types.slice(0, 3).map(([i, v]) => [ING_NAME[i], v]),
+    /* 每一種食材的每日產量（索引 = D.ings 的索引）。給「找出產這個食材的寶可夢」
+       那個篩選排名用。注意它**包含食材磁鐵灑出來的那一份** —— 那是真的產出，
+       但灑得很平均且不可指定，所以篩選是看食材欄位，排名才看這個數字。 */
+    ingAll: o.ing,
     /* 幫忙加成只在隊伍裡才值錢，單獨一隻量不到 —— UI 要標出來。 */
     teamOnly: me._bs.hasHB,
     pay: o.pay,

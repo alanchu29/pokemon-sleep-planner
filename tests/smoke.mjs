@@ -1498,6 +1498,88 @@ console.log('\n[11g] 寶可夢箱：個體產能（三種專長各自的軸）')
   ok('說明文案講明隊伍型副技能量不到', /量不到/.test(r.note), r.note.slice(-90));
 }
 
+/* 食材篩選：「誰產這幾種食材、誰產最多」。食譜要的是**一組**特定食材，所以篩選
+   是攤平的可複選 chips 而不是下拉 —— 下拉一次只能選一個，問不出「誰供得起這道菜」。
+   這也是箱子裡唯一**可以跨專長排**的名次：同一組食材、同一個單位。 */
+console.log('\n[11h] 寶可夢箱：食材篩選（可複選）與選中食材的產量排名');
+{
+  const r = await page.evaluate(() => {
+    const mk = (n, lv, ingSet) => ({sp: n, level: lv, nature: 'Bashful',
+      ss: [null,null,null,null,null], ingSet, skillLv: 1, ribbon: 0, pin: false, ex: false, nick: ''});
+    // 耿鬼 Lv50 的第 3 格（Lv60 才解鎖）是刻意的：欄位有、產量 0
+    deserialize({roster: [
+      mk('VENUSAUR', 60, [0,0,0]), mk('VENUSAUR', 30, [0,0,0]),
+      mk('RAICHU', 60, [0,0,0]), mk('GENGAR', 50, [0,0,2]),
+    ]});
+    showView('box'); clearBoxFilter(); monOpen.clear();
+    const fire = (id, ev) => $(id).dispatchEvent(new Event(ev, {bubbles:true}));
+    const vis = () => [...$('boxList').querySelectorAll('[data-i]')].filter(e => !e.hidden).map(e => +e.dataset.i);
+    const tap = i => $('fltIng').querySelector(`[data-ing="${i}"]`).click();
+    const pressed = () => $('fltIng').querySelectorAll('[aria-pressed="true"]').length;
+
+    const chips = [...$('fltIng').querySelectorAll('[data-ing]')];
+    const zh = chips.map(c => c.textContent);
+    const flatOk = !$('fltIng').querySelector('option') && chips.length === ING_NAME.length &&
+      zh.join('|') === [...zh].sort((a,b)=>a.localeCompare(b,'zh-Hant')).join('|');
+
+    const a0 = ingPick(roster[0], 0)[0];      // 兩隻妙蛙花都產
+    const r2 = ingPick(roster[2], 0)[0];      // 只有雷丘產
+    tap(a0);
+    const one = {vis: vis(), n: pressed(), count: $('boxCount').textContent,
+                 unit: $('boxList').querySelector('[data-i="0"] .mon-power i').textContent};
+    tap(r2);                                   // 複選：任一種 → 聯集
+    const anyMode = {vis: vis(), note: $('fltIngNote').textContent,
+                     unit: $('boxList').querySelector('[data-i="0"] .mon-power i').textContent,
+                     val: parseFloat($('boxList').querySelector('[data-i="2"] .mon-power').textContent)};
+    $('fltIngMode').querySelector('[data-mode="all"]').click();   // 全部都要 → 交集
+    const allMode = {vis: vis(), note: $('fltIngNote').textContent, none: !$('boxNone').hidden};
+    $('fltIngMode').querySelector('[data-mode="any"]').click();
+    tap(r2);                                   // 再點一次取消
+    const off = {vis: vis(), size: boxFlt.ing.size};
+
+    $('fltSort').value = 'ingAmt'; fire('fltSort', 'change');
+    const order = vis();
+    const amts = order.map(i => ingSum(roster[i]));
+    const descOk = amts.every((v, k) => k === 0 || amts[k-1] >= v);
+
+    tap(a0);                                   // 取消，改選耿鬼那個未解鎖的
+    const g3 = ingPick(roster[3], 2)[0];
+    tap(g3);
+    const locked = {shown: vis().includes(3), amt: ingSum(roster[3]),
+                    dim: !!$('boxList').querySelector('[data-i="3"] .mon-power.zero')};
+    tap(g3);
+    const hint = $('boxCount').textContent;    // 沒選食材卻用這個排序
+    tap(a0);
+    $('fltClear').click();
+    const cleared = {size: boxFlt.ing.size, n: vis().length, pressed: pressed()};
+
+    monOpen.clear(); clearBoxFilter();
+    $('fltSort').value = 'added'; fire('fltSort', 'change');
+    return {flatOk, nChips: chips.length, one, anyMode, allMode, off, order, amts, descOk,
+            locked, hint, cleared, a0zh: iz(ING_NAME[a0])};
+  });
+  ok('食材篩選是攤平的可複選 chips（不是下拉），照中文名排序', r.flatOk, `${r.nChips} 個 chip`);
+  ok('選一種：篩出產它的那些', r.one.vis.join(',') === '0,1' && r.one.n === 1, r.one.vis.join(','));
+  ok('摺疊列的數字換成該食材的產量', r.one.unit === `${r.a0zh}/日`, r.one.unit);
+  ok('數量列反映篩選', /顯示 2 \/ 4/.test(r.one.count), r.one.count);
+  ok('複選「任一種」＝聯集', r.anyMode.vis.join(',') === '0,1,2' && /任一種/.test(r.anyMode.note),
+     `${r.anyMode.vis.join(',')} / ${r.anyMode.note}`);
+  ok('複選時摺疊列顯示的是選中那幾種的總量',
+     r.anyMode.unit === '2 種食材/日' && r.anyMode.val > 0, `${r.anyMode.unit} = ${r.anyMode.val}`);
+  ok('「全部都要」＝交集（這組沒有一隻同時產）',
+     r.allMode.vis.length === 0 && r.allMode.none && /全部都產/.test(r.allMode.note), r.allMode.note);
+  ok('再點一次會取消選取', r.off.vis.join(',') === '0,1' && r.off.size === 1, JSON.stringify(r.off));
+  ok('依選中食材的總產量由高到低排序', r.descOk && r.order.join(',') === '0,1',
+     `${r.order.join(',')} / ${r.amts.map(v=>v.toFixed(1)).join(', ')}`);
+  /* 遊戲畫面預告得出來，所以要篩得到；但實際產量是 0。藏起來使用者看不出
+     「為什麼牠沒出現」，顯示成正常值又是說謊。 */
+  ok('未解鎖的食材格也篩得到，但產量 0 且變淡',
+     r.locked.shown && r.locked.amt < 1e-9 && r.locked.dim, JSON.stringify(r.locked));
+  ok('沒選食材就用這個排序時會講出來', /排序要先選食材/.test(r.hint), r.hint);
+  ok('清除篩選會清掉食材選取，chips 也彈回來',
+     r.cleared.size === 0 && r.cleared.n === 4 && r.cleared.pressed === 0, JSON.stringify(r.cleared));
+}
+
 /* 用另開的頁面跑 —— 這一節刻意觸發致命錯誤，不能污染上面的 errors 收集。 */
 console.log('\n[12] 快取偏移：schema 不符必須明確擋下');
 {
