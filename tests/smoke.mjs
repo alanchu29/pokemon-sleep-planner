@@ -1374,10 +1374,12 @@ console.log('\n[11e] 寶可夢箱：排序、展開全部、重複偵測');
      JSON.stringify(r.dupGone));
 }
 
-/* 個體評分。**只是顯示** —— 每週的推薦完全走原本的演算法。
-   這一節要守住的是「這個數字不是憑空來的」：跨週穩定、分項加得起來、
-   理想值不會低於實際值、而且算完之後 POOL 要還原（否則推演那一頁會拿到參考池）。 */
-console.log('\n[11g] 寶可夢箱：個體評分');
+/* 個體產能。**只是顯示** —— 每週的推薦完全走原本的演算法。
+
+   這一節守的是「這些數字不是憑空來的，而且不會誘導錯誤的比較」：
+   三種專長各有自己的主指標與單位、排序先分專長、跨週穩定、理想值不低於實際值、
+   量不到的東西（幫忙加成）要標出來而不是假裝算進去了。 */
+console.log('\n[11g] 寶可夢箱：個體產能（三種專長各自的軸）');
 {
   const r = await page.evaluate(() => {
     const mk = (n, lv, nat, ss, sk, rib) => ({
@@ -1386,101 +1388,114 @@ console.log('\n[11g] 寶可夢箱：個體評分');
       ingSet: [0,0,0], skillLv: sk||1, ribbon: rib||0, pin:false, ex:false, nick:'',
     });
     deserialize({roster: [
-      mk('VENUSAUR', 60, 'Quiet', ['Ingredient Finder M','Helping Speed M'], 3, 4),
-      mk('RAICHU', 60, 'Adamant', ['Berry Finding S','Helping Speed M'], 3, 4),
-      mk('WIGGLYTUFF', 60, 'Careful', ['Skill Trigger M','Helping Speed M'], 6, 4),
-      mk('GENGAR', 50, 'Lonely', [], 3, 3),
-      mk('PIKACHU', 5, 'Bashful', [], 1, 0),
+      mk('RAICHU', 60, 'Adamant', ['Berry Finding S','Helping Speed M'], 3, 4),      // 0 樹果
+      mk('VENUSAUR', 60, 'Quiet', ['Ingredient Finder M','Helping Speed M'], 3, 4),  // 1 食材
+      mk('WIGGLYTUFF', 60, 'Careful', ['Skill Trigger M','Helping Bonus'], 6, 4),    // 2 技能（隊伍型副技能）
+      mk('BLASTOISE', 60, 'Sassy', ['Inventory Up M'], 3, 4),                        // 3 食材
+      mk('PIKACHU', 5, 'Bashful', [], 1, 0),                                         // 4 樹果（很弱）
     ]});
     showView('box'); clearBoxFilter(); monOpen.clear();
     $('fltSort').value = 'added'; $('fltSort').dispatchEvent(new Event('change', {bubbles:true}));
     const fire = (id, ev) => $(id).dispatchEvent(new Event(ev, {bubbles:true}));
+    const P = roster.map(m => monPowerCached(m));
 
-    const scores = roster.map(m => monScoreCached(m));
-    // 分項必須加得起來 —— 不然那三個數字就只是裝飾
-    const partsOk = scores.every(s => Math.abs((s.berry + s.dish + s.skill) - s.total) < 1);
-    // 補師的貢獻主要落在**隊友**的樹果上（牠自己不產那麼多）
-    const supporter = scores[2];
+    /* 主指標依專長而不同 —— 這是整個設計的重點。 */
+    const mains = P.map(p => powerMain(p));
+    const specs = P.map(p => p.spec);
+    const units = P.map(p => powerText(p).u);
 
-    /* 跨週可比：改本週加成樹果之後分數**必須完全不變**。
-       這是整個設計的前提 —— 吃了 fav 的話同一隻會週週差兩倍。 */
-    const before = scores.map(s => Math.round(s.total));
+    /* 跨週可比：改本週加成樹果之後產能**完全不變**。 */
+    const before = P.map(p => Math.round(p.total));
     const favWas = new Set(wk.fav);
-    wk.fav = new Set(['GREPA', 'DURIN', 'PECHA']);
-    _scoreCache.clear();                       // 清快取，逼它真的重算
-    const after = roster.map(m => Math.round(monScoreCached(m).total));
-    wk.fav = favWas; _scoreCache.clear();
+    wk.fav = new Set(['GREPA','DURIN','PECHA']);
+    _powerCache.clear();
+    const after = roster.map(m => Math.round(monPowerCached(m).total));
+    wk.fav = favWas; _powerCache.clear();
 
-    /* 算完評分之後 POOL 必須是**本週的**那一份。評分內部會 buildPool(REF_WK)，
-       沒還原的話推演結果那一頁的食譜排名就是參考條件算出來的。 */
+    /* 產能是純函式：不碰 POOL（不像前一版要 buildPool(參考條件) 再還原）。 */
     wk.recipeScope = 'type'; wk.dishType = 'salad'; buildPool(wk);
     const poolBefore = POOL.length;
-    monScore(roster[0]);
+    roster.forEach(m => monPower(m));
     const poolAfter = POOL.length;
 
-    // 排序
-    $('fltSort').value = 'score'; fire('fltSort', 'change');
+    // 排序：先分專長，再組內高→低
+    $('fltSort').value = 'power'; fire('fltSort', 'change');
     const order = [...$('boxList').querySelectorAll('[data-i]')].map(e => +e.dataset.i);
-    const desc = order.every((idx, i) =>
-      i === 0 || monScoreCached(roster[order[i-1]]).total >= monScoreCached(roster[idx]).total);
-    const chips = $('boxList').querySelectorAll('.mon-score').length;
+    const orderSpecs = order.map(i => P[i].spec);
+    const groupedOk = orderSpecs.join(',') === [...orderSpecs].sort(
+      (a,b) => SPEC_ORD.indexOf(a) - SPEC_ORD.indexOf(b)).join(',');
+    const withinOk = order.every((idx, k) =>
+      k === 0 || P[order[k-1]].spec !== P[idx].spec || powerMain(P[order[k-1]]) >= powerMain(P[idx]));
 
-    // 展開一張 → 自動算理想值；理想值不得低於實際值
-    $('boxList').querySelector('[data-i="0"] .mon-head').click();
-    const rowText = $('boxList').querySelector('[data-i="0"] .mon-scorerow').textContent.replace(/\s+/g,' ').trim();
-    const ideal0 = idealCache.get(idealKey(roster[0]));
-    const idealGE = !!ideal0 && ideal0.total >= scores[0].total - 1;
-    const pct = ideal0 ? Math.round(scores[0].total / ideal0.total * 100) : -1;
+    // 同專長名次
+    const ranks = roster.map((_, i) => rankOf(i));
+    const chips = $('boxList').querySelectorAll('.mon-power').length;
+    const rankChips = [...$('boxList').querySelectorAll('.mon-rank')].map(e => e.textContent);
+    // 幫忙加成量不到 → 一定要標徽章
+    const teamBadges = $('boxList').querySelectorAll('.mon-team').length;
 
-    // 展開全部（5 > IDEAL_AUTO_MAX）→ 理想值改成按鈕，不能凍住
-    $('boxExpand').click();                    // 目前有 1 張開著 → 先收起
-    const t0 = performance.now();
-    $('boxExpand').click();                    // 全開
-    const tAll = performance.now() - t0;
+    // 展開 → 產能列有四個原始數字；理想值不得低於實際值
+    $('boxList').querySelector('[data-i="2"] .mon-head').click();
+    const rowText = $('boxList').querySelector('[data-i="2"] .mon-scorerow').textContent.replace(/\s+/g,' ').trim();
+    const ideal2 = idealCache.get(idealKey(roster[2]));
+    const idealGE = !!ideal2 && powerMain(ideal2) >= powerMain(P[2]) - 1e-9;
+    const pct = ideal2 ? Math.round(powerMain(P[2]) / powerMain(ideal2) * 100) : -1;
+    /* 理想個體的目標函式必須是**那個專長的**主指標。技能型看發動次數，
+       所以牠的理想副技能應該挑得到技能觸發那一類，而不是食材／樹果那一類。 */
+    const idealSs2 = ideal2 ? ideal2.member.ss.filter(Boolean) : [];
+
+    // 展開全部（5 隻，門檻 6）→ 仍然自動算；再確認不會炸
+    $('boxExpand').click(); $('boxExpand').click();
     const rows = $('boxList').querySelectorAll('.mon-scorerow').length;
-    const btns = $('boxList').querySelectorAll('[data-act="ideal"]').length;
-
-    // 改暱稱不該讓分數重算（快取鍵只看會影響計算的欄位）
-    const keyBefore = monScoreKey(roster[0]);
-    roster[0].nick = '樹果萌萌';
-    const keySame = monScoreKey(roster[0]) === keyBefore;
 
     monOpen.clear(); clearBoxFilter();
     $('fltSort').value = 'added'; fire('fltSort', 'change');
-    return {partsOk, supporter: {berry: Math.round(supporter.berry), skill: Math.round(supporter.skill),
-              total: Math.round(supporter.total)},
-            before, after, poolBefore, poolAfter, order, desc, chips,
-            rowText, idealGE, pct, rows, btns, tAll, keySame,
+    return {mains, specs, units, before, after, poolBefore, poolAfter,
+            order, orderSpecs, groupedOk, withinOk, ranks, chips, rankChips, teamBadges,
+            rowText, idealGE, pct, idealSs2, rows,
             note: $('scoreNote').textContent.trim(),
-            totals: scores.map(s => Math.round(s.total))};
+            interval0: P[0].interval, procs2: P[2].procs, ingE1: P[1].ingE, ingCount1: P[1].ingCount};
   });
-  ok('每一隻都算得出分數，而且是正的', r.totals.every(v => v > 0), r.totals.join(', '));
-  ok('摺疊列每一張都有評分', r.chips === 5, String(r.chips));
-  ok('分項（樹果／食材／技能）加起來等於總分', r.partsOk, JSON.stringify(r.totals));
-  /* 補師自己產出很少，價值在讓隊友多產 —— 所以牠的分數主要落在「樹果」那一欄。
-     這正是為什麼不能用「單獨一隻的產出」當評分。 */
-  ok('補師的貢獻落在隊友的產出上（不是自己的技能欄）',
-     r.supporter.berry > r.supporter.skill * 5, JSON.stringify(r.supporter));
-  /* 這一條是整個設計的前提。吃了本週加成的話同一隻會週週差兩倍，那就不是評價了。 */
-  ok('評分不吃本週加成樹果（跨週可比）', r.before.join(',') === r.after.join(','),
+  ok('每一隻都算得出主指標', r.mains.every(v => v > 0), r.mains.map(v => v.toFixed(2)).join(', '));
+  /* 這是重新設計的核心：三種專長各有自己的軸，**單位不同就是在提醒別跨專長比**。 */
+  ok('樹果型看總產能能量', r.units[0] === '產能/日', r.units[0]);
+  ok('食材型看食材原始能量', r.units[1] === '食材能量/日', r.units[1]);
+  ok('技能型看主技能發動次數', r.units[2] === '發動/日' && r.procs2 > 0,
+     `${r.units[2]} / ${r.procs2.toFixed(2)}`);
+  ok('食材型同時給得出顆數與能量', r.ingE1 > 0 && r.ingCount1 > 0,
+     `${Math.round(r.ingE1)} 能量 / ${r.ingCount1.toFixed(1)} 顆`);
+  /* 幫忙間隔和遊戲寶可夢詳細頁是同一個數字（nHB=0）—— 所以使用者對得起來。 */
+  ok('幫忙間隔用單獨一隻的情境（和遊戲畫面同一個數字）', r.interval0 > 0 && r.interval0 < 4000,
+     `${r.interval0}s`);
+  ok('產能不吃本週加成樹果（跨週可比）', r.before.join(',') === r.after.join(','),
      `${r.before.join(',')} vs ${r.after.join(',')}`);
-  ok('評分算完會把 POOL 還原（否則推演那一頁會拿到參考條件的食譜池）',
+  /* 前一版要 buildPool(參考條件) 再還原；這一版是純函式，根本不碰 POOL。 */
+  ok('算產能不會動到 POOL（純函式，不需要參考隊）',
      r.poolBefore === r.poolAfter && r.poolBefore > 0, `${r.poolBefore} → ${r.poolAfter}`);
-  ok('依評分排序（高→低）', r.desc && r.order.join(',') === '1,0,2,3,4', r.order.join(','));
-  ok('展開後有評分列，含總分與三個分項',
-     /評分/.test(r.rowText) && /樹果/.test(r.rowText) && /食材/.test(r.rowText) && /技能/.test(r.rowText),
+  ok('排序先分專長（不把三種混在一起排）', r.groupedOk, r.orderSpecs.join(','));
+  ok('同專長內由高到低', r.withinOk, r.order.join(','));
+  ok('摺疊列每一張都有主指標', r.chips === 5, String(r.chips));
+  /* 同專長內的名次才是可以跨專長讀的東西（「我最好的食材型」）。 */
+  ok('摺疊列有同專長名次', r.rankChips.length === 5 && /樹果 1\/2|食材 1\/2/.test(r.rankChips.join(' ')),
+     r.rankChips.join(' | '));
+  ok('名次是同專長內算的', r.ranks[4].of === 2 && r.ranks[4].at === 2, JSON.stringify(r.ranks[4]));
+  /* 「幫忙加成」的價值在加速隊友，單獨一隻量不到 —— 量不到就要說，不能假裝算進去了。 */
+  ok('隊伍型副技能會標徽章（因為這個數字量不到它）', r.teamBadges === 1, String(r.teamBadges));
+  ok('展開後有產能列，含樹果／食材／技能／間隔',
+     /樹果/.test(r.rowText) && /食材/.test(r.rowText) && /技能/.test(r.rowText) && /間隔/.test(r.rowText),
      `「${r.rowText}」`);
-  /* 貪婪搜尋可能漏掉有交互作用的副技能組合，所以 monIdeal 最後會把「牠自己」
-     也當候選比一次 —— 否則百分比會超過 100%，看起來像壞掉。 */
-  ok('理想值不會低於實際值（百分比不會超過 100%）', r.idealGE && r.pct <= 100 && r.pct > 0,
-     `${r.pct}%`);
-  ok('展開超過門檻時理想值改成按鈕，不會凍住',
-     r.rows === 5 && r.btns >= 4 && r.tAll < 400, `${r.rows} 列 / ${r.btns} 顆按鈕 / ${r.tAll.toFixed(0)}ms`);
-  ok('改暱稱不會讓評分重算（快取鍵只看會影響計算的欄位）', r.keySame);
-  /* 一個沒有出處的數字比沒有數字更糟。基準與「不影響推演」兩件事都要寫出來。 */
-  ok('說明文案寫出參考隊與參考條件', /參考隊/.test(r.note) && /Lv50/.test(r.note) && /鍋子/.test(r.note), r.note);
-  ok('說明文案講明不影響推演', /不影響推演/.test(r.note), r.note);
-  ok('說明文案講明不含本週加成', /不含本週加成/.test(r.note), r.note);
+  ok('理想值不會低於實際值（百分比不會超過 100%）', r.idealGE && r.pct <= 100 && r.pct > 0, `${r.pct}%`);
+  /* 理想個體的目標函式是**那個專長的**主指標。技能型看發動次數，所以挑出來的
+     副技能必須是提高發動率那一類 —— 用總產能當目標會挑出完全不同的一組。 */
+  ok('技能型的理想個體挑的是提高發動率的副技能',
+     r.idealSs2.some(n => /Skill Trigger/.test(n)), r.idealSs2.join(', ') || '(空)');
+  ok('展開全部照樣算得出來', r.rows === 5, String(r.rows));
+  /* 一個沒有出處的數字比沒有數字更糟，而「可以互相比」的暗示比沒有數字更糟。 */
+  ok('說明文案講明三種專長不能互相比較', /不能互相比較/.test(r.note), r.note.slice(0, 60));
+  ok('說明文案講明基準是單獨一隻、不含本週加成',
+     /單獨一隻/.test(r.note) && /不含本週加成/.test(r.note), r.note.slice(0, 60));
+  ok('說明文案講明不影響推演', /不影響推演/.test(r.note), r.note.slice(-40));
+  ok('說明文案講明隊伍型副技能量不到', /量不到/.test(r.note), r.note.slice(-90));
 }
 
 /* 用另開的頁面跑 —— 這一節刻意觸發致命錯誤，不能污染上面的 errors 收集。 */

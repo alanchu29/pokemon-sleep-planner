@@ -399,201 +399,158 @@ function rankRecipesForTeam(r, wk){
   return out;
 }
 
-/* ================= 個體評分（只給寶可夢箱的 UI 用） =================
+/* ================= 個體產能（只給寶可夢箱的 UI 用） =================
    **這一區完全不參與推演。** `searchTeams` / `scoreTeam` 一行都沒改 —— 每週的
-   推薦還是原本那條路徑。這裡只是把同一組引擎函式拿來回答另一個問題：
-   「這一隻在我的箱子裡有多有用」。
+   推薦還是原本那條路徑。
 
-   為什麼是「邊際貢獻」而不是「單獨一隻的產出」—— 三個理由，每一個都是實際的
-   算錯來源：
+   ## 為什麼不是一個跨專長的總分
 
-   1. **單隻算料理會系統性壓低食材型。** `cooksCapped = floor(min(週食材/食譜需求))`，
-      而一隻食材型一天只產約 20 個、集中在一兩種食材上，食譜通常要三種以上 ——
-      單隻幾乎每道都煮不成，`dishS ≈ 0`。鍋子容量與食譜配對本質上是**隊伍層級**的，
-      不能除以 5 攤給個人。
-   2. **補師型的價值不在牠自己的產出。** 活力／能量填充那些記在 `energyGiven` 與
-      `helpsGiven`，那是**給隊友的**。只看 `berryStrength + skillStrength` 的話，
-      這類寶可夢會接近零分 —— 而牠們常常是最佳隊伍的核心。
-   3. **本週加成會讓分數週週跳動。** `memberOutput` 裡有 `favMul = fav.has(b)?2:1`，
-      同一隻的分數會差兩倍。那就不是「這隻的評價」，是「這週合不合用」。
+   三種專長的職責本來就不同，**分數不該互相比較**：
 
-   所以定義是：**把牠放進一支固定的參考隊，整週能量多了多少。**
-   三個問題一次解決 —— 參考隊本來就煮得動料理、補師給隊友的能量會真的反映在總分
-   上、參考條件固定所以跨週可比。而且**沒有任何新公式**：全部是 `scoreTeam`。
+   | 專長 | 牠負責什麼 | 主指標 |
+   |---|---|---|
+   | 樹果 | 穩定產能 | 總產能能量／日（樹果＋食材＋技能） |
+   | 食材 | 供料給食譜 | 食材原始能量／日（配不配得上本週食譜是推演的事） |
+   | 技能 | 觸發主技能 | 主技能發動次數／日 |
+   | 全能 | 兩邊都做一點 | 總產能能量／日 |
 
-   代價與必須講出來的事：
-   - 分數**依賴參考隊的組成**（把補師加進一支已經很有活力的隊伍，增量會偏小）。
-     所以參考隊與參考條件一定要顯示在 UI 上，不能藏著。
-   - 分項（樹果／食材／技能）是**兩次 `scoreTeam` 的差**，所以補師讓隊友多產的
-     部分會落在樹果／食材那兩欄 —— 這是對的，但要在文案裡講明白。
-   - **有些看起來「應該加分」的副技能會是負的，而那是對的。** 實測 Lv30 妙蛙花：
-     `Ingredient Finder M` 的邊際值是 **−0.21萬**。查下去的原因是背包 ——
-     食材機率 0.266→0.362 讓每次幫忙掉更多東西，`helpsTillFull` 從 16.2 掉到 14.2，
-     在有補能量的隊伍情境下夜間幫忙被截斷，`productive` 下降 → 主技能發動次數下降
-     → 「食材磁鐵」灑出來的**其他種類**食材全部變少，而那些才是高價食譜要的。
-     食材**總量**上升（59.3→76.9/日）但**組成**變差，所以料理分反而降。
-     引擎是對的（那隻該先補 `Inventory Up`）—— 別「修」這種數字。 */
+   **食材型刻意不看「配不配本週食譜」** —— 那正是每週推演在做的事，而且會週週跳動。
+   箱子要回答的是「這隻的產能好不好」，該配哪一隻交給推演。
 
-/* 參考隊：2 食材型 ＋ 1 樹果型 ＋ 1 技能型，Lv50、無修正性格、無副技能、無緞帶、
-   主技能 Lv1。四隻的樹果各不相同（DURIN／LEPPA／GREPA／PECHA），而且主技能都
-   **不是**會隨隊伍組成改變賠付的那幾種（Helper Boost／Plus／Minus／揮指類）——
-   否則基準線本身就會隨被評分的那一隻而動。 */
-const REF_TEAM_SPECIES = ['VENUSAUR', 'CHARIZARD', 'RAICHU', 'WIGGLYTUFF'];
-const REF_LEVEL = 50;
-/* 參考週條件。**刻意不吃本週加成**（`fav` 是空的），也刻意不用使用者自己的食譜
-   等級 —— 分數要跨週、跨裝置可比，吃了那些就會隨設定漂移。 */
-const REF_WK = {
-  fav: new Set(), camp: false, sleepH: 8.5, pot: 57, areaBonus: 0, mode: 'total',
-  recipePick: 'auto', recipeScope: 'all', dishType: 'curry',
-  recipe: D.recipes[0], recipeLv: 30, recipeLevels: {},
-};
+   **技能型刻意只看發動頻率**，不把技能效果換算成能量。不同主技能給的是能量／食材／
+   幫忙次數／夢之碎片，換算率是憑空的判斷 —— 而發動頻率是所有技能共同的軸，
+   也是使用者真正在養的東西。技能實際做什麼由 UI 用文字寫出來。
 
-let _refTeam;          // undefined = 還沒算；null = 參考物種在這份快照裡找不到
-function refTeam(){
-  if (_refTeam !== undefined) return _refTeam;
-  const team = REF_TEAM_SPECIES.map(n => {
-    const sp = D.dex.findIndex(p => p.n === n);
-    return sp < 0 ? null : {sp, level: REF_LEVEL, nature: 'Bashful',
-      ss: [null,null,null,null,null], ingSet: [0,0,0], skillLv: 1, ribbon: 0, pin: false, ex: false};
-  });
-  _refTeam = team.some(x => !x) ? null : team;
-  if (_refTeam) for (const x of _refTeam) x._bs = baseStats(x, REF_WK);
-  return _refTeam;
-}
-/** 參考隊與參考條件的可讀描述 —— UI 一定要顯示這個，分數才不是「憑空的數字」。 */
-function refDescribe(){
-  const t = refTeam();
+   ## 為什麼不用「加進參考隊的邊際貢獻」（前一版，已移除）
+
+   實測換三種參考隊組成，同一隻**食材型 Lv60 的分數是 9.75萬／14.20萬／18.31萬**——
+   差 1.9 倍。原因是 21 餐是硬上限：參考隊食材越多，再加食材越沒價值。所以那個分數
+   有很大一部分在量「參考隊缺不缺食材」，不是「這隻有多好」。樹果型幾乎不受影響
+   （樹果能量線性可加），所以偏差還**只打在其中一種專長上**。詳見 DECISIONS.md。
+
+   ## 基準
+
+   `SCORE_CTX` 是**單獨一隻、沒有任何隊友加成**（`nHB = 0`）—— 這正是遊戲的寶可夢
+   詳細頁顯示幫忙間隔時用的情境，所以畫面上的數字對得起來。
+   `SCORE_WK` 固定（無露營券、睡 8.5 小時、**不含本週加成樹果**），所以跨週可比。
+
+   代價要講出來：**團隊型副技能量不到**。「幫忙加成」的價值主要在加速四個隊友，
+   單獨一隻只看得到自己那 5%。所以 `monPower` 會回傳 `teamOnly`，UI 標一個徽章 ——
+   量不到就說量不到，不要假裝那個數字包含了它。 */
+const SCORE_WK = {fav: new Set(), camp: false, sleepH: 8.5};
+const SCORE_CTX = {nHB: 0, nERB: 0, supportEnergy: 0, extraHelps: 0, hbU: 1, hasPlus: false};
+
+/** 一隻的個體產能。純函式，不碰 POOL、不需要參考隊。 */
+function monPower(m){
+  const me = {...m, pin: false, ex: false};
+  me._bs = baseStats(me, SCORE_WK);
+  const o = memberOutput(me, SCORE_WK, SCORE_CTX);
+  let ingCount = 0, ingE = 0;
+  const types = [];
+  for (let i = 0; i < NING; i++){
+    if (o.ing[i] <= 1e-9) continue;
+    ingCount += o.ing[i];
+    ingE += o.ing[i] * ING_VAL[i];
+    types.push([i, o.ing[i]]);
+  }
+  types.sort((a, b) => b[1] - a[1]);
+  const p = D.dex[me.sp];
   return {
-    ok: !!t,
-    species: t ? t.map(x => D.dex[x.sp].n) : REF_TEAM_SPECIES,
-    level: REF_LEVEL, pot: REF_WK.pot, sleepH: REF_WK.sleepH, recipeLv: REF_WK.recipeLv,
+    spec: p.sp,
+    berryE: o.berryStrength,          // 樹果能量／日（含主技能給的樹果）
+    ingE, ingCount,                   // 食材：原始能量與顆數／日（**未經料理加成**）
+    skillE: o.skillStrength,          // 主技能直接給的能量／日
+    procs: o.sim.procs,               // 主技能發動次數／日
+    helps: o.sim.helpsDay + o.sim.helpsNight,
+    interval: o.sim.freqBase,         // 幫忙間隔（秒）—— 和遊戲畫面同一個數字
+    snack: o.sim.snack,               // 背包滿了之後的「零食」幫忙，越多代表越該補持有上限
+    total: o.berryStrength + ingE + o.skillStrength,
+    ingTypes: types.slice(0, 3).map(([i, v]) => [ING_NAME[i], v]),
+    /* 幫忙加成只在隊伍裡才值錢，單獨一隻量不到 —— UI 要標出來。 */
+    teamOnly: me._bs.hasHB,
+    pay: o.pay,
   };
 }
+/** 各專長的主指標。**這四個數字彼此不可比**，UI 一定要把專長標在旁邊。 */
+const POWER_MAIN = {
+  berry:      p => p.total,
+  ingredient: p => p.ingE,
+  skill:      p => p.procs,
+  all:        p => p.total,
+};
+const powerMain = p => POWER_MAIN[p.spec](p);
 
-/* `POOL` 是模組層級的全域，`buildPool()` 會整個換掉它 —— 而 app.js 的
-   `renderResults` / `rankRecipesForTeam` 都靠它。所以評分一定要在 finally 裡
-   把原本那份放回去，否則算完評分之後推演結果那一頁會拿到參考條件的食譜池。 */
-function withRefPool(fn){
-  const saved = POOL;
-  buildPool(REF_WK);
-  try { return fn(); } finally { POOL = saved; }
-}
-
-/* 料理那一欄用的就是 `scoreTeam` 自己的 `dishS`（＝`max(最佳單一食譜, proxyDish)`），
-   **刻意不改用 `bestPlan`**。理由：`proxyDish` 是上界、`bestPlan` 恆 ≤ 它，所以
-   `finalizeTeams` 那個 `if (mp.total > b.dishS)` 在自動配對模式下幾乎不會成立 ——
-   實測換成 `bestPlan` 之後每一格數字**完全沒變**，只多花 9 倍的排程時間。
-   而且用同一個 `dishS` 才能保證「箱子裡分數高的，推演也傾向選牠」。
-
-   要知道的性質：**21 餐是硬上限**，所以食材多到能填滿 21 餐之後，再多的食材只有在
-   「解鎖了更高價的食譜」時才加分 —— 食材那一欄天生是階梯狀的，不是線性的。
-   這不是 bug，是遊戲本來就這樣（一週只吃 21 餐）。 */
-
-/** 參考隊自己的分數（不含被評的那一隻）。POOL 必須已經是參考池。 */
-function refBaseline(team){
-  return scoreTeam([0,1,2,3], team, REF_WK, new Map());
-}
-/** 單次評分。**memo 一定要是新的** —— `getOut` 的鍵是「索引#ctxKey」，索引 4 在
- *  不同候選之間會換成不同的個體，共用 memo 會拿到上一個候選的產出。 */
-function scoreWith(team, m, base){
-  const me = {...m, pin: false, ex: false};
-  me._bs = baseStats(me, REF_WK);
-  const w = scoreTeam([0,1,2,3,4], [...team, me], REF_WK, new Map());
-  return {total: w.total - base.total, berry: w.berryS - base.berryS,
-          dish: w.dishS - base.dishS, skill: w.skillS - base.skillS};
-}
-
-/** 邊際貢獻分。回傳 null 代表參考隊建不起來（資料重建掉了某一隻）。 */
-function monScore(m){
-  const team = refTeam(); if (!team) return null;
-  return withRefPool(() => scoreWith(team, m, refBaseline(team)));
-}
-
-/* 評分只看會影響計算的欄位（暱稱、📌、🚫 都不影響），所以可以安全地快取。
-   `renderBox()` 在每次欄位改動時都會重畫整個列表，60 隻重算一次約 60 次
-   scoreTeam —— 不算貴，但沒必要每次都做。 */
-const _scoreCache = new Map();
-const monScoreKey = m => [m.sp, m.level, m.nature, m.ss.join(','), m.ingSet.join(','),
+/* 快取：只看會影響計算的欄位（暱稱、📌、🚫 都不影響）。 */
+const _powerCache = new Map();
+const monPowerKey = m => [m.sp, m.level, m.nature, m.ss.join(','), m.ingSet.join(','),
                           m.skillLv, m.ribbon||0].join('|');
-function monScoreCached(m){
-  const k = monScoreKey(m);
-  if (_scoreCache.has(k)) return _scoreCache.get(k);
-  const v = monScore(m);
-  _scoreCache.set(k, v);
+function monPowerCached(m){
+  const k = monPowerKey(m);
+  let v = _powerCache.get(k);
+  if (!v){ v = monPower(m); _powerCache.set(k, v); }
   return v;
 }
 
 /** 同物種、**同等級**的理想個體：最佳性格＋最佳副技能＋緞帶4＋主技能滿級＋最佳食材組合。
  *
- *  **這是搜尋，不是證明。** 副技能之間有交互作用（持有上限對慢速的那幾隻更重要），
- *  所以用貪婪：已解鎖的欄位逐格試過全部副技能取當下最好的，再用最佳性格重跑一次。
- *  可能比真正的最佳低一點點，所以 UI 要把它講成**參考線**，不是上限。
+ *  目標函式就是那個專長的主指標（`powerMain`），所以「理想」的定義和顯示的分數一致 ——
+ *  用總產能去挑技能型的理想個體會挑出完全不同的一組副技能。
  *
- *  等級刻意跟著被比的那一隻 —— 拿 Lv30 的個體去比 Lv60 的理想值，量到的是
- *  「還沒練滿」而不是「個體好不好」，那兩件事應該分開看。 */
+ *  **這是搜尋，不是證明。** 副技能之間有交互作用（持有上限對掉落快的更重要），
+ *  所以用貪婪：已解鎖的欄位逐格試過全部副技能取當下最好的，再用最佳性格重跑一次。
+ *  最後會把**牠自己**也放進候選 —— 否則貪婪漏掉某個組合時「理想值」會比實際低，
+ *  百分比超過 100%，看起來像壞掉。
+ *
+ *  等級刻意跟著被比的那一隻：拿 Lv30 的個體去比 Lv60 的理想值，量到的是
+ *  「還沒練滿」而不是「個體好不好」。 */
 function monIdeal(m){
-  const team = refTeam(); if (!team) return null;
   const p = D.dex[m.sp];
   const maxSkillLv = (D.ms[p.ms] || {max: 6}).max;
   const ssNames = D.subskills.map(s => s.n);
   const slots = [0,1,2,3,4].filter(s => m.level >= SS_SLOT_LV[s]);
   const ingOpts = [p.i0, p.i30, p.i60].map(l => (l || []).length);
-  const ingSlots = Math.min(Math.floor(m.level/30) + 1, 3);
+  const nIngSlots = Math.min(Math.floor(m.level/30) + 1, 3);
+  const val = x => powerMain(monPower(x));
 
-  return withRefPool(() => {
-    const base = refBaseline(team);
-    const val = x => { const r = scoreWith(team, x, base); return r ? r.total : -Infinity; };
-    let cur = {...m, ribbon: 4, skillLv: maxSkillLv,
-               ss: [null,null,null,null,null], ingSet: m.ingSet.slice()};
-
-    // ① 食材組合：只有已解鎖的格子會進 baseStats，其他格改了也不影響分數
-    for (let s = 0; s < ingSlots; s++){
-      let bestI = cur.ingSet[s], bestV = -Infinity;
-      for (let o = 0; o < ingOpts[s]; o++){
-        const t = {...cur, ingSet: cur.ingSet.slice()}; t.ingSet[s] = o;
-        const v = val(t); if (v > bestV){ bestV = v; bestI = o; }
-      }
-      cur.ingSet[s] = bestI;
+  let cur = {...m, ribbon: 4, skillLv: maxSkillLv,
+             ss: [null,null,null,null,null], ingSet: m.ingSet.slice()};
+  // ① 食材組合（只有已解鎖的格子會進 baseStats）
+  for (let s = 0; s < nIngSlots; s++){
+    let bestI = cur.ingSet[s], bestV = -Infinity;
+    for (let o = 0; o < ingOpts[s]; o++){
+      const t = {...cur, ingSet: cur.ingSet.slice()}; t.ingSet[s] = o;
+      const v = val(t); if (v > bestV){ bestV = v; bestI = o; }
     }
-    // ② 副技能（第一輪，用牠現在的性格）
-    const fillSs = () => {
-      const ss = [null,null,null,null,null];
-      for (const s of slots){
-        let bestN = null, bestV = -Infinity;
-        for (const n of ssNames){
-          if (ss.includes(n)) continue;               // 同一隻不會有重複的副技能
-          const t = {...cur, ss: ss.slice()}; t.ss[s] = n;
-          const v = val(t); if (v > bestV){ bestV = v; bestN = n; }
-        }
-        ss[s] = bestN;
+    cur.ingSet[s] = bestI;
+  }
+  const fillSs = () => {
+    const ss = [null,null,null,null,null];
+    for (const s of slots){
+      let bestN = null, bestV = -Infinity;
+      for (const n of ssNames){
+        if (ss.includes(n)) continue;                 // 同一隻不會有重複的副技能
+        const t = {...cur, ss: ss.slice()}; t.ss[s] = n;
+        const v = val(t); if (v > bestV){ bestV = v; bestN = n; }
       }
-      return ss;
-    };
-    cur.ss = fillSs();
-    // ③ 性格（25 種全試）
-    let bestNat = cur.nature, bestV = -Infinity;
-    for (const n of Object.keys(NAT)){
-      const v = val({...cur, nature: n});
-      if (v > bestV){ bestV = v; bestNat = n; }
+      ss[s] = bestN;
     }
-    cur.nature = bestNat;
-    // ④ 副技能第二輪 —— 最佳性格會改變哪個副技能最值錢（例如頻率性格 ＋ 幫忙速度）
-    cur.ss = fillSs();
+    return ss;
+  };
+  cur.ss = fillSs();                                   // ② 副技能（先用牠現在的性格）
+  let bestNat = cur.nature, bestV = -Infinity;         // ③ 性格 25 種全試
+  for (const n of Object.keys(NAT)){
+    const v = val({...cur, nature: n});
+    if (v > bestV){ bestV = v; bestNat = n; }
+  }
+  cur.nature = bestNat;
+  cur.ss = fillSs();                                   // ④ 最佳性格會改變哪個副技能最值錢
 
-    /* ⑤ 保底：把**牠自己**也當候選比一次。
-       貪婪是逐格挑的，所以理論上可能錯過某個有交互作用的組合 —— 而如果那個組合
-       正好就在這一隻身上，「理想值」就會比實際值低，畫面上的百分比會超過 100%，
-       看起來像壞掉。把 m 本人放進候選就從結構上保證 `理想 ≥ 實際`。
-       同時也比一次「保留牠的性格與副技能、只把緞帶／技能等級／食材換成最好的」——
-       那兩者都不保證單調（例如更大的背包會把夜間的零食換成一般幫忙），所以用比的，
-       不用推的。 */
-    const cands = [cur,
-                   {...m, ribbon: 4, skillLv: maxSkillLv, ingSet: cur.ingSet.slice()},
-                   {...m}];
-    let best = null, bestScore = -Infinity;
-    for (const c of cands){ const v = val(c); if (v > bestScore){ bestScore = v; best = c; } }
-    return {...scoreWith(team, best, base), member: best};
-  });
+  // ⑤ 保底：牠自己也是候選，從結構上保證「理想 ≥ 實際」
+  let best = null, bestScore = -Infinity;
+  for (const c of [cur, {...m, ribbon: 4, skillLv: maxSkillLv, ingSet: cur.ingSet.slice()}, {...m}]){
+    const v = val(c); if (v > bestScore){ bestScore = v; best = c; }
+  }
+  return {...monPower(best), member: best};
 }
 
 /* ================= SEARCH ================= */

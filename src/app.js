@@ -57,7 +57,7 @@ const SCHEMA = 1;
    「新的 index.html ＋ 舊的 app.js」—— 畫面畫出舊版 UI，而使用者只會覺得
    「你根本沒改」，完全不知道是快取。有了這個斷言，過期的 app.js 會直接被擋下來
    並要求強制重新整理。tests/smoke.mjs 第 11 節會斷言三處一致。 */
-const APP_V = '20260908i';
+const APP_V = '20260908j';
 
 /** 致命錯誤：整頁換成一段說明。這種狀況下繼續跑只會產生錯的數字。 */
 function fatal(html){
@@ -597,36 +597,63 @@ let monDup = new Set();
 /** 目前解鎖的食材格數。 */
 const ingSlots = m => Math.min(Math.floor(m.level/30)+1, 3);
 
-/* ---- 個體評分（顯示用，engine.js 的 monScore / monIdeal）----
+/* ---- 個體產能（顯示用，engine.js 的 monPower / monIdeal）----
    **這只是顯示。** 每週的推薦完全走原本那條演算法，一個字都沒改。
 
-   分數 ＝ 把這一隻加進一支固定的參考隊，整週能量增加多少。為什麼是「邊際貢獻」
-   而不是「單獨一隻的產出」，三個理由都在 engine.js 的那一段（單隻算料理會系統性
-   壓低食材型、補師的價值不在自己身上、本週加成會讓分數週週差兩倍）。
+   **三種專長的分數彼此不可比。** 職責不同、單位不同：樹果型看總產能能量、
+   食材型看食材原始能量、技能型看主技能發動次數。所以每一個數字旁邊都必須有
+   專長標籤與單位，而且**排序是先分專長、再組內比**（見 BOX_SORTS.power）——
+   把三種混在一起排，那個排名本身就是謊話。
 
-   單位一律用「萬」。原始值是六位數的週能量，摺疊列上放六位數會把那一行擠爆，
-   而完整數字放在 title 裡。 */
-const wan = v => (v/10000).toFixed(2);
-const pzByName = n => { const i = D.dex.findIndex(p => p.n === n); return i < 0 ? n : pz(D.dex[i]); };
-/** 參考基準的說明。**一定要顯示** —— 沒有這句話，那個數字就是憑空來的。 */
-function scoreNote(){
-  const r = refDescribe();
-  if (!r.ok) return `評分無法計算：參考隊的物種不在目前的 ${code(P.data)} 快照裡。`;
-  return `<b>評分</b>＝把這一隻加進固定的參考隊之後，<b>整週能量增加多少</b>（單位：萬）。`
-       + `參考隊是 ${r.species.map(pzByName).join('、')}，各 Lv${r.level}、無修正性格、無副技能、無緞帶；`
-       + `鍋子 ${r.pot}、睡眠 ${r.sleepH} 小時、食譜等級 ${r.recipeLv}、<b>不含本週加成樹果</b>（所以跨週可比）。`
-       + `<b>這個數字不影響推演</b> —— 每週的推薦還是原本的演算法。`;
+   同專長內的名次（`3/12`）反而是可以跨專長讀的：「我最好的食材型」和
+   「我最好的樹果型」是同一種語意。 */
+const num = v => Math.round(v).toLocaleString('en-US');
+/** 主指標的顯示文字（值 ＋ 單位）。單位不同就是在提醒「別跨專長比」。 */
+function powerText(p){
+  if (p.spec === 'skill') return {v: p.procs.toFixed(2), u: '發動/日'};
+  if (p.spec === 'ingredient') return {v: num(p.ingE), u: '食材能量/日'};
+  return {v: num(p.total), u: '產能/日'};
 }
-/* 理想值一隻要跑約 170 次評分（≈40ms）。展開一兩張卡感覺不到，但「展開全部」
-   一次開 60 隻就是 2 秒的凍結 —— 和「一次攤開 60 隻要建一萬多個 <option>」同一個
-   問題。所以只在展開的卡片不多時才自動算，其餘給一顆按鈕。
+/** 同專長內的名次。`Map<專長, 由高到低的 roster 索引>`，每次 renderBox 重算。 */
+let powerRank = new Map();
+function rebuildPowerRank(){
+  const by = new Map();
+  roster.forEach((m, i) => {
+    const p = monPowerCached(m);
+    if (!by.has(p.spec)) by.set(p.spec, []);
+    by.get(p.spec).push(i);
+  });
+  for (const arr of by.values())
+    arr.sort((a, b) => powerMain(monPowerCached(roster[b])) - powerMain(monPowerCached(roster[a])) || a - b);
+  powerRank = by;
+}
+function rankOf(idx){
+  const p = monPowerCached(roster[idx]);
+  const arr = powerRank.get(p.spec) || [];
+  const at = arr.indexOf(idx);
+  return at < 0 ? null : {at: at + 1, of: arr.length};
+}
+/** 基準說明。**一定要顯示** —— 沒有這句話，那些數字就是憑空來的。 */
+function scoreNote(){
+  return `<b>產能</b>是<b>單獨一隻</b>的每日產出（沒有隊友加成，`
+       + `就是遊戲寶可夢詳細頁顯示幫忙間隔時的那個情境）：無露營券、睡 8.5 小時、`
+       + `<b>不含本週加成樹果</b>，所以跨週可比。`
+       + `<b>三種專長的數字不能互相比較</b> —— 職責不同：`
+       + `<b>樹果型</b>看總產能（樹果＋食材＋技能能量）、`
+       + `<b>食材型</b>看食材原始能量（未經料理加成；配不配得上本週食譜是<b>推演</b>要決定的事）、`
+       + `<b>技能型</b>看主技能發動次數（不同技能給的東西不同，換算成能量只會是憑空的假設）。`
+       + `能比的是<b>同專長內的名次</b>。`
+       + `另外，「幫忙加成」這類<b>只對隊友有效</b>的副技能單獨一隻量不到，會另外標徽章。`
+       + `<b>這些數字不影響推演</b> —— 每週的推薦還是原本的演算法。`;
+}
+/* 理想值一隻要跑約 170 次 monPower（≈15ms）。展開一兩張感覺不到，但「展開全部」
+   一次開 60 隻還是會頓 —— 和「一次攤開 60 隻要建一萬多個 <option>」同一個考量。
 
-   快取鍵是**整隻的簽章**，不是「物種｜等級」—— 看起來理想個體只該由物種與等級
-   決定，但 `monIdeal` 的最後一步會把**牠自己**也放進候選（保證「理想 ≥ 實際」，
-   否則貪婪漏掉某個組合時百分比會超過 100%）。那一步讓結果和這一隻有關。 */
-const IDEAL_AUTO_MAX = 3;
+   快取鍵是**整隻的簽章**：看起來理想個體只該由物種與等級決定，但 `monIdeal`
+   的最後一步會把**牠自己**也放進候選（保證「理想 ≥ 實際」），那一步和這一隻有關。 */
+const IDEAL_AUTO_MAX = 6;
 const idealCache = new Map();
-const idealKey = m => monScoreKey(m);
+const idealKey = m => monPowerKey(m);
 function idealOf(m, allowCompute){
   const k = idealKey(m);
   if (idealCache.has(k)) return idealCache.get(k);
@@ -635,43 +662,58 @@ function idealOf(m, allowCompute){
   idealCache.set(k, v);
   return v;
 }
-/** 摺疊列上的那一格。 */
-function scoreChip(m){
-  const s = monScoreCached(m);
-  if (!s) return '';
-  return `<span class="mon-score" title="評分 ${Math.round(s.total).toLocaleString('en-US')}`
-       + `（把牠加進參考隊之後，整週能量的增量）&#10;`
-       + `樹果 ${wan(s.berry)}萬 · 食材 ${wan(s.dish)}萬 · 技能 ${wan(s.skill)}萬&#10;`
-       + `展開後有完整說明。這個數字不影響推演。">${wan(s.total)}</span>`;
+/** 摺疊列上的那兩格：主指標 ＋ 同專長名次。 */
+function scoreChip(m, idx){
+  const p = monPowerCached(m);
+  const t = powerText(p);
+  const r = idx == null ? null : rankOf(idx);
+  const tip = `${SPEC_ZH[p.spec]}型的主指標：${t.v} ${t.u}&#10;`
+    + `樹果 ${num(p.berryE)} · 食材 ${num(p.ingE)}（${p.ingCount.toFixed(1)} 顆）· 技能能量 ${num(p.skillE)}&#10;`
+    + `主技能發動 ${p.procs.toFixed(2)} 次/日 · 幫忙間隔 ${p.interval} 秒&#10;`
+    + `單獨一隻、無隊友加成、不含本週加成樹果。展開後有完整說明。`;
+  return `<span class="mon-power" title="${tip}">${t.v}<i>${t.u}</i></span>`
+       + (r ? `<span class="mon-rank" title="同專長內的名次 —— 這個才是可以跨專長讀的">`
+             + `${SPEC_ZH[p.spec]} ${r.at}/${r.of}</span>` : '')
+       + (p.teamOnly ? `<span class="mon-team" title="牠有「幫忙加成」——&#10;`
+             + `價值主要在加速四個隊友，單獨一隻量不到，所以上面那個數字沒有包含它。&#10;`
+             + `推演會正確計入。">隊伍型</span>` : '');
 }
-/** 展開後的評分列：總分 ＋ 三個分項 ＋ 同物種同等級的理想個體。 */
+/** 展開後的產能列：主指標 ＋ 全部原始數字 ＋ 同物種同等級的理想個體。 */
 function scoreRow(m, allowIdeal){
-  const s = monScoreCached(m);
-  if (!s) return '';
+  const p = monPowerCached(m);
+  const t = powerText(p);
   const ideal = idealOf(m, allowIdeal);
   let cmp;
   if (ideal === undefined)
-    cmp = `<button class="btn sm ghost" data-act="ideal" type="button">算理想值</button>`;
+    cmp = `<button class="btn sm ghost" data-act="ideal" type="button">算理想個體</button>`;
   else if (!ideal)
     cmp = `<span class="muted">理想值算不出來</span>`;
   else {
-    const pct = ideal.total > 0 ? Math.round(s.total / ideal.total * 100) : 0;
+    const mine = powerMain(p), top = powerMain(ideal);
+    const pct = top > 0 ? Math.round(mine / top * 100) : 0;
+    const it = powerText(ideal);
     cmp = `<span class="mon-ideal" title="同物種、同等級的最佳個體：最佳性格＋最佳副技能＋緞帶4＋主技能滿級＋最佳食材組合。&#10;`
-        + `這是貪婪搜尋的結果，不是證明過的上限 —— 當參考線看，別當天花板。&#10;`
-        + `等級跟著這一隻，所以量到的是「個體好不好」而不是「練得夠不夠」。">`
-        + `理想 ${wan(ideal.total)}萬 · <b>${pct}%</b></span>`;
+        + `目標就是這個專長的主指標（${t.u}）—— 用別的目標會挑出完全不同的一組副技能。&#10;`
+        + `理想個體：${natZ(NAT[ideal.member.nature]||NAT.Bashful)}／`
+        + `${ideal.member.ss.filter(Boolean).map(ssz).join('、') || '（無副技能）'}&#10;`
+        + `這是貪婪搜尋，不是證明過的上限 —— 當參考線看，別當天花板。">`
+        + `理想 ${it.v} · <b>${pct}%</b></span>`;
   }
+  const ings = p.ingTypes.length
+    ? p.ingTypes.map(([n, v]) => `${iz(n)} ${v.toFixed(1)}`).join('、') : '無';
   return `<div class="mon-row mon-scorerow">
-      <span class="mon-lbl">評分</span>
-      <span class="mon-scv" title="把牠加進參考隊之後，整週能量的增量">${wan(s.total)}萬</span>
+      <span class="mon-lbl">產能</span>
+      <span class="mon-scv" title="${SPEC_ZH[p.spec]}型的主指標。單獨一隻、無隊友加成、不含本週加成樹果">${t.v}<i>${t.u}</i></span>
       <span class="mon-scparts">
-        <span class="sc-b">樹果 ${wan(s.berry)}</span>
-        <span class="sc-d">食材 ${wan(s.dish)}</span>
-        <span class="sc-s">技能 ${wan(s.skill)}</span>
+        <span class="sc-b" title="樹果能量／日（含主技能給的樹果）">樹果 ${num(p.berryE)}</span>
+        <span class="sc-d" title="食材原始能量／日（未經料理加成）&#10;每日 ${p.ingCount.toFixed(1)} 顆：${ings}">食材 ${num(p.ingE)}</span>
+        <span class="sc-s" title="主技能發動次數／日${p.skillE > 0 ? `，直接給的能量 ${num(p.skillE)}／日` : '（這個技能不直接給能量）'}">技能 ${p.procs.toFixed(2)} 次</span>
+        <span class="sc-h" title="幫忙間隔（秒）—— 和遊戲寶可夢詳細頁上的數字相同${p.snack > 0.05 ? `&#10;背包滿了之後的「零食」幫忙 ${p.snack.toFixed(1)} 次/日 —— 該補持有上限了` : ''}">間隔 ${p.interval}s${p.snack > 0.05 ? ' ⚠' : ''}</span>
       </span>
       ${cmp}
     </div>`;
 }
+
 /** 性格摘要：「頑皮 +速度 −技能」，加減用顏色分開。無修正的走 natMod 的 null 分支。 */
 function natBrief(m){
   const n = NAT[m.nature] || NAT.Bashful, d = natMod(n);
@@ -729,7 +771,7 @@ function monHead(m, idx, open){
         <span class="mon-nat">${natBrief(m)}</span>
         <span class="mon-sum">${ss}</span>
         <span class="mon-sk" title="主技能 ${msz(p.ms)} 的基礎等級（副技能加成另計）">技Lv${m.skillLv}</span>
-        ${scoreChip(m)}
+        ${scoreChip(m, idx)}
         <span class="mon-acts">
           <button class="btn sm ghost" data-act="pin" title="固定在隊上（一定入選）">${m.pin?'📌':'📍'}</button>
           <button class="btn sm ghost" data-act="ex" title="從推演中排除">${m.ex?'🚫':'○'}</button>
@@ -838,8 +880,12 @@ const BOX_SORTS = {
      不同的種類不會共用 `no`，同 `no` 的多隻就是同物種的不同個體，靠 `|| a-b`
      回到加入順序。 */
   no:    (a,b)=> D.dex[roster[a].sp].no - D.dex[roster[b].sp].no,
-  /* 評分高→低。`monScoreCached` 有快取，60 隻重排約 1ms。 */
-  score: (a,b)=> ((monScoreCached(roster[b])||{}).total||0) - ((monScoreCached(roster[a])||{}).total||0),
+  /* 產能：**先分專長、再組內由高到低**。三種專長的主指標單位不同（產能能量／
+     食材能量／發動次數），混在一起排出來的名次本身就是謊話。 */
+  power: (a,b)=> {
+    const pa = monPowerCached(roster[a]), pb = monPowerCached(roster[b]);
+    return SPEC_ORD.indexOf(pa.spec) - SPEC_ORD.indexOf(pb.spec) || powerMain(pb) - powerMain(pa);
+  },
   level: (a,b)=> roster[b].level - roster[a].level,
   spec:  (a,b)=> SPEC_ORD.indexOf(D.dex[roster[a].sp].sp) - SPEC_ORD.indexOf(D.dex[roster[b].sp].sp),
   ms:    (a,b)=> msz(D.dex[roster[a].sp].ms).localeCompare(msz(D.dex[roster[b].sp].ms), 'zh-Hant'),
@@ -892,6 +938,7 @@ function renderBox(){
   const host = $('boxList');
   $('boxEmpty').style.display = roster.length ? 'none' : 'block';
   findDups();                 // 排序與篩選都可能用到，而且摘要列要顯示 ⚠
+  rebuildPowerRank();         // 同專長名次；排序與摺疊列都要用
   /* data-i 一律是**真實的 roster 索引**，排序只改渲染順序。
      用篩選／排序後的序號當索引，改一格就會改到別隻身上 —— 這裡最容易寫錯。 */
   /* 理想值一隻要 ~40ms，展開全部（60 隻）就是 2 秒的凍結。展開的卡片不多時才自動

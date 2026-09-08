@@ -192,13 +192,21 @@ td.n{font-family:var(--mono);font-variant-numeric:tabular-nums}
   flex:0 0 auto;background:color-mix(in srgb,var(--neg) 16%,transparent);color:var(--neg);
   border:1px solid color-mix(in srgb,var(--neg) 45%,transparent)}
 .boxbar .btn[disabled]{opacity:.45;cursor:default}
-/* 個體評分。只是顯示，不影響推演 —— 所以刻意用中性的邊框樣式，不搶專長標籤的顏色。 */
-.mon-score{font-family:var(--mono);font-variant-numeric:tabular-nums;font-size:11px;font-weight:600;
+/* 個體產能。只是顯示，不影響推演 —— 所以刻意用中性的邊框樣式，不搶專長標籤的顏色。
+   單位（<i>）一定要跟著數字走：三種專長的主指標單位不同，把單位藏起來就等於
+   在邀請使用者跨專長比較。 */
+.mon-power{font-family:var(--mono);font-variant-numeric:tabular-nums;font-size:11px;font-weight:600;
   padding:2px 6px;border-radius:5px;white-space:nowrap;flex:0 0 auto;cursor:help;
   color:var(--ink-2);border:1px solid var(--line);background:var(--surface-2)}
+.mon-power i,.mon-scv i{font-style:normal;font-weight:400;opacity:.66;font-size:.85em;margin-left:3px}
+.mon-rank{font-size:11px;padding:2px 6px;border-radius:5px;white-space:nowrap;flex:0 0 auto;cursor:help;
+  color:var(--muted);background:var(--surface-3)}
+.mon-team{font-size:11px;padding:2px 6px;border-radius:5px;white-space:nowrap;flex:0 0 auto;cursor:help;
+  background:color-mix(in srgb,var(--pos) 15%,transparent);color:var(--pos)}
 .mon-scorerow{border-top:1px dashed var(--line);padding-top:9px;margin-top:1px}
 .mon-scv{font-family:var(--mono);font-variant-numeric:tabular-nums;font-size:14px;font-weight:700;
-  color:var(--ink);flex:0 0 auto}
+  color:var(--ink);flex:0 0 auto;cursor:help}
+.sc-h{background:var(--surface-3);color:var(--ink-2)}
 .mon-scparts{display:flex;flex-wrap:wrap;gap:4px 6px;align-items:center;min-width:0}
 .mon-scparts span{font-family:var(--mono);font-variant-numeric:tabular-nums;font-size:11px;
   padding:2px 6px;border-radius:5px;white-space:nowrap}
