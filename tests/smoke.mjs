@@ -850,6 +850,117 @@ console.log('\n[11c] JSON 匯入：追加 vs 取代');
      r.badNames === 'BULBASAUR,BULBASAUR', r.badNames);
 }
 
+/* 自訂暱稱。遊戲的詳細頁**沒有物種名**，所以使用者認得的是自己取的名字
+   （「樹果萌萌」而不是「嘎啦嘎啦」）。純標籤，引擎不看它 —— 但它是**唯一會進
+   innerHTML 的使用者輸入**，所以 escape 是必須的，不是防禦性過頭。 */
+console.log('\n[11f] 寶可夢箱：自訂暱稱');
+{
+  const r = await page.evaluate(() => {
+    const one = (nick, sp) => ({sp: sp || 'MAROWAK', level:55, nature:'Bashful',
+      ss:['Helping Speed M',null,null,null,null], ingSet:[0,0,0], skillLv:1, ribbon:0, nick});
+    deserialize({roster: [one('樹果萌萌'), one(''), one('火7', 'GENGAR')]});
+    clearBoxFilter(); monOpen.clear(); renderBox();
+    const nameOf = i => $('boxList').querySelector(`[data-i="${i}"] .mon-name`);
+    const named = {
+      nick: nameOf(0).textContent, nickCls: nameOf(0).classList.contains('is-nick'),
+      plain: nameOf(1).textContent, plainCls: nameOf(1).classList.contains('is-nick'),
+      // 摺疊列被暱稱蓋掉時，學名要還在 title 裡（而 #圖鑑號 本來就在同一列上）
+      title: nameOf(0).getAttribute('title'),
+      no: $('boxList').querySelector('[data-i="0"] .mon-no').textContent,
+    };
+    // 展開後「種類」選單顯示的就是學名，而且改得動
+    monOpen.add(0); renderBox();
+    const card = $('boxList').querySelector('[data-i="0"]');
+    const spSel = card.querySelector('[data-k="sp"]');
+    const opened = {
+      spVal: +spSel.value, spText: spSel.options[spSel.selectedIndex].text,
+      nickVal: card.querySelector('[data-k="nick"]').value,
+      // 沒取名的那隻，暱稱欄的 placeholder 就是學名
+      ph: (()=>{ monOpen.add(1); renderBox();
+        return $('boxList').querySelector('[data-i="1"] [data-k="nick"]').placeholder; })(),
+    };
+    // 改暱稱：走 change（text input 是離開欄位才觸發，所以 renderBox 不會吃掉輸入）
+    monOpen.clear(); monOpen.add(1); renderBox();
+    const inp = $('boxList').querySelector('[data-i="1"] [data-k="nick"]');
+    inp.value = '  新名字  ';
+    inp.dispatchEvent(new Event('change', {bubbles:true}));
+    const edited = {stored: roster[1].nick,
+      shown: $('boxList').querySelector('[data-i="1"] .mon-name').textContent};
+
+    // 搜尋：暱稱和學名都要找得到同一隻
+    const vis = () => [...$('boxList').querySelectorAll('[data-i]')].filter(e=>!e.hidden).map(e=>+e.dataset.i);
+    const fire = (id, ev) => $(id).dispatchEvent(new Event(ev, {bubbles:true}));
+    $('fltName').value = '樹果萌萌'; fire('fltName','input');
+    const byNick = vis();
+    $('fltName').value = '嘎啦嘎啦'; fire('fltName','input');
+    const bySci = vis();
+    clearBoxFilter(); renderBox();
+
+    /* 重複偵測：數值一模一樣但暱稱不同 → 是兩隻不同的個體，不該標記。
+       暱稱也一樣 → 同一隻的截圖看了兩遍，照樣要抓到。 */
+    deserialize({roster: [one('甲'), one('乙')]});
+    renderBox();
+    const diffNick = [...monDup];
+    deserialize({roster: [one('甲'), one('甲')]});
+    renderBox();
+    const sameNick = [...monDup];
+
+    // escape：暱稱是使用者輸入，直接塞進 innerHTML 會被注入（payload 要短於 NICK_MAX）
+    deserialize({roster: [one('<img src=x>"y')]});
+    monOpen.clear(); monOpen.add(0); renderBox();
+    const xss = {
+      imgs: $('boxList').querySelectorAll('img').length,
+      text: $('boxList').querySelector('.mon-name').textContent,
+      // value="…" 屬性也不能被引號打斷
+      inputVal: $('boxList').querySelector('[data-k="nick"]').value,
+    };
+
+    // 推演結果卡：暱稱與學名並列，而且專長標籤要有顏色（class 是 .tag.ing，不是 .tag.ingredient）
+    deserialize({roster: [one('樹果萌萌', 'VICTREEBEL')]});
+    const p = D.dex[roster[0].sp];
+    const card2 = document.createElement('div');
+    roster[0]._bs = baseStats(roster[0], wk);
+    card2.innerHTML = memberCard(1, 0, null, {ing:new Float64Array(NING), berryStrength:0, skillStrength:0,
+      sim:{freqBase:1800, procs:1, productive:1, snack:0, fastHours:1, fastShare:1}});
+    const mem = {nm: card2.querySelector('.nm').textContent,
+      sci: !!card2.querySelector('.nm-sci'),
+      tagCls: card2.querySelector('.tag').className};
+
+    // serialize 要帶上 nick，Sheet 的可讀鏡像也要有那一欄
+    deserialize({roster: [one('樹果萌萌')]});
+    const ser = serialize().roster[0].nick;
+    const tbl = rosterTable();
+    return {named, opened, edited, byNick, bySci, diffNick, sameNick, xss, mem,
+            ser, head0: tbl[0][0], row0: tbl[1][0]};
+  });
+  ok('有暱稱時摺疊列顯示暱稱', r.named.nick === '樹果萌萌' && r.named.nickCls, JSON.stringify(r.named));
+  ok('沒暱稱時顯示學名（而且不加暱稱標示）',
+     r.named.plain === '嘎啦嘎啦' && !r.named.plainCls, JSON.stringify(r.named));
+  ok('摺疊列仍然看得出是哪一隻（#圖鑑號 ＋ title 有學名）',
+     r.named.no === '#105' && /嘎啦嘎啦/.test(r.named.title) && /Marowak/.test(r.named.title),
+     `${r.named.no} / 「${r.named.title}」`);
+  ok('展開後「種類」選單就是學名，而且是選中狀態',
+     r.opened.spText.startsWith('嘎啦嘎啦') && r.opened.nickVal === '樹果萌萌', JSON.stringify(r.opened));
+  ok('沒取名時暱稱欄的 placeholder 是學名', r.opened.ph === '嘎啦嘎啦', r.opened.ph);
+  ok('改暱稱會 trim 並即時反映到摺疊列',
+     r.edited.stored === '新名字' && r.edited.shown === '新名字', JSON.stringify(r.edited));
+  ok('打暱稱搜得到', r.byNick.join(',') === '0', r.byNick.join(','));
+  ok('打學名也搜得到同一隻（取了暱稱也不例外）', r.bySci.join(',') === '0,1', r.bySci.join(','));
+  ok('數值相同但暱稱不同 → 不是重複（是兩隻不同的個體）',
+     r.diffNick.length === 0, JSON.stringify(r.diffNick));
+  ok('數值與暱稱都相同 → 照樣抓到重複', r.sameNick.join(',') === '0,1', JSON.stringify(r.sameNick));
+  ok('暱稱有 escape：不會注入標記', r.xss.imgs === 0 && /<img/.test(r.xss.text), JSON.stringify(r.xss));
+  ok('暱稱有 escape：引號不會打斷 value 屬性',
+     r.xss.inputVal === '<img src=x>"y', `「${r.xss.inputVal}」`);
+  ok('推演結果卡並列暱稱與學名',
+     /樹果萌萌/.test(r.mem.nm) && /大食花/.test(r.mem.nm) && r.mem.sci, JSON.stringify(r.mem));
+  ok('推演結果卡的專長標籤用對的 class（.tag.ing，不是 .tag.ingredient）',
+     r.mem.tagCls === 'tag ing', r.mem.tagCls);
+  ok('serialize 帶上暱稱（所以會跟著同步）', r.ser === '樹果萌萌', String(r.ser));
+  ok('Sheet 可讀鏡像有「暱稱」欄',
+     r.head0 === '暱稱' && r.row0 === '樹果萌萌', `${r.head0} / ${r.row0}`);
+}
+
 /* 箱子 UI 重做（一隻一張卡、三列、加篩選）。最要守住的是 data-i：
    篩選是用 hidden 切換而不是重建列表，所以 data-i 一定要是**真實的 roster 索引** ——
    用篩選後的序號當索引，改一格就會改到別隻身上，而且沒有任何錯誤訊息。 */

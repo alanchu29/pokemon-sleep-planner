@@ -33,6 +33,13 @@ const PATHS = {
 };
 const P = PATHS.files, C = PATHS.cmds;
 const code = s => `<code>${s}</code>`;
+/** HTML escape。
+ *  寶可夢的**暱稱**是這支程式裡唯一會進 innerHTML 的使用者輸入 —— 其他插值全部
+ *  來自 `game.json`。不 escape 的話，暱稱裡一個 `"` 就會把 `value="…"` 屬性打斷、
+ *  一個 `<` 就是直接注入標記。而暱稱會經由 Sheet 同步到別的裝置。 */
+const esc = s => String(s == null ? '' : s)
+  .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+  .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
 
 /* 資料結構版本。`data/game.json` 的 meta.schema 必須等於這個值。
    動到欄位結構（改名／改型別／移除）時兩邊一起 +1；純數值更新不用動。
@@ -50,7 +57,7 @@ const SCHEMA = 1;
    「新的 index.html ＋ 舊的 app.js」—— 畫面畫出舊版 UI，而使用者只會覺得
    「你根本沒改」，完全不知道是快取。有了這個斷言，過期的 app.js 會直接被擋下來
    並要求強制重新整理。tests/smoke.mjs 第 11 節會斷言三處一致。 */
-const APP_V = '20260908f';
+const APP_V = '20260908g';
 
 /** 致命錯誤：整頁換成一段說明。這種狀況下繼續跑只會產生錯的數字。 */
 function fatal(html){
@@ -100,7 +107,11 @@ const f1 = n => (Math.round(n*10)/10).toFixed(1);
 
 
 /* ================= STATE ================= */
-const BLANK = () => ({sp: D.dex.findIndex(p=>p.n==='PIKACHU'), level:30, nature:'Bashful', ss:[null,null,null,null,null], ingSet:[0,0,0], skillLv:1, ribbon:0, pin:false, ex:false});
+/* `nick` = 你在遊戲裡自己取的名字。純標籤，完全不參與計算 —— 引擎連看都不看它。
+   存在的理由：截圖上顯示的就是暱稱，而遊戲的詳細頁**沒有物種名**，所以你認得的
+   是「樹果萌萌」而不是「嘎啦嘎啦」。空字串就退回物種名。 */
+const NICK_MAX = 24;
+const BLANK = () => ({sp: D.dex.findIndex(p=>p.n==='PIKACHU'), level:30, nature:'Bashful', ss:[null,null,null,null,null], ingSet:[0,0,0], skillLv:1, ribbon:0, nick:'', pin:false, ex:false});
 let roster = [];
 let wk = {island:'greengrass', fav:new Set(), areaBonus:15, pot:57, sleepH:8.5, camp:0, mode:'total', dishType:'curry', recipeName:null, recipeLv:20, recipePick:'auto', recipeScope:'type', recipeLevels:{}, strictBerry:true};
 let lastResults = null, shownAlt = 0;
@@ -117,7 +128,7 @@ function setStatus(t){ statusEl.textContent = t; }
 function setSyncStatus(t){ const e = $('syncStatus'); if (e) e.textContent = t; }
 
 function serialize(){
-  return {roster: roster.map(m=>({sp:D.dex[m.sp].n, level:m.level, nature:m.nature, ss:m.ss, ingSet:m.ingSet, skillLv:m.skillLv, ribbon:m.ribbon, pin:!!m.pin, ex:!!m.ex})),
+  return {roster: roster.map(m=>({sp:D.dex[m.sp].n, level:m.level, nature:m.nature, ss:m.ss, ingSet:m.ingSet, skillLv:m.skillLv, ribbon:m.ribbon, nick:m.nick||'', pin:!!m.pin, ex:!!m.ex})),
           wk: {...wk, fav:[...wk.fav], recipe:undefined}, updatedAt: new Date().toISOString(), v:1};
 }
 /** 還原一份 serialize() 的輸出。
@@ -129,7 +140,9 @@ function deserialize(o, opts){
   if (!o) return {badSp: []};
   const badSp = [];
   const revive = r => ({...BLANK(), ...r, sp: reviveSp(r.sp, badSp),
-    ss:(r.ss||[null,null,null,null,null]).slice(0,5), ingSet:(r.ingSet||[0,0,0]).slice(0,3)});
+    ss:(r.ss||[null,null,null,null,null]).slice(0,5), ingSet:(r.ingSet||[0,0,0]).slice(0,3),
+    // 舊資料沒有 nick，非字串（數字暱稱之類）也要正規化 —— 它會被塞進 HTML
+    nick: typeof r.nick === 'string' ? r.nick.slice(0, NICK_MAX) : (r.nick == null ? '' : String(r.nick).slice(0, NICK_MAX))});
   if (Array.isArray(o.roster)){
     const incoming = o.roster.map(revive);
     roster = (opts && opts.append) ? roster.concat(incoming) : incoming;
@@ -158,7 +171,8 @@ function reviveSp(v, bad){
 }
 /** A human-readable mirror of the roster, so the Sheet is worth opening. */
 function rosterTable(){
-  const head = ['種類','圖鑑','等級','性格','副技能1','副技能2','副技能3','副技能4','副技能5','食材1','食材2','食材3','技能Lv','主技能','緞帶','固定','排除'];
+  /* 暱稱放第一欄 —— 直接開 Sheet 的時候，你認得的就是自己取的名字。 */
+  const head = ['暱稱','種類','圖鑑','等級','性格','副技能1','副技能2','副技能3','副技能4','副技能5','食材1','食材2','食材3','技能Lv','主技能','緞帶','固定','排除'];
   const rows = roster.map(m=>{
     const p = D.dex[m.sp];
     // 和 UI 共用 ingPick()，順便避開 ING_NAME[null] 會寫出 "undefined×0" 的問題
@@ -167,7 +181,7 @@ function rosterTable(){
       if (!pick) return '';
       return (pick[0] != null ? iz(ING_NAME[pick[0]]) : '（無）') + '×' + pick[1];
     });
-    return [pz(p), p.no, m.level, natZ(NAT[m.nature]||NAT.Bashful),
+    return [(m.nick||'').trim(), pz(p), p.no, m.level, natZ(NAT[m.nature]||NAT.Bashful),
             ...[0,1,2,3,4].map(i=>m.ss[i] ? ssz(m.ss[i]) : ''),
             ...ings, m.skillLv, msz(p.ms), RIBBON_LABEL[m.ribbon||0], m.pin?'是':'', m.ex?'是':''];
   });
@@ -483,13 +497,22 @@ function natBrief(m){
     ? `${natZ(n)} <span class="up">+${d.up}</span> <span class="dn">−${d.dn}</span>`
     : `${natZ(n)} <span class="muted">無修正</span>`;
 }
-/** 摺疊列：唯讀、密、**兩列**。
- *  第 1 列是身分與能力（圖鑑號／名稱／專長／主技能／等級／性格／副技能／技能Lv），
- *  第 2 列**只有食材**。
+/** 摺疊列上顯示的名字：有暱稱就用暱稱，沒有就用物種名。
+ *  物種身分不會因此消失 —— `#圖鑑號`、專長標籤、主技能標籤都還在同一列上，
+ *  滑過名字有 title，展開後「種類」選單寫的就是學名。 */
+const monName = m => (m.nick || '').trim() || pz(D.dex[m.sp]);
+
+/** 摺疊列：唯讀、密、**兩列 × 兩欄的 grid**。
  *
- *  為什麼分開：副技能和食材原本同在一個 `.mon-sum` 裡靠 flex-wrap 自然換行，結果
- *  兩種標籤混在同一列、斷行位置又隨寬度浮動 —— 掃 60 隻時分不出哪個是哪個。食材
- *  獨立一列之後，位置固定在同一個地方，掃過去只要看第 2 列。
+ *  欄 1（`.mon-idy`）是**身分**：`▶ #圖鑑號 暱稱 Lv`。寬度**固定**，這樣所有卡片的
+ *  欄 2 都從同一個 x 開始 —— 用 `max-content` 的話每張卡的起點會隨名字長度浮動，
+ *  掃 60 隻時反而更亂。名字太長會在欄內自己折，不裁切（裁掉等於沒有）。
+ *
+ *  欄 2 第 1 列（`.mon-rest`）：`[專長] [主技能] 性格 副技能… 技Lv [📌 🚫 ✕]`
+ *  欄 2 第 2 列（`.mon-ings`）：**只有食材**，起點對齊上一列的專長標籤。
+ *
+ *  為什麼食材要獨立一列：原本副技能和食材同在一個 `.mon-sum` 裡靠 flex-wrap 自然
+ *  換行，兩種標籤混排、斷行位置又隨寬度浮動 —— 掃 60 隻時分不出哪個是哪個。
  *
  *  副技能的底色就是**稀有度**（`game.json` 的 `subskills[].r`：gold／silver／white）——
  *  這是資料裡本來就有的分級，不是我編的配色。未解鎖的那幾格會變淡。 */
@@ -509,26 +532,33 @@ function monHead(m, idx, open){
          + ` title="第 ${s+1} 格${lock?` — Lv${[1,30,60][s]} 才解鎖，目前不計入產出`:''}">`
          + `${k[0]!=null?iz(ING_NAME[k[0]]):'（無）'}×${k[1]}</span>`;
   }).join('');
+  const nick = (m.nick || '').trim();
   return `<div class="mon-head" data-act="toggle" title="點一下展開／收起">
-      <span class="car">${open?'▼':'▶'}</span>
-      ${monDup.has(idx) ? '<span class="mon-dup" title="有另一隻的每一個欄位都和牠完全相同 —— 可能是重複輸入">⚠ 重複</span>' : ''}
-      <span class="mon-no">#${p.no}</span>
-      <span class="mon-name">${pz(p)}</span>
-      <span class="tag ${SPEC_TAG[p.sp]}" title="專長">${SPEC_ZH[p.sp]}</span>
-      <span class="mon-ms" title="主技能（由種類決定）">${msz(p.ms)}</span>
-      <span class="mon-lv">Lv${m.level}</span>
-      <span class="mon-nat">${natBrief(m)}</span>
-      <span class="mon-sum">${ss}</span>
-      <span class="mon-sk" title="主技能 ${msz(p.ms)} 的基礎等級（副技能加成另計）">技Lv${m.skillLv}</span>
-      <span class="mon-acts">
-        <button class="btn sm ghost" data-act="pin" title="固定在隊上（一定入選）">${m.pin?'📌':'📍'}</button>
-        <button class="btn sm ghost" data-act="ex" title="從推演中排除">${m.ex?'🚫':'○'}</button>
-        <button class="btn sm ghost" data-act="del" title="刪除">✕</button>
+      <span class="mon-idy">
+        <span class="car">${open?'▼':'▶'}</span>
+        ${monDup.has(idx) ? '<span class="mon-dup" title="有另一隻的每一個欄位都和牠完全相同 —— 可能是重複輸入">⚠ 重複</span>' : ''}
+        <span class="mon-no">#${p.no}</span>
+        <span class="mon-name${nick?' is-nick':''}" title="${nick ? `暱稱「${esc(nick)}」 · 學名 ${pz(p)}（${p.d}）` : `${pz(p)}（${p.d}）`}">${nick ? esc(nick) : pz(p)}</span>
+        <span class="mon-lv">Lv${m.level}</span>
+      </span>
+      <span class="mon-rest">
+        <span class="tag ${SPEC_TAG[p.sp]}" title="專長">${SPEC_ZH[p.sp]}</span>
+        <span class="mon-ms" title="主技能（由種類決定）">${msz(p.ms)}</span>
+        <span class="mon-nat">${natBrief(m)}</span>
+        <span class="mon-sum">${ss}</span>
+        <span class="mon-sk" title="主技能 ${msz(p.ms)} 的基礎等級（副技能加成另計）">技Lv${m.skillLv}</span>
+        <span class="mon-acts">
+          <button class="btn sm ghost" data-act="pin" title="固定在隊上（一定入選）">${m.pin?'📌':'📍'}</button>
+          <button class="btn sm ghost" data-act="ex" title="從推演中排除">${m.ex?'🚫':'○'}</button>
+          <button class="btn sm ghost" data-act="del" title="刪除">✕</button>
+        </span>
       </span>
       <span class="mon-ings"><span class="mon-ilbl">食材</span>${ing}</span>
     </div>`;
 }
-/** 展開後的編輯區。兩列：①種類／專長／等級/性格 ②食材、副技能、技能Lv、緞帶。 */
+/** 展開後的編輯區。兩列：①暱稱／種類／專長／等級/性格 ②食材、副技能、技能Lv、緞帶。
+ *  **「種類」選單一律在這裡**（顯示的就是學名）—— 摺疊列可能被暱稱蓋掉，所以展開後
+ *  一定要看得到牠到底是哪一隻，而且可以改。 */
 function monEdit(m, o){
   const p = D.dex[m.sp];
   const slots = ingSlots(m);
@@ -537,6 +567,9 @@ function monEdit(m, o){
   const ambIng = s => (amb.ing && amb.ing[s] && amb.ing[s].length>1) ? ' class="amb"' : '';
   return `<div class="mon-edit">
       <div class="mon-row">
+        <label class="f w-nick">暱稱<input type="text" data-k="nick" maxlength="${NICK_MAX}"
+          placeholder="${pz(p)}" value="${esc(m.nick||'')}"
+          title="你在遊戲裡取的名字。只影響顯示，不影響計算 —— 留空就顯示學名"></label>
         <label class="f w-sp">種類<select data-k="sp"${ambCls('sp')}>${SPECIES_OPTS}</select></label>
         <span class="tag ${SPEC_TAG[p.sp]}" title="專長（由種類決定）" style="align-self:center">${SPEC_ZH[p.sp]}</span>
         <label class="f w-num">等級<input type="number" data-k="level" min="1" max="70" value="${m.level}"></label>
@@ -592,8 +625,11 @@ let boxFlt = {spec:'', state:'', q:'', sort:'added'};
    簽章用**每一個會影響計算的欄位**。兩隻同物種同等級但副技能不同是完全合法的
    （很常見），所以只有全部欄位都一樣才算重複 —— 那幾乎一定是輸入兩次。
    在大量建箱子的時候很容易發生（同一隻的截圖看了兩遍）。 */
+/* 暱稱也算進簽章。它不影響計算，但**它是你自己給的身分標記** —— 兩隻數值一模一樣
+   卻取了不同名字，那就是兩隻不同的個體，不該被標成重複。反過來，同一隻的截圖看了
+   兩遍，暱稱一定也一樣，照樣抓得到。 */
 const dupKey = m => [D.dex[m.sp].n, m.level, m.nature, m.ss.join('|'),
-                     m.ingSet.join(','), m.skillLv, m.ribbon||0].join('/');
+                     m.ingSet.join(','), m.skillLv, m.ribbon||0, (m.nick||'').trim()].join('/');
 function findDups(){
   const seen = new Map();
   roster.forEach((m,i)=>{
@@ -631,7 +667,9 @@ function monMatch(m, idx){
   if (boxFlt.state === 'plain' && (m.pin || m.ex)) return false;
   if (boxFlt.state === 'dup' && !monDup.has(idx)) return false;
   if (boxFlt.q){
-    const hay = [pz(p), p.d, '#'+p.no, SPEC_ZH[p.sp], bz(p.b), msz(p.ms),
+    /* 暱稱一定要可搜 —— 摺疊列顯示的就是它，搜不到等於這個功能只做一半。
+       學名也留著：打「嘎啦嘎啦」照樣要找得到取名成「樹果萌萌」的那隻。 */
+    const hay = [m.nick||'', pz(p), p.d, '#'+p.no, SPEC_ZH[p.sp], bz(p.b), msz(p.ms),
       ...m.ss.filter(Boolean).map(ssz),
       ...[0,1,2].map(s=>{ const k = ingPick(m, s); return k && k[0]!=null ? iz(ING_NAME[k[0]]) : ''; }),
     ].join(' ').toLowerCase();
@@ -679,6 +717,9 @@ $('boxList').addEventListener('change', e=>{
   else if (k==='skillLv') m.skillLv = Math.max(1, Math.min(8, +e.target.value||1));
   else if (k==='nature') m.nature = e.target.value;
   else if (k==='ribbon') m.ribbon = +e.target.value;
+  /* 暱稱：`change` 對 text input 是「離開欄位才觸發」，所以下面的 renderBox()
+     不會把你正在打的字吃掉。存的是 trim 過的值 —— 只有空白的暱稱等於沒取名。 */
+  else if (k==='nick') m.nick = e.target.value.trim().slice(0, NICK_MAX);
   /* 一律重畫。展開時摺疊列還在上面，而摺疊列顯示的就是副技能／食材／等級／
      性格／⚠重複 —— 只改值不重畫，摘要就會和下面的選單不一致。
      代價是 select 的焦點會掉，但 change 是「選完才觸發」，可以接受。 */
@@ -855,6 +896,9 @@ function buildImport(){
     else if (k==='skillLv') m.skillLv = Math.max(1, Math.min(8, +e.target.value||1));
     else if (k==='nature') m.nature = e.target.value;
     else if (k==='ribbon'){ m.ribbon = +e.target.value; impAmbRb = false; }
+    /* 暱稱：截圖上唯一「畫面有、但反解用不到」的欄位。校對時順手打進去，
+       存入箱子之後才認得出是哪一隻 —— 遊戲的詳細頁沒有物種名。 */
+    else if (k==='nick') m.nick = e.target.value.trim().slice(0, NICK_MAX);
     renderImpReview();
   });
   // 「其他可能」列表：點一列就換成那一組解
@@ -1286,7 +1330,11 @@ function memberCard(rank, i, r, o){
   return `<div class="mem">
     <div class="rank">${rank}</div>
     <div>
-      <div class="nm">${pz(p)}<span class="tag ${p.sp}">${SPEC_ZH[p.sp]}</span>${wk.fav.has(p.b)?`<span class="tag fav">加成樹果</span>`:''}${m.pin?`<span class="tag pin">固定</span>`:''}</div>
+      <div class="nm">${esc(monName(m))}${
+        /* 推演結果是**最需要暱稱的地方**：箱子裡有兩隻妙蛙花時，選中的是哪一隻只有
+           暱稱分得出來。但學名也一定要在（不然不知道要看哪一隻的數值），所以並列。 */
+        (m.nick||'').trim() ? `<span class="nm-sci">${pz(p)}</span>` : ''
+      }<span class="tag ${SPEC_TAG[p.sp]}">${SPEC_ZH[p.sp]}</span>${wk.fav.has(p.b)?`<span class="tag fav">加成樹果</span>`:''}${m.pin?`<span class="tag pin">固定</span>`:''}</div>
       <div class="meta">Lv${m.level} · ${natZ(NAT[m.nature]||NAT.Bashful)} · ${act.length?act.join('／'):'無副技能'} · 頻率 ${Math.round(o.sim.freqBase/60*10)/10}分</div>\n      <div class="meta">${msz(p.ms)} Lv${bs.skillLv} · 每日發動 ${f1(o.sim.procs)} 次</div>
       <div class="meta" style="color:var(--ing)">${ingList.length?ingList.join('　'):'（無食材產出）'}</div>
     </div>
