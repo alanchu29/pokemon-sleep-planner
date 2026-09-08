@@ -1374,6 +1374,115 @@ console.log('\n[11e] 寶可夢箱：排序、展開全部、重複偵測');
      JSON.stringify(r.dupGone));
 }
 
+/* 個體評分。**只是顯示** —— 每週的推薦完全走原本的演算法。
+   這一節要守住的是「這個數字不是憑空來的」：跨週穩定、分項加得起來、
+   理想值不會低於實際值、而且算完之後 POOL 要還原（否則推演那一頁會拿到參考池）。 */
+console.log('\n[11g] 寶可夢箱：個體評分');
+{
+  const r = await page.evaluate(() => {
+    const mk = (n, lv, nat, ss, sk, rib) => ({
+      sp: n, level: lv, nature: nat,
+      ss: [...(ss||[]), ...Array(5 - (ss||[]).length).fill(null)],
+      ingSet: [0,0,0], skillLv: sk||1, ribbon: rib||0, pin:false, ex:false, nick:'',
+    });
+    deserialize({roster: [
+      mk('VENUSAUR', 60, 'Quiet', ['Ingredient Finder M','Helping Speed M'], 3, 4),
+      mk('RAICHU', 60, 'Adamant', ['Berry Finding S','Helping Speed M'], 3, 4),
+      mk('WIGGLYTUFF', 60, 'Careful', ['Skill Trigger M','Helping Speed M'], 6, 4),
+      mk('GENGAR', 50, 'Lonely', [], 3, 3),
+      mk('PIKACHU', 5, 'Bashful', [], 1, 0),
+    ]});
+    showView('box'); clearBoxFilter(); monOpen.clear();
+    $('fltSort').value = 'added'; $('fltSort').dispatchEvent(new Event('change', {bubbles:true}));
+    const fire = (id, ev) => $(id).dispatchEvent(new Event(ev, {bubbles:true}));
+
+    const scores = roster.map(m => monScoreCached(m));
+    // 分項必須加得起來 —— 不然那三個數字就只是裝飾
+    const partsOk = scores.every(s => Math.abs((s.berry + s.dish + s.skill) - s.total) < 1);
+    // 補師的貢獻主要落在**隊友**的樹果上（牠自己不產那麼多）
+    const supporter = scores[2];
+
+    /* 跨週可比：改本週加成樹果之後分數**必須完全不變**。
+       這是整個設計的前提 —— 吃了 fav 的話同一隻會週週差兩倍。 */
+    const before = scores.map(s => Math.round(s.total));
+    const favWas = new Set(wk.fav);
+    wk.fav = new Set(['GREPA', 'DURIN', 'PECHA']);
+    _scoreCache.clear();                       // 清快取，逼它真的重算
+    const after = roster.map(m => Math.round(monScoreCached(m).total));
+    wk.fav = favWas; _scoreCache.clear();
+
+    /* 算完評分之後 POOL 必須是**本週的**那一份。評分內部會 buildPool(REF_WK)，
+       沒還原的話推演結果那一頁的食譜排名就是參考條件算出來的。 */
+    wk.recipeScope = 'type'; wk.dishType = 'salad'; buildPool(wk);
+    const poolBefore = POOL.length;
+    monScore(roster[0]);
+    const poolAfter = POOL.length;
+
+    // 排序
+    $('fltSort').value = 'score'; fire('fltSort', 'change');
+    const order = [...$('boxList').querySelectorAll('[data-i]')].map(e => +e.dataset.i);
+    const desc = order.every((idx, i) =>
+      i === 0 || monScoreCached(roster[order[i-1]]).total >= monScoreCached(roster[idx]).total);
+    const chips = $('boxList').querySelectorAll('.mon-score').length;
+
+    // 展開一張 → 自動算理想值；理想值不得低於實際值
+    $('boxList').querySelector('[data-i="0"] .mon-head').click();
+    const rowText = $('boxList').querySelector('[data-i="0"] .mon-scorerow').textContent.replace(/\s+/g,' ').trim();
+    const ideal0 = idealCache.get(idealKey(roster[0]));
+    const idealGE = !!ideal0 && ideal0.total >= scores[0].total - 1;
+    const pct = ideal0 ? Math.round(scores[0].total / ideal0.total * 100) : -1;
+
+    // 展開全部（5 > IDEAL_AUTO_MAX）→ 理想值改成按鈕，不能凍住
+    $('boxExpand').click();                    // 目前有 1 張開著 → 先收起
+    const t0 = performance.now();
+    $('boxExpand').click();                    // 全開
+    const tAll = performance.now() - t0;
+    const rows = $('boxList').querySelectorAll('.mon-scorerow').length;
+    const btns = $('boxList').querySelectorAll('[data-act="ideal"]').length;
+
+    // 改暱稱不該讓分數重算（快取鍵只看會影響計算的欄位）
+    const keyBefore = monScoreKey(roster[0]);
+    roster[0].nick = '樹果萌萌';
+    const keySame = monScoreKey(roster[0]) === keyBefore;
+
+    monOpen.clear(); clearBoxFilter();
+    $('fltSort').value = 'added'; fire('fltSort', 'change');
+    return {partsOk, supporter: {berry: Math.round(supporter.berry), skill: Math.round(supporter.skill),
+              total: Math.round(supporter.total)},
+            before, after, poolBefore, poolAfter, order, desc, chips,
+            rowText, idealGE, pct, rows, btns, tAll, keySame,
+            note: $('scoreNote').textContent.trim(),
+            totals: scores.map(s => Math.round(s.total))};
+  });
+  ok('每一隻都算得出分數，而且是正的', r.totals.every(v => v > 0), r.totals.join(', '));
+  ok('摺疊列每一張都有評分', r.chips === 5, String(r.chips));
+  ok('分項（樹果／食材／技能）加起來等於總分', r.partsOk, JSON.stringify(r.totals));
+  /* 補師自己產出很少，價值在讓隊友多產 —— 所以牠的分數主要落在「樹果」那一欄。
+     這正是為什麼不能用「單獨一隻的產出」當評分。 */
+  ok('補師的貢獻落在隊友的產出上（不是自己的技能欄）',
+     r.supporter.berry > r.supporter.skill * 5, JSON.stringify(r.supporter));
+  /* 這一條是整個設計的前提。吃了本週加成的話同一隻會週週差兩倍，那就不是評價了。 */
+  ok('評分不吃本週加成樹果（跨週可比）', r.before.join(',') === r.after.join(','),
+     `${r.before.join(',')} vs ${r.after.join(',')}`);
+  ok('評分算完會把 POOL 還原（否則推演那一頁會拿到參考條件的食譜池）',
+     r.poolBefore === r.poolAfter && r.poolBefore > 0, `${r.poolBefore} → ${r.poolAfter}`);
+  ok('依評分排序（高→低）', r.desc && r.order.join(',') === '1,0,2,3,4', r.order.join(','));
+  ok('展開後有評分列，含總分與三個分項',
+     /評分/.test(r.rowText) && /樹果/.test(r.rowText) && /食材/.test(r.rowText) && /技能/.test(r.rowText),
+     `「${r.rowText}」`);
+  /* 貪婪搜尋可能漏掉有交互作用的副技能組合，所以 monIdeal 最後會把「牠自己」
+     也當候選比一次 —— 否則百分比會超過 100%，看起來像壞掉。 */
+  ok('理想值不會低於實際值（百分比不會超過 100%）', r.idealGE && r.pct <= 100 && r.pct > 0,
+     `${r.pct}%`);
+  ok('展開超過門檻時理想值改成按鈕，不會凍住',
+     r.rows === 5 && r.btns >= 4 && r.tAll < 400, `${r.rows} 列 / ${r.btns} 顆按鈕 / ${r.tAll.toFixed(0)}ms`);
+  ok('改暱稱不會讓評分重算（快取鍵只看會影響計算的欄位）', r.keySame);
+  /* 一個沒有出處的數字比沒有數字更糟。基準與「不影響推演」兩件事都要寫出來。 */
+  ok('說明文案寫出參考隊與參考條件', /參考隊/.test(r.note) && /Lv50/.test(r.note) && /鍋子/.test(r.note), r.note);
+  ok('說明文案講明不影響推演', /不影響推演/.test(r.note), r.note);
+  ok('說明文案講明不含本週加成', /不含本週加成/.test(r.note), r.note);
+}
+
 /* 用另開的頁面跑 —— 這一節刻意觸發致命錯誤，不能污染上面的 errors 收集。 */
 console.log('\n[12] 快取偏移：schema 不符必須明確擋下');
 {

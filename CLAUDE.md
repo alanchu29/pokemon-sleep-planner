@@ -93,7 +93,8 @@ app.js  run()   ──{init, data:D}──▶  engine.worker.js × N
 1. `const D`（= `self.GAMEDATA`，加完整性檢查）＋ 資料衍生常數：`ING_NAME` `ING_VAL` `NING` `BERRY_VAL` `NAT` `SS` `SS_SLOT_LV` `RIBBON_CARRY` `AVG_CRIT` `HB_TABLE` `MAGNET_POOL` `MEALS_WEEK`
 2. **引擎**：`energyF` `berryPower` `baseStats` `skillPayload` `simulate` `memberOutput` `teamContext`
 3. **食譜求解**：`buildPool` `rankSingle` `bestSingleRecipe` `proxyDish` `mealPlan` `bestPlan` `scoreTeam` `rankRecipesForTeam`
-4. **搜尋**：`combinations` `searchTeams`（＋ `FINALISTS` / `SHOWN`）。一律窮舉 —— 曾經有的 `PRESCAN_LIMIT` 預篩已移除，理由見下方陷阱 4
+4. **個體評分**（只給箱子的 UI 用，不參與推演）：`REF_TEAM_SPECIES` `REF_WK` `refTeam` `refDescribe` `withRefPool` `refBaseline` `scoreWith` `monScore` `monScoreCached` `monIdeal`
+5. **搜尋**：`combinations` `searchTeams`（＋ `FINALISTS` / `SHOWN`）。一律窮舉 —— 曾經有的 `PRESCAN_LIMIT` 預篩已移除，理由見下方陷阱 4
 
 `src/import.js`（依出現順序）：
 
@@ -146,6 +147,30 @@ app.js  run()   ──{init, data:D}──▶  engine.worker.js × N
 - `dupKey` **包含暱稱**：數值一模一樣但取了不同名字，那是兩隻不同的個體，不該標成重複；同一隻的截圖看了兩遍，暱稱也一樣，照樣抓得到。
 - `rosterTable()`（Sheet 的可讀鏡像）暱稱放**第一欄**。
 
+### 個體評分（`monScore` / `monIdeal`）—— 只是顯示
+
+**推演一行都沒改。** 每週的推薦還是原本那條 `searchTeams` 路徑；評分只出現在寶可夢箱。
+
+分數 ＝ **把這一隻加進一支固定的參考隊，整週能量增加多少**。為什麼不是「單獨一隻的產出」—— 三個都是實際量到的算錯來源：
+
+1. **單隻算料理會系統性壓低食材型。** 一隻食材型一天約產 20 個、集中在一兩種食材上，食譜通常要三種以上 —— `cooksCapped = floor(min(週食材/需求))` 幾乎每道都是 0。鍋子容量與食譜配對本質上是隊伍層級的。
+2. **補師型的價值不在自己身上。** 那些記在 `energyGiven` / `helpsGiven`，是給隊友的。只看自己的產出，胖可丁那類會接近零分。
+3. **本週加成會讓分數週週差兩倍**（`favMul`）。所以 `REF_WK.fav` 是空的。
+
+參考隊是 `REF_TEAM_SPECIES`（妙蛙花／噴火龍／雷丘／胖可丁，各 Lv50、無修正性格、無副技能、無緞帶）。四隻的樹果各不相同，主技能都**不是**會隨隊伍組成改變賠付的那幾種（Helper Boost／Plus／Minus／揮指類）—— 否則基準線本身會隨被評分的那一隻而動。
+
+五條規則：
+
+1. **`withRefPool()` 一定要用。** `POOL` 是模組全域，`buildPool(REF_WK)` 會整個換掉它，而 `renderResults` / `rankRecipesForTeam` 都靠它 —— 沒在 `finally` 還原的話，推演結果那一頁的食譜排名會變成參考條件算出來的。第 11g 節有斷言。
+2. **每次 `scoreWith` 都要新的 `memo`。** `getOut` 的鍵是「索引#ctxKey」，索引 4 在不同候選之間會換成不同個體，共用 memo 會拿到上一個候選的產出。
+3. **`monIdeal` 的最後一步一定要把「牠自己」放進候選。** 貪婪是逐格挑的，可能漏掉有交互作用的組合；如果那個組合正好在這一隻身上，理想值就會比實際低，畫面上的百分比會超過 100%。這也是為什麼 `idealCache` 的鍵是整隻的簽章而不是「物種｜等級」。
+4. **參考基準一定要顯示**（`scoreNote()` → `#scoreNote`）。一個沒有出處的數字比沒有數字更糟。
+5. **理想值不自動全算。** 一隻約 40ms，「展開全部」開 60 隻就是 2 秒凍結 —— 和「一次攤開 60 隻要建一萬多個 `<option>`」同一個問題。`IDEAL_AUTO_MAX = 3`，超過就改成按鈕。
+
+**料理那一欄天生是階梯狀的，不是線性的。** 21 餐是硬上限，食材多到填滿之後，再多只有在「解鎖更高價的食譜」時才加分。刻意**不**改用 `bestPlan`：`proxyDish` 是上界、`bestPlan` 恆 ≤ 它，實測換過去每一格數字完全沒變，只多花 9 倍時間；而且用同一個 `dishS` 才能保證「箱子裡分數高的，推演也傾向選牠」。
+
+**有些「看起來該加分」的副技能是負的，那是對的。** 實測 Lv30 妙蛙花的 `Ingredient Finder M` 是 **−0.21萬**：食材機率 0.266→0.362 讓背包更快裝滿（`helpsTillFull` 16.2→14.2），在有補能量的隊伍情境下夜間幫忙被截斷 → `procs` 下降 → 食材磁鐵灑出來的**其他種類**食材全部變少，而那些才是高價食譜要的。食材總量上升（59.3→76.9/日）但組成變差。引擎是對的（那隻該先補 `Inventory Up`）—— **不要「修」這種數字**。
+
 ### 陷阱：`nick` 是唯一會進 `innerHTML` 的使用者輸入
 
 其他插值全部來自 `game.json`。暱稱不 escape 的話，一個 `"` 就把 `value="…"` 或 `title="…"` 屬性打斷，一個 `<` 就是直接注入標記 —— 而暱稱會經由 Sheet 同步到別的裝置。所以 `esc()` 用在**三個**地方：摺疊列的文字、`title` 屬性、以及編輯區 input 的 `value`。
@@ -162,7 +187,7 @@ app.js  run()   ──{init, data:D}──▶  engine.worker.js × N
 
 代價是**測試不能再靠 `clearBoxFilter()` 把排序歸零** —— 要歸零就自己設 `fltSort`（第 11e 節開頭就是這樣做）。
 
-篩選列還有：**排序**（加入順序／圖鑑編號／等級高→低／專長／主技能 —— 定義在 `BOX_SORTS`，同鍵時一律 `|| a-b` 回到加入順序）、**展開／收起全部**（只作用在目前篩選看得到的那些 —— 一次攤開 60 隻要建一萬多個 `<option>`）、**重複偵測**。
+篩選列還有：**排序**（加入順序／圖鑑編號／評分／等級高→低／專長／主技能 —— 定義在 `BOX_SORTS`，同鍵時一律 `|| a-b` 回到加入順序）、**展開／收起全部**（只作用在目前篩選看得到的那些 —— 一次攤開 60 隻要建一萬多個 `<option>`）、**重複偵測**。
 
 **重複的定義是「每一個欄位都相同」**（`dupKey`：物種／等級／性格／五格副技能／三格食材／技能Lv／緞帶）。同物種同等級但副技能不同是完全合法且常見的，所以只有全部一致才算 —— 那幾乎一定是同一隻的截圖看了兩遍。
 

@@ -57,7 +57,7 @@ const SCHEMA = 1;
    「新的 index.html ＋ 舊的 app.js」—— 畫面畫出舊版 UI，而使用者只會覺得
    「你根本沒改」，完全不知道是快取。有了這個斷言，過期的 app.js 會直接被擋下來
    並要求強制重新整理。tests/smoke.mjs 第 11 節會斷言三處一致。 */
-const APP_V = '20260908h';
+const APP_V = '20260908i';
 
 /** 致命錯誤：整頁換成一段說明。這種狀況下繼續跑只會產生錯的數字。 */
 function fatal(html){
@@ -223,6 +223,7 @@ function renderStorageNote(){
   const s = storageWhere();
   const a = $('rlvWhere'); if (a) a.innerHTML = s.html;
   const b = $('syncWhat'); if (b) b.innerHTML = `會一起同步的是：<b>${SYNCED_WHAT}</b>。`;
+  const d = $('scoreNote'); if (d) d.innerHTML = scoreNote();
   const c = $('verBuild');
   if (c) c.textContent = (window.claude ? 'claude.ai artifact 版本' : '自架版本（GitHub Pages 等）')
                        + ' · 資料存在：' + s.short;
@@ -595,6 +596,82 @@ const monOpen = new Set();
 let monDup = new Set();
 /** 目前解鎖的食材格數。 */
 const ingSlots = m => Math.min(Math.floor(m.level/30)+1, 3);
+
+/* ---- 個體評分（顯示用，engine.js 的 monScore / monIdeal）----
+   **這只是顯示。** 每週的推薦完全走原本那條演算法，一個字都沒改。
+
+   分數 ＝ 把這一隻加進一支固定的參考隊，整週能量增加多少。為什麼是「邊際貢獻」
+   而不是「單獨一隻的產出」，三個理由都在 engine.js 的那一段（單隻算料理會系統性
+   壓低食材型、補師的價值不在自己身上、本週加成會讓分數週週差兩倍）。
+
+   單位一律用「萬」。原始值是六位數的週能量，摺疊列上放六位數會把那一行擠爆，
+   而完整數字放在 title 裡。 */
+const wan = v => (v/10000).toFixed(2);
+const pzByName = n => { const i = D.dex.findIndex(p => p.n === n); return i < 0 ? n : pz(D.dex[i]); };
+/** 參考基準的說明。**一定要顯示** —— 沒有這句話，那個數字就是憑空來的。 */
+function scoreNote(){
+  const r = refDescribe();
+  if (!r.ok) return `評分無法計算：參考隊的物種不在目前的 ${code(P.data)} 快照裡。`;
+  return `<b>評分</b>＝把這一隻加進固定的參考隊之後，<b>整週能量增加多少</b>（單位：萬）。`
+       + `參考隊是 ${r.species.map(pzByName).join('、')}，各 Lv${r.level}、無修正性格、無副技能、無緞帶；`
+       + `鍋子 ${r.pot}、睡眠 ${r.sleepH} 小時、食譜等級 ${r.recipeLv}、<b>不含本週加成樹果</b>（所以跨週可比）。`
+       + `<b>這個數字不影響推演</b> —— 每週的推薦還是原本的演算法。`;
+}
+/* 理想值一隻要跑約 170 次評分（≈40ms）。展開一兩張卡感覺不到，但「展開全部」
+   一次開 60 隻就是 2 秒的凍結 —— 和「一次攤開 60 隻要建一萬多個 <option>」同一個
+   問題。所以只在展開的卡片不多時才自動算，其餘給一顆按鈕。
+
+   快取鍵是**整隻的簽章**，不是「物種｜等級」—— 看起來理想個體只該由物種與等級
+   決定，但 `monIdeal` 的最後一步會把**牠自己**也放進候選（保證「理想 ≥ 實際」，
+   否則貪婪漏掉某個組合時百分比會超過 100%）。那一步讓結果和這一隻有關。 */
+const IDEAL_AUTO_MAX = 3;
+const idealCache = new Map();
+const idealKey = m => monScoreKey(m);
+function idealOf(m, allowCompute){
+  const k = idealKey(m);
+  if (idealCache.has(k)) return idealCache.get(k);
+  if (!allowCompute) return undefined;         // undefined = 還沒算；null = 算不出來
+  const v = monIdeal(m);
+  idealCache.set(k, v);
+  return v;
+}
+/** 摺疊列上的那一格。 */
+function scoreChip(m){
+  const s = monScoreCached(m);
+  if (!s) return '';
+  return `<span class="mon-score" title="評分 ${Math.round(s.total).toLocaleString('en-US')}`
+       + `（把牠加進參考隊之後，整週能量的增量）&#10;`
+       + `樹果 ${wan(s.berry)}萬 · 食材 ${wan(s.dish)}萬 · 技能 ${wan(s.skill)}萬&#10;`
+       + `展開後有完整說明。這個數字不影響推演。">${wan(s.total)}</span>`;
+}
+/** 展開後的評分列：總分 ＋ 三個分項 ＋ 同物種同等級的理想個體。 */
+function scoreRow(m, allowIdeal){
+  const s = monScoreCached(m);
+  if (!s) return '';
+  const ideal = idealOf(m, allowIdeal);
+  let cmp;
+  if (ideal === undefined)
+    cmp = `<button class="btn sm ghost" data-act="ideal" type="button">算理想值</button>`;
+  else if (!ideal)
+    cmp = `<span class="muted">理想值算不出來</span>`;
+  else {
+    const pct = ideal.total > 0 ? Math.round(s.total / ideal.total * 100) : 0;
+    cmp = `<span class="mon-ideal" title="同物種、同等級的最佳個體：最佳性格＋最佳副技能＋緞帶4＋主技能滿級＋最佳食材組合。&#10;`
+        + `這是貪婪搜尋的結果，不是證明過的上限 —— 當參考線看，別當天花板。&#10;`
+        + `等級跟著這一隻，所以量到的是「個體好不好」而不是「練得夠不夠」。">`
+        + `理想 ${wan(ideal.total)}萬 · <b>${pct}%</b></span>`;
+  }
+  return `<div class="mon-row mon-scorerow">
+      <span class="mon-lbl">評分</span>
+      <span class="mon-scv" title="把牠加進參考隊之後，整週能量的增量">${wan(s.total)}萬</span>
+      <span class="mon-scparts">
+        <span class="sc-b">樹果 ${wan(s.berry)}</span>
+        <span class="sc-d">食材 ${wan(s.dish)}</span>
+        <span class="sc-s">技能 ${wan(s.skill)}</span>
+      </span>
+      ${cmp}
+    </div>`;
+}
 /** 性格摘要：「頑皮 +速度 −技能」，加減用顏色分開。無修正的走 natMod 的 null 分支。 */
 function natBrief(m){
   const n = NAT[m.nature] || NAT.Bashful, d = natMod(n);
@@ -652,6 +729,7 @@ function monHead(m, idx, open){
         <span class="mon-nat">${natBrief(m)}</span>
         <span class="mon-sum">${ss}</span>
         <span class="mon-sk" title="主技能 ${msz(p.ms)} 的基礎等級（副技能加成另計）">技Lv${m.skillLv}</span>
+        ${scoreChip(m)}
         <span class="mon-acts">
           <button class="btn sm ghost" data-act="pin" title="固定在隊上（一定入選）">${m.pin?'📌':'📍'}</button>
           <button class="btn sm ghost" data-act="ex" title="從推演中排除">${m.ex?'🚫':'○'}</button>
@@ -668,6 +746,7 @@ function monEdit(m, o){
   const p = D.dex[m.sp];
   const slots = ingSlots(m);
   const amb = (o && o.amb) || {};
+  const allowIdeal = !!(o && o.allowIdeal);
   const ambCls = k => amb[k] ? ' class="amb"' : '';
   const ambIng = s => (amb.ing && amb.ing[s] && amb.ing[s].length>1) ? ' class="amb"' : '';
   return `<div class="mon-edit">
@@ -697,6 +776,7 @@ function monEdit(m, o){
         <label class="f w-rib">緞帶<select data-k="ribbon"${ambCls('rb')} title="睡眠緞帶：提升攜帶上限，未進化的還會縮短幫手間隔。遊戲畫面上看不到，是由持有上限反解出來的">${
           RIBBON_LABEL.map((t,i)=>`<option value="${i}">${t}</option>`).join('')}</select></label>
       </div>
+      ${scoreRow(m, allowIdeal)}
     </div>`;
 }
 /** 一隻寶可夢的卡片。寶可夢箱與截圖校對區**共用這一份** ——
@@ -758,6 +838,8 @@ const BOX_SORTS = {
      不同的種類不會共用 `no`，同 `no` 的多隻就是同物種的不同個體，靠 `|| a-b`
      回到加入順序。 */
   no:    (a,b)=> D.dex[roster[a].sp].no - D.dex[roster[b].sp].no,
+  /* 評分高→低。`monScoreCached` 有快取，60 隻重排約 1ms。 */
+  score: (a,b)=> ((monScoreCached(roster[b])||{}).total||0) - ((monScoreCached(roster[a])||{}).total||0),
   level: (a,b)=> roster[b].level - roster[a].level,
   spec:  (a,b)=> SPEC_ORD.indexOf(D.dex[roster[a].sp].sp) - SPEC_ORD.indexOf(D.dex[roster[b].sp].sp),
   ms:    (a,b)=> msz(D.dex[roster[a].sp].ms).localeCompare(msz(D.dex[roster[b].sp].ms), 'zh-Hant'),
@@ -812,7 +894,10 @@ function renderBox(){
   findDups();                 // 排序與篩選都可能用到，而且摘要列要顯示 ⚠
   /* data-i 一律是**真實的 roster 索引**，排序只改渲染順序。
      用篩選／排序後的序號當索引，改一格就會改到別隻身上 —— 這裡最容易寫錯。 */
-  host.innerHTML = boxOrder().map(idx => monCard(roster[idx], idx)).join('');
+  /* 理想值一隻要 ~40ms，展開全部（60 隻）就是 2 秒的凍結。展開的卡片不多時才自動
+     算，其餘留一顆按鈕 —— 和「展開全部只作用在看得到的那些」同一個考量。 */
+  const allowIdeal = monOpen.size <= IDEAL_AUTO_MAX;
+  host.innerHTML = boxOrder().map(idx => monCard(roster[idx], idx, {allowIdeal})).join('');
   for (const el of host.querySelectorAll('[data-i]')) setMonValues(el, roster[+el.dataset.i]);
   applyBoxFilter();
 }
@@ -872,6 +957,12 @@ $('boxList').addEventListener('click', e=>{
   if (a==='toggle'){
     if (monOpen.has(i)) monOpen.delete(i); else monOpen.add(i);
     renderBox();              // 展開狀態是檢視偏好，不必 save()
+    return;
+  }
+  // 理想值：展開太多張時不自動算（會凍住），按這顆才算那一隻。算完進快取。
+  if (a==='ideal'){
+    idealOf(roster[i], true);
+    renderBox();
     return;
   }
   /* 刪除一定要問。✕ 就在 📌 和 🚫 旁邊，而那兩個是隨手切換用的 —— 手滑一格就
