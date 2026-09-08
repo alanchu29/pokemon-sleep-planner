@@ -14,7 +14,7 @@
      這裡、下面載入器的 ASSET_V、以及 src/app.js 的 APP_V。
      光靠 ?v= 只是降低機率，APP_V 的斷言才會真的擋下過期的 app.js。
      tests/smoke.mjs 第 11 節會斷言三處一致。 -->
-<link rel="stylesheet" href="./src/app.css?v=20260908g">
+<link rel="stylesheet" href="./src/app.css?v=20260908h">
 </head>
 <body>
 <div class="wrap">
@@ -140,12 +140,20 @@
     <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:14px">
       <button class="btn primary" id="syncPull" type="button">連線並下載</button>
       <button class="btn" id="syncPush" type="button">立即上傳</button>
+      <button class="btn" id="syncLink" type="button">複製同步連結</button>
       <button class="btn ghost" id="syncOff" type="button">停用同步</button>
       <span class="status" id="syncStatus"></span>
     </div>
+    <!-- clipboard 失敗時的退路（http 上沒有 navigator.clipboard）。 -->
+    <input type="text" id="syncLinkOut" hidden readonly spellcheck="false"
+           style="width:100%;margin-top:10px;font-family:var(--mono);font-size:11.5px">
+    <!-- #syncLinkNote 只有網址列帶了 #sync=…&token=… 時才由 applySyncLink() 顯示。 -->
+    <div class="notice" id="syncLinkNote" hidden style="margin-top:12px"></div>
     <!-- #syncWhat 由 renderStorageNote() 填 —— 和食譜等級那一頁取同一句，不要各寫一份。 -->
     <div class="notice" style="margin-top:12px"><span id="syncWhat"></span>
       網址與金鑰<b>只存在這台瀏覽器</b>，不會上傳到任何地方 —— 所以每台裝置都要填一次（也只要填這兩個）。
+      換裝置懶得打的話按<b>「複製同步連結」</b>，在新裝置上開那條連結就會自動填好；
+      但<b>那條連結等於金鑰本身</b>，誰拿到就能讀寫你的 Sheet，只能私下傳。
       設定步驟見 repo 裡的 <code>SETUP-google-sheet.md</code>。</div>
   </div></div>
 </section>
@@ -404,7 +412,7 @@ try {
      也放到 window 上：app.js 有一份自己的 APP_V，兩者不符就整頁擋下來。
      理由和 game.json 的 SCHEMA 一樣 —— 過期的 app.js 會靜靜地畫出舊版 UI，
      而使用者只會覺得「你根本沒改」，完全不知道是快取。 */
-  const ASSET_V = '20260908g';
+  const ASSET_V = '20260908h';
   window.ASSET_V = ASSET_V;
   for (const src of ['./src/engine.js', './src/import.js', './src/app.js']) {
     await new Promise((ok, bad) => {

@@ -57,7 +57,7 @@ const SCHEMA = 1;
    「新的 index.html ＋ 舊的 app.js」—— 畫面畫出舊版 UI，而使用者只會覺得
    「你根本沒改」，完全不知道是快取。有了這個斷言，過期的 app.js 會直接被擋下來
    並要求強制重新整理。tests/smoke.mjs 第 11 節會斷言三處一致。 */
-const APP_V = '20260908g';
+const APP_V = '20260908h';
 
 /** 致命錯誤：整頁換成一段說明。這種狀況下繼續跑只會產生錯的數字。 */
 function fatal(html){
@@ -146,6 +146,11 @@ function deserialize(o, opts){
   if (Array.isArray(o.roster)){
     const incoming = o.roster.map(revive);
     roster = (opts && opts.append) ? roster.concat(incoming) : incoming;
+    /* 整批取代 → 一定要清掉展開狀態。`monOpen` 存的是 roster 索引，而這裡把
+       整個 roster 換掉了 —— 留著就會展開到「剛好是同一個索引」的那一隻身上
+       （從雲端下載、JSON「取代」匯入都會走到這）。和 del 之後要 clear 同一個
+       理由，見 CLAUDE.md「刪除之後的展開狀態」。append 不動舊的索引，所以不清。 */
+    if (!(opts && opts.append)) monOpen.clear();
   }
   if (o.wk && !(opts && opts.append)){
     const f = o.wk.fav||[];
@@ -237,6 +242,78 @@ function saveSyncConfig(){
     localStorage.setItem('psleep-sync-token', sync.token);
   } catch(e){}
 }
+/* ---- 一次性設定連結（`#sync=…&token=…`）----
+   換裝置原本要手動貼兩個欄位，而那組網址是 Apps Script 的 `.../exec`，
+   長得幾乎沒辦法用手打。所以「複製同步連結」把兩者包成一條網址：在新裝置上
+   開那條連結就等於填好了。
+
+   **參數一定放在 hash（`#`）而不是 query（`?`）。** 金鑰是這個後端唯一的憑證，
+   而 hash 不會送到伺服器 —— query 會進 GitHub Pages（或任何靜態主機）的存取
+   記錄。為了容錯兩種都讀得進來，但產生出來的一律是 hash。
+
+   讀完立刻 `history.replaceState` 把參數拿掉：金鑰不該留在網址列上被截圖、
+   被複製、或留在瀏覽器歷史裡。
+
+   **和現有設定不同就不自動套用。** 一條連結能改掉資料的目的地，換掉之後本機
+   的改動會開始往別人的 Sheet 上傳、自己那份停在舊版 —— 跟「刪除沒有 undo」
+   同一類的不可逆。所以只有「本機還沒設定」或「和現在完全相同」才直接套用
+   （那正是換裝置的實際情境，沒有東西會被蓋掉）；不同就只填欄位並警告，
+   要使用者自己確認再按「連線並下載」。 */
+function parseSyncLink(){
+  const pick = s => {
+    if (!s || s.length < 2) return null;
+    const q = new URLSearchParams(s.slice(1));
+    const url = (q.get('sync') || '').trim(), token = (q.get('token') || '').trim();
+    return (url || token) ? {url, token} : null;
+  };
+  return pick(location.hash) || pick(location.search);
+}
+/* 只清掉我們自己的兩個鍵。hash 也可能是別人的（將來加了 `#view-box` 之類），
+   所以沒有我們的鍵就整段原封不動 —— 否則 URLSearchParams 會把它重寫成 `x=`。 */
+function stripSyncLink(){
+  try {
+    const clean = (s, sep) => {
+      if (!s || s.length < 2) return '';
+      const q = new URLSearchParams(s.slice(1));
+      if (!q.has('sync') && !q.has('token')) return s;
+      q.delete('sync'); q.delete('token');
+      const r = q.toString();
+      return r ? sep + r : '';
+    };
+    history.replaceState(null, '',
+      location.pathname + clean(location.search, '?') + clean(location.hash, '#'));
+  } catch(e){}
+}
+function buildSyncLink(){
+  return location.origin + location.pathname
+       + '#sync=' + encodeURIComponent(sync.url) + '&token=' + encodeURIComponent(sync.token);
+}
+const linkHost = u => { try { return new URL(u).host; } catch(e){ return u.slice(0, 40); } };
+/** 網址列帶了設定 → 套用或警告。回傳要顯示的訊息（沒帶就是 null）。 */
+function applySyncLink(){
+  const link = parseSyncLink();
+  if (!link) return null;
+  stripSyncLink();
+  if (!link.url || !link.token)
+    return {warn: true, html: '連結裡的同步設定<b>不完整</b>（要同時有網址與金鑰），已忽略。'};
+  if (link.url === sync.url && link.token === sync.token)
+    return {warn: false, html: '連結裡的同步設定和這台裝置現有的<b>相同</b>，不需要做什麼。'};
+  if (sync.url || sync.token)
+    return {warn: true, fill: link,
+      html: `連結裡的同步設定和這台裝置<b>現有的不同</b>（連結指向 <code>${esc(linkHost(link.url))}</code>）—— `
+          + `已填入下面的欄位但<b>還沒套用</b>。套用之後這台裝置的改動就會上傳到連結指定的那份，`
+          + `確認是你自己的網址再按「連線並下載」。`};
+  sync.url = link.url; sync.token = link.token; sync.on = true;
+  saveSyncConfig();
+  return {warn: false, html: `已從連結帶入同步設定（<code>${esc(linkHost(link.url))}</code>），正在連線。`};
+}
+function showSyncLinkNote(m){
+  const e = $('syncLinkNote'); if (!e) return;
+  e.innerHTML = m.html;
+  e.classList.toggle('warn', !!m.warn);
+  e.hidden = false;
+}
+
 async function sheetGet(){
   const u = sync.url + (sync.url.includes('?') ? '&' : '?') + 'token=' + encodeURIComponent(sync.token);
   const res = await fetch(u, {method:'GET', redirect:'follow'});
@@ -303,10 +380,18 @@ window.addEventListener('pagehide', flushSave);
 
 async function boot(){
   loadSyncConfig();
-  try { const raw = localStorage.getItem('psleep-box'); if (raw) deserialize(JSON.parse(raw)); } catch(e){}
   const selfHosted = !window.claude;
+  /* artifact 版本用的是 artifact 自己的資料庫，Sheet 設定根本不會生效 —— 所以
+     不套用，但**還是要把參數清掉**，不然金鑰就留在網址列上。 */
+  const linkMsg = selfHosted ? applySyncLink() : (stripSyncLink(), null);
+  try { const raw = localStorage.getItem('psleep-box'); if (raw) deserialize(JSON.parse(raw)); } catch(e){}
   if (selfHosted && $('syncSection')) $('syncSection').hidden = false;
-  if ($('syncUrl')){ $('syncUrl').value = sync.url; $('syncToken').value = sync.token; }
+  if ($('syncUrl')){
+    // 「和現有不同」那條路徑刻意顯示連結裡的值（等使用者確認），不是現有的值
+    const f = (linkMsg && linkMsg.fill) || sync;
+    $('syncUrl').value = f.url; $('syncToken').value = f.token;
+  }
+  if (linkMsg) showSyncLinkNote(linkMsg);
   renderAll();
 
   const db = await (window.claude && window.claude.use ? window.claude.use('db') : Promise.resolve(null));
@@ -381,9 +466,29 @@ if ($('syncPull')){
     try { await sheetPut(serialize()); sheetOk(); setSyncStatus('已上傳 ' + roster.length + ' 隻'); setStatus('已同步 Sheet'); }
     catch(e){ setSyncStatus('上傳失敗：' + e.message); }
   });
+  /* 產生一次性設定連結。clipboard API 需要安全內容（https 或 localhost）＋使用者
+     手勢，失敗就把連結攤在一個 input 裡讓他自己複製 —— 不然在 http 的本機
+     server 上這顆按鈕會看起來壞掉。 */
+  $('syncLink').addEventListener('click', async ()=>{
+    readFields();
+    if (!sync.on){ setSyncStatus('網址和金鑰都要填才能產生連結'); return; }
+    const link = buildSyncLink();
+    try {
+      await navigator.clipboard.writeText(link);
+      $('syncLinkOut').hidden = true;
+      setSyncStatus('已複製 —— 這條連結等於金鑰本身，不要貼到公開的地方');
+    } catch(e){
+      $('syncLinkOut').value = link;
+      $('syncLinkOut').hidden = false;
+      $('syncLinkOut').select();
+      setSyncStatus('無法自動複製（需要 https），請手動複製下面那一行');
+    }
+  });
   $('syncOff').addEventListener('click', ()=>{
     sync = {url:'', token:'', on:false};
     $('syncUrl').value = ''; $('syncToken').value = '';
+    $('syncLinkOut').hidden = true;
+    if ($('syncLinkNote')) $('syncLinkNote').hidden = true;
     backend = 'local';
     saveSyncConfig(); renderStorageNote();
     setSyncStatus('已停用，資料只留在這台瀏覽器'); setStatus('只存在這台裝置');

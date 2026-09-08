@@ -353,6 +353,83 @@ console.log('\n[8] Google Sheet 同步往返');
      /只有這台瀏覽器/.test(offline.build), JSON.stringify(offline));
 }
 
+console.log('\n[8b] 一次性設定連結（#sync=…&token=…）');
+{
+  /* 換裝置原本要手動貼 Apps Script 的 .../exec 網址 ＋ 金鑰。「複製同步連結」
+     把兩者包成一條網址，開了就等於填好。
+
+     每次都帶一個不相干的 ?t=N —— 只改 hash 的 goto 不會真的重新載入（同一份
+     文件的片段跳轉），boot() 就不會再跑，整節會假通過。順便驗 stripSyncLink
+     只清自己的鍵、不相干的 query 要留著。 */
+  const openWith = async (n, frag) => {
+    await page.goto(`${PAGE}?t=${n}${frag}`);
+    await page.waitForTimeout(3000);
+  };
+  const state = () => page.evaluate(() => ({
+    url: sync.url, token: sync.token, on: sync.on, backend, n: roster.length,
+    hash: location.hash, search: location.search,
+    stored: [localStorage.getItem('psleep-sync-url') || '', localStorage.getItem('psleep-sync-token') || ''],
+    field: [$('syncUrl').value, $('syncToken').value],
+    noteHidden: $('syncLinkNote').hidden,
+    note: $('syncLinkNote').textContent,
+    warn: $('syncLinkNote').classList.contains('warn'),
+  }));
+
+  // (a) 本機還沒設定 → 直接套用。這是換裝置的實際情境，沒有東西會被蓋掉。
+  await openWith(1, '#sync=' + encodeURIComponent(GAS) + '&token=' + encodeURIComponent(TOKEN));
+  let s = await state();
+  ok('連結帶入的設定被套用', s.on && s.url === GAS && s.token === TOKEN, JSON.stringify(s.stored));
+  ok('設定寫進 localStorage（下次不用連結）', s.stored[0] === GAS && s.stored[1] === TOKEN);
+  ok('開連結就直接連上 Sheet 並下載', s.backend === 'sheet' && s.n === 8, `${s.backend} / ${s.n} 隻`);
+  ok('有告知是從連結帶入的', !s.noteHidden && /連結/.test(s.note) && !s.warn, `「${s.note}」`);
+  /* 金鑰不該留在網址列 —— 會被截圖、被複製、留在瀏覽器歷史裡。 */
+  ok('金鑰不留在網址列', s.hash === '' && !/token/.test(s.search), `search=「${s.search}」hash=「${s.hash}」`);
+  ok('不相干的 query 參數留著', /(^|[?&])t=1(&|$)/.test(s.search), `「${s.search}」`);
+
+  /* (b) 已經有設定，而連結指向**別的地方** → 不自動套用。一條連結能改掉資料的
+     目的地，套用之後本機的改動就往別人的 Sheet 上傳、自己那份停在舊版。 */
+  await openWith(2, '#sync=' + encodeURIComponent('https://evil.example/exec') + '&token=zzz');
+  s = await state();
+  ok('和現有不同的連結不會自動套用', s.url === GAS && s.token === TOKEN, JSON.stringify([s.url, s.token]));
+  ok('localStorage 沒有被改掉', s.stored[0] === GAS && s.stored[1] === TOKEN);
+  ok('但有填進欄位等使用者確認', s.field[0] === 'https://evil.example/exec' && s.field[1] === 'zzz',
+     JSON.stringify(s.field));
+  ok('是警告樣式、寫出目的地、並說明還沒套用',
+     s.warn && /還沒套用/.test(s.note) && /evil\.example/.test(s.note), `「${s.note}」`);
+  ok('金鑰不留在網址列（警告路徑也一樣）', s.hash === '' && !/token/.test(s.search), `「${s.search}」`);
+
+  // (c) query 形式也讀得進來（容錯），而且相同設定要說「不需要做什麼」
+  await openWith(3, '&sync=' + encodeURIComponent(GAS) + '&token=' + encodeURIComponent(TOKEN));
+  s = await state();
+  ok('query 形式也讀得進來', s.on && s.url === GAS && s.backend === 'sheet', JSON.stringify([s.url, s.backend]));
+  ok('相同設定不當成變更', !s.warn && /相同/.test(s.note), `「${s.note}」`);
+
+  // (d) 產生的連結：hash 形式、正確編碼、解得回原值
+  const built = await page.evaluate(() => {
+    sync.url = 'https://script.google.com/macros/s/AAA/exec'; sync.token = 'tk 1&x';
+    return buildSyncLink();
+  });
+  ok('產生的連結放在 hash 而不是 query（query 會進伺服器記錄）',
+     built.includes('#sync=') && !built.includes('?sync='), built);
+  ok('連結的參數有正確編碼', /&token=tk%201%26x$/.test(built), built);
+  await page.goto(built.replace('#', '?t=4#'));
+  await page.waitForTimeout(2500);
+  s = await state();
+  ok('那條連結解得回原本的網址與金鑰',
+     s.field[0] === 'https://script.google.com/macros/s/AAA/exec' && s.field[1] === 'tk 1&x',
+     JSON.stringify(s.field));
+
+  // (e) 面板文案要提到這個功能 —— 不然使用者只會繼續手動貼兩個欄位
+  ok('面板文案有教「複製同步連結」', await page.evaluate(() =>
+     /複製同步連結/.test($('syncWhat').closest('.notice').textContent)));
+  ok('文案有警告連結等於金鑰', await page.evaluate(() =>
+     /等於金鑰/.test($('syncWhat').closest('.notice').textContent)));
+
+  // 收尾：把同步關掉，後面幾節不需要 Sheet（也不要背景上傳干擾）
+  await page.evaluate(() => { $('syncOff').click(); });
+  ok('停用之後連結提示也收起來', await page.evaluate(() => $('syncLinkNote').hidden));
+}
+
 console.log('\n[9] 每個 view 都能渲染');
 for (const v of ['plan', 'box', 'recipes']) {
   await page.evaluate((x) => showView(x), v);
@@ -739,19 +816,26 @@ const IMP_CASES = [
     const notWritten = roster.length === before;      // 還沒按確認 → 箱子不能變
     const solvedSp = D.dex[impDraft.sp].n, solvedRb = impDraft.ribbon;
 
-    // 手動改一欄（等級）→ 校驗碼必須立刻變紅
-    const lv = $('impRow').querySelector('[data-k="level"]');
+    /* 手動改一欄（等級）→ 校驗碼必須立刻變紅。
+       **每次都要重新查元素** —— 任何欄位改動都會讓 renderImpReview() 重畫整個
+       #impRow（和寶可夢箱一樣：摘要不重畫就會和選單不一致），所以第一次拿到的
+       節點在改完之後已經脫離 DOM。在脫離的節點上 dispatch 不會冒泡到 #impRow
+       的委派處理器 —— 改動靜靜地不生效，而測試會以為「改不回來」是程式的錯。 */
+    const lvEl = () => $('impRow').querySelector('[data-k="level"]');
+    let lv = lvEl();
     lv.value = 55; lv.dispatchEvent(new Event('change', {bubbles:true}));
     const wentBad = $('impChecks').innerHTML.includes('impck bad');
-    // 改回去 → 恢復
+    lv = lvEl();                                    // ← 上面那次已經重畫過了
     lv.value = 60; lv.dispatchEvent(new Event('change', {bubbles:true}));
     const backOk = !$('impChecks').innerHTML.includes('impck bad');
+    const backLevel = impDraft.level;
 
     $('impSave').click();
     const added = roster.length === before + 1;
     const last = roster[roster.length - 1];
-    return { reviewShown, rowFields, notWritten, solvedSp, solvedRb, wentBad, backOk,
+    return { reviewShown, rowFields, notWritten, solvedSp, solvedRb, wentBad, backOk, backLevel,
              added, savedSp: last && D.dex[last.sp].n, savedRb: last && last.ribbon,
+             savedLevel: last && last.level,
              formCleared: $('impLevel').value === '' && $('impReview').hidden };
   }, IMP_CASES[0].obs);
   ok('按「自動判斷」會開出校對區', flow.reviewShown);
@@ -762,9 +846,11 @@ const IMP_CASES = [
      flow.rowFields.join(','));
   ok('確認之前絕對不會寫進箱子', flow.notWritten);
   ok('手動改壞欄位 → 校驗碼立刻標紅', flow.wentBad);
-  ok('改回正確值 → 校驗碼恢復', flow.backOk);
-  ok('按「存入箱子」才真的加進 roster', flow.added && flow.savedSp === 'VICTREEBEL' && flow.savedRb === 4,
-     `${flow.savedSp} / 緞帶${flow.savedRb}`);
+  ok('改回正確值 → 校驗碼恢復', flow.backOk && flow.backLevel === 60,
+     `backOk=${flow.backOk} level=${flow.backLevel}`);
+  ok('按「存入箱子」才真的加進 roster',
+     flow.added && flow.savedSp === 'VICTREEBEL' && flow.savedRb === 4 && flow.savedLevel === 60,
+     `${flow.savedSp} / 緞帶${flow.savedRb} / Lv${flow.savedLevel}`);
   ok('存入後表單與草稿都清空', flow.formCleared);
 
   /* regression：露營券留「未指定」時 impSolve 會兩種都試，重新校驗必須用
@@ -969,8 +1055,14 @@ console.log('\n[11d] 寶可夢箱 UI：篩選、真實索引、完整顯示');
   const r = await page.evaluate(() => {
     const mk = (n, lv) => ({sp:n, level:lv||60, nature:'Bashful',
       ss:['Helping Speed M',null,null,null,null], ingSet:[0,0,0], skillLv:1, ribbon:0});
+    /* regression：`deserialize` 整批換掉 roster 時必須清掉 `monOpen`。它存的是
+       roster 索引，留著就會展開到「剛好是同一個索引」的**別隻**身上 —— 從雲端
+       下載、JSON「取代」匯入都會走到這條。和 del 之後要 clear 同一個理由。
+       這一節後面所有「預設摺疊」的斷言都靠它，所以刻意先塞兩個進去。 */
+    monOpen.add(0); monOpen.add(2);
     // 順序刻意讓「篩選後的位置」和「真實索引」不一致：食材型在索引 1 和 3
     deserialize({roster: [mk('RAICHU'), mk('VICTREEBEL'), mk('SLOWKING'), mk('BLASTOISE')]});
+    const openAfterLoad = monOpen.size;
     clearBoxFilter(); renderBox();
     const vis = () => [...$('boxList').querySelectorAll('[data-i]')].filter(e => !e.hidden).map(e => +e.dataset.i);
     const fire = (id, ev) => $(id).dispatchEvent(new Event(ev, {bubbles:true}));
@@ -1107,10 +1199,11 @@ console.log('\n[11d] 寶可夢箱 UI：篩選、真實索引、完整顯示');
                     .filter(o => /undefined/.test(o.text)).length,
     };
 
-    return {all, collapsedControls, summary, ingOnly, countText, targetIdx, openedControls,
+    return {openAfterLoad, all, collapsedControls, summary, ingOnly, countText, targetIdx, openedControls,
             levels, reclosed, searched, bySs, cleared, afterAdd, afterCancel, afterDel,
             toggleAsked, ssText, ingText, amount, mewSlot3, locked, natTexts};
   });
+  ok('整批載入 roster 會清掉展開狀態（否則展開到別隻身上）', r.openAfterLoad === 0, String(r.openAfterLoad));
   ok('未篩選時四隻都看得到', r.all.join(',') === '0,1,2,3', r.all.join(','));
   ok('預設摺疊：完全沒有編輯控制項（這才省得下版面）', r.collapsedControls === 0, String(r.collapsedControls));
   ok('摺疊列有副技能摘要，且底色帶稀有度',
