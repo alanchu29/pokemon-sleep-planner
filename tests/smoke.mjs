@@ -1271,6 +1271,13 @@ console.log('\n[11e] 寶可夢箱：排序、展開全部、重複偵測');
     const fire = (id, ev) => $(id).dispatchEvent(new Event(ev, {bubbles:true}));
 
     const added = order();
+    /* 圖鑑編號：摺疊列第一個顯示的就是 #圖鑑號，所以這是唯一「照畫面上的數字排」
+       的順序。雷丘 #26 ／大食花 #71 ／呆呆王 #199 → 索引 0,2,1（加入順序是亂的）。 */
+    $('fltSort').value = 'no'; fire('fltSort', 'change');
+    const byNo = order();
+    const byNoNums = [...$('boxList').querySelectorAll('[data-i]')]
+      .map(e => D.dex[roster[+e.dataset.i].sp].no);
+    const sortOpts = [...$('fltSort').options].map(o => o.value);
     $('fltSort').value = 'level'; fire('fltSort', 'change');
     const byLevel = order();
     $('fltSort').value = 'spec'; fire('fltSort', 'change');
@@ -1321,10 +1328,14 @@ console.log('\n[11e] 寶可夢箱：排序、展開全部、重複偵測');
     lv2.value = 31; lv2.dispatchEvent(new Event('change', {bubbles:true}));
     const dupGone = {set: monDup.size, badges: $('boxList').querySelectorAll('.mon-dup').length};
     monOpen.clear();
-    return {added, byLevel, bySpec, sortedFirstIdx, levelsAfter, msTexts,
+    return {added, byNo, byNoNums, sortOpts, byLevel, bySpec, sortedFirstIdx, levelsAfter, msTexts,
             before, openedAll, closedAll, openedFiltered, dup, dupOnly, dupGone};
   });
   ok('預設是加入順序', r.added.join(',') === '0,1,2', r.added.join(','));
+  ok('排序選單有「圖鑑編號」這一項', r.sortOpts.includes('no'), r.sortOpts.join(','));
+  ok('圖鑑編號排序（#26,#71,#199 → 索引 0,2,1）',
+     r.byNo.join(',') === '0,2,1' && r.byNoNums.join(',') === '26,71,199',
+     `${r.byNo.join(',')} / #${r.byNoNums.join(' #')}`);
   ok('等級高→低排序（60,45,30 → 索引 1,2,0）', r.byLevel.join(',') === '1,2,0', r.byLevel.join(','));
   ok('專長排序（樹果→食材→技能）', r.bySpec.join(',') === 'berry,ingredient,skill', r.bySpec.join(','));
   ok('排序只改顯示順序，data-i 仍是真實索引',

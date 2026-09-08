@@ -753,6 +753,11 @@ function findDups(){
 const SPEC_ORD = ['berry','ingredient','skill','all'];
 const BOX_SORTS = {
   added: null,
+  /* 圖鑑編號。摺疊列第一個顯示的就是 `#圖鑑號`，所以這是唯一「照著畫面上的
+     數字排」的順序 —— 也讓同一族的（妙蛙種子／草／花）自然排在一起。
+     不同的種類不會共用 `no`，同 `no` 的多隻就是同物種的不同個體，靠 `|| a-b`
+     回到加入順序。 */
+  no:    (a,b)=> D.dex[roster[a].sp].no - D.dex[roster[b].sp].no,
   level: (a,b)=> roster[b].level - roster[a].level,
   spec:  (a,b)=> SPEC_ORD.indexOf(D.dex[roster[a].sp].sp) - SPEC_ORD.indexOf(D.dex[roster[b].sp].sp),
   ms:    (a,b)=> msz(D.dex[roster[a].sp].ms).localeCompare(msz(D.dex[roster[b].sp].ms), 'zh-Hant'),
