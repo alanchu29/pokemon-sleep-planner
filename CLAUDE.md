@@ -185,6 +185,12 @@ window.claude 存在  → claude.use('db') → artifact 資料庫（doc: box/mai
 
 `localStorage['psleep-box']` **任何情況下都會寫**，當離線副本。
 
+**存進去的不只是寶可夢箱。** `serialize()` 的 payload 是 `{roster, wk}`，而 `wk` 裡有 `recipeLevels`（78 道食譜的個別等級）—— 所以三個後端都會一起同步。唯一每台裝置各自存的是 Apps Script 的**網址與金鑰**（`psleep-sync-url` / `psleep-sync-token`），以及純檢視狀態（`monOpen` 展開、`boxFlt` 篩選排序），那些刻意不進 `serialize()`。
+
+原本同步面板標題、面板說明、版本面板三處都只寫「寶可夢箱」，而食譜等級那一頁根本沒講 —— 使用者因此以為食譜等級是本機的、換裝置要重填 78 道（實際踩過，直接來問）。所以那句話集中在 `SYNCED_WHAT` ＋ `storageWhere()` ＋ `renderStorageNote()`，四個地方都取同一份，跟 `PATHS` 一樣的道理。
+
+`storageWhere()` **看的是 `backend`（`'artifact'|'sheet'|'local'`），不是 `window.claude` 或 `sync.on`**。後兩者只代表「有設定」；連不上的時候推斷出來的答案是假的，而這句話正是使用者用來決定「要不要設定同步」的依據。`backend` 只在真的往返成功之後才改。
+
 `!window.claude` 就是「自架版本」的判斷依據 —— 用來顯示同步面板、停用「請求更新資料」按鈕、以及版本面板的標示。**新增環境相依的文案時記得兩邊都要對。**
 
 Google Sheet 後端在 `apps-script/Code.gs`，設定步驟見 `SETUP-google-sheet.md`。

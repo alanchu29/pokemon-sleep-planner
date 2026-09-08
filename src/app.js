@@ -50,7 +50,7 @@ const SCHEMA = 1;
    「新的 index.html ＋ 舊的 app.js」—— 畫面畫出舊版 UI，而使用者只會覺得
    「你根本沒改」，完全不知道是快取。有了這個斷言，過期的 app.js 會直接被擋下來
    並要求強制重新整理。tests/smoke.mjs 第 11 節會斷言三處一致。 */
-const APP_V = '20260908e';
+const APP_V = '20260908f';
 
 /** 致命錯誤：整頁換成一段說明。這種狀況下繼續跑只會產生錯的數字。 */
 function fatal(html){
@@ -174,6 +174,41 @@ function rosterTable(){
   return [head, ...rows];
 }
 
+/* ---- 「資料存在哪裡」的單一來源 ----
+   `serialize()` 存的**不只是寶可夢箱** —— 本週條件與個別設定的食譜等級都在同一份
+   payload 裡（`wk.recipeLevels`），所以三個後端都會一起同步。
+
+   但原本三處文案（同步面板標題、同步面板說明、版本面板）都只寫「寶可夢箱」，
+   結果使用者以為食譜等級是本機的、換裝置要重填 78 道 —— 實際踩過（使用者直接問）。
+   食譜等級那一頁根本沒講。所以集中在這裡，四個地方都取同一句，跟 `PATHS` 一樣。 */
+const SYNCED_WHAT = '寶可夢箱、本週條件、以及個別設定的食譜等級';
+/* 目前實際生效的後端，由 boot() 決定：'artifact' | 'sheet' | 'local'。
+   **刻意不從 `window.claude` / `sync.on` 推斷** —— 那兩個只代表「有設定」，
+   連不上的時候推斷出來的答案就是假的，而這句話正是使用者用來決定「要不要設定
+   同步」的依據。連不上就得老實說只在本機。 */
+let backend = 'local';
+function storageWhere(){
+  if (backend === 'artifact') return {short: 'artifact 資料庫',
+    html: `${SYNCED_WHAT}都存在這個 artifact 的<b>雲端資料庫</b>，改一格就自動存 —— `
+        + `換裝置開同一個 artifact 就會看到一樣的內容。`};
+  if (backend === 'sheet') return {short: '你的 Google Sheet',
+    html: `${SYNCED_WHAT}都存在<b>你的 Google Sheet</b>，改一格就自動上傳 —— `
+        + `換裝置只要把 Apps Script 網址與存取金鑰填一次（那兩個是每台瀏覽器各自存的），其餘會自己同步下來。`};
+  return {short: '只有這台瀏覽器',
+    html: `${SYNCED_WHAT}目前<b>只存在這台瀏覽器</b>（localStorage）—— 換裝置或清掉瀏覽器資料就沒了。`
+        + (window.claude ? '' : '要跨裝置請到「寶可夢箱」頁面設定<b>雲端同步</b>。')};
+}
+/* 三處文案都在這裡寫，包括版本面板的那一行 —— 不然停用同步之後版本面板還會停在
+   「存在你的 Google Sheet」（`renderVersion()` 沒被重跑）。 */
+function renderStorageNote(){
+  const s = storageWhere();
+  const a = $('rlvWhere'); if (a) a.innerHTML = s.html;
+  const b = $('syncWhat'); if (b) b.innerHTML = `會一起同步的是：<b>${SYNCED_WHAT}</b>。`;
+  const c = $('verBuild');
+  if (c) c.textContent = (window.claude ? 'claude.ai artifact 版本' : '自架版本（GitHub Pages 等）')
+                       + ' · 資料存在：' + s.short;
+}
+
 /* ---- Google Sheet backend ---- */
 function loadSyncConfig(){
   try {
@@ -266,9 +301,10 @@ async function boot(){
     dbRef = db.doc('box/main');
     try {
       const snap = await dbRef.get();
-      if (snap.exists) { deserialize(snap.data()); renderAll(); setStatus('已同步'); }
-      else { await dbRef.set(serialize()); setStatus('已同步'); }
+      if (snap.exists) { deserialize(snap.data()); backend = 'artifact'; renderAll(); setStatus('已同步'); }
+      else { await dbRef.set(serialize()); backend = 'artifact'; setStatus('已同步'); }
     } catch(e){ setStatus('只存在這台裝置'); }
+    renderStorageNote();      // 連上了才敢說存在雲端 —— 上面 catch 到就維持 'local'
     Promise.all([db.doc('meta/status').get(), db.doc('meta/refresh').get()]).then(([st,rq])=>{
       if (st.exists) metaStatus = st.data();
       if (rq.exists) metaReq = rq.data();
@@ -285,17 +321,19 @@ async function boot(){
       const local = localRaw ? JSON.parse(localRaw) : null;
       // last write wins
       if (remote && (!local || !local.updatedAt || (remote.updatedAt || '') >= local.updatedAt)){
-        deserialize(remote); renderAll();
+        deserialize(remote); backend = 'sheet'; renderAll();
         setStatus('已同步 Sheet'); setSyncStatus('已下載雲端版本（' + (remote.updatedAt||'').slice(0,16).replace('T',' ') + '）');
       } else if (local){
-        await sheetPut(local);
+        await sheetPut(local); backend = 'sheet';
         setStatus('已同步 Sheet'); setSyncStatus('本機較新，已上傳');
       } else {
+        backend = 'sheet';
         setStatus('已同步 Sheet'); setSyncStatus('雲端為空');
       }
     } catch(e){
       setStatus('Sheet 連線失敗（用本機資料）'); setSyncStatus('連線失敗：' + e.message);
     }
+    renderStorageNote();
   } else {
     setStatus('只存在這台裝置');
     setSyncStatus(selfHosted ? '尚未設定' : '');
@@ -310,27 +348,31 @@ if ($('syncPull')){
     sync.on = !!(sync.url && sync.token);
     saveSyncConfig();
   };
+  /* backend 只在**真的成功往返過**之後才改成 'sheet' —— 填了欄位不等於連得上。 */
+  const sheetOk = ()=>{ backend = 'sheet'; renderStorageNote(); };
   $('syncPull').addEventListener('click', async ()=>{
     readFields();
     if (!sync.on){ setSyncStatus('網址和金鑰都要填'); return; }
     setSyncStatus('連線中…');
     try {
       const remote = await sheetGet();
-      if (remote){ deserialize(remote); renderAll(); setSyncStatus('已下載（' + (remote.roster||[]).length + ' 隻）'); setStatus('已同步 Sheet'); }
-      else { setSyncStatus('連線成功，但雲端還是空的 —— 按「立即上傳」把本機資料推上去'); }
+      if (remote){ deserialize(remote); sheetOk(); renderAll(); setSyncStatus('已下載（' + (remote.roster||[]).length + ' 隻）'); setStatus('已同步 Sheet'); }
+      else { sheetOk(); setSyncStatus('連線成功，但雲端還是空的 —— 按「立即上傳」把本機資料推上去'); }
     } catch(e){ setSyncStatus('連線失敗：' + e.message); }
   });
   $('syncPush').addEventListener('click', async ()=>{
     readFields();
     if (!sync.on){ setSyncStatus('網址和金鑰都要填'); return; }
     setSyncStatus('上傳中…');
-    try { await sheetPut(serialize()); setSyncStatus('已上傳 ' + roster.length + ' 隻'); setStatus('已同步 Sheet'); }
+    try { await sheetPut(serialize()); sheetOk(); setSyncStatus('已上傳 ' + roster.length + ' 隻'); setStatus('已同步 Sheet'); }
     catch(e){ setSyncStatus('上傳失敗：' + e.message); }
   });
   $('syncOff').addEventListener('click', ()=>{
     sync = {url:'', token:'', on:false};
     $('syncUrl').value = ''; $('syncToken').value = '';
-    saveSyncConfig(); setSyncStatus('已停用，資料只留在這台瀏覽器'); setStatus('只存在這台裝置');
+    backend = 'local';
+    saveSyncConfig(); renderStorageNote();
+    setSyncStatus('已停用，資料只留在這台瀏覽器'); setStatus('只存在這台裝置');
   });
 }
 
@@ -1435,9 +1477,7 @@ function renderVersion(){
   const selfHosted = !window.claude;
   $('verSrc').innerHTML = `${m.src||'—'}<br>commit ${m.commit||'—'} · ${m.commitDate||'—'}<br>打包於 ${m.builtAt||'—'}`;
   $('verZh').textContent = m.zhSrc || '—';
-  $('verBuild').textContent = selfHosted
-    ? '自架版本（GitHub Pages 等）· 寶可夢箱存在你的 Google Sheet 或本機瀏覽器'
-    : 'claude.ai artifact 版本 · 寶可夢箱存在 artifact 資料庫';
+  renderStorageNote();      // #verBuild 那一行歸它管（停用同步時只有它會被重跑）
   $('verCounts').textContent = `${D.dex.length} 隻寶可夢 · ${D.recipes.length} 道食譜 · ${D.subskills.length} 個副技能 · ${D.islands.length} 個研究區域`;
   if (selfHosted){
     $('refreshBtn').disabled = true;

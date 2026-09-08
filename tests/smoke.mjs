@@ -298,6 +298,18 @@ console.log('\n[8] Google Sheet 同步往返');
   ok('清空本機後從雲端還原', back.n === 8, JSON.stringify(back));
   ok('緞帶與個別食譜等級都保住', back.rib === 2 && back.lv === 42, JSON.stringify(back));
 
+  /* 「資料存在哪裡」的文案。使用者以為食譜等級是本機的、換裝置要重填 78 道 ——
+     因為三處文案都只寫「寶可夢箱」，而食譜等級那一頁根本沒講。實際踩過。
+     這裡要守住兩件事：講出食譜等級也會同步，而且**連上了才敢說存在雲端**。 */
+  const note = await page.evaluate(() => ({
+    rlv: $('rlvWhere').textContent, what: $('syncWhat').textContent,
+    build: $('verBuild').textContent, backend,
+  }));
+  ok('食譜等級那一頁會講資料存在哪裡',
+     /食譜等級/.test(note.rlv) && /Google Sheet/.test(note.rlv), `「${note.rlv}」`);
+  ok('同步面板列出「食譜等級」也會一起同步', /食譜等級/.test(note.what), `「${note.what}」`);
+  ok('版本面板寫出實際生效的後端',
+     note.backend === 'sheet' && /Google Sheet/.test(note.build), `${note.backend} / 「${note.build}」`);
   /* regression：改完立刻關分頁／切到背景。以前那次上傳還在等 900ms 防抖，
      就永遠不會送出 —— localStorage 有、雲端停在上一版。 */
   store = null;
@@ -329,6 +341,16 @@ console.log('\n[8] Google Sheet 同步往返');
   await page.click('#syncPull');
   await page.waitForTimeout(900);
   ok('錯誤金鑰有明確錯誤', /unauthorized/.test(await page.evaluate(() => $('syncStatus').textContent)));
+
+  /* 這一段放最後 —— 它會把同步設定清掉，前面那些防抖／重試的斷言都需要它還在。
+     連不上時不能還宣稱資料在雲端：那句話正是使用者用來決定「要不要設同步」的依據。 */
+  const offline = await page.evaluate(() => {
+    $('syncOff').click();
+    return {rlv: $('rlvWhere').textContent, build: $('verBuild').textContent, backend};
+  });
+  ok('停用同步之後文案改成「只存在這台瀏覽器」',
+     offline.backend === 'local' && /只存在這台瀏覽器/.test(offline.rlv) &&
+     /只有這台瀏覽器/.test(offline.build), JSON.stringify(offline));
 }
 
 console.log('\n[9] 每個 view 都能渲染');

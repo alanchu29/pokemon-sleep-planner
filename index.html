@@ -14,7 +14,7 @@
      這裡、下面載入器的 ASSET_V、以及 src/app.js 的 APP_V。
      光靠 ?v= 只是降低機率，APP_V 的斷言才會真的擋下過期的 app.js。
      tests/smoke.mjs 第 11 節會斷言三處一致。 -->
-<link rel="stylesheet" href="./src/app.css?v=20260908e">
+<link rel="stylesheet" href="./src/app.css?v=20260908f">
 </head>
 <body>
 <div class="wrap">
@@ -127,7 +127,7 @@
 
 <div class="view" id="view-box" hidden>
 <section id="syncSection" hidden>
-  <div class="sechead"><h2>雲端同步</h2><span class="muted" style="font-size:12.5px">用你自己的 Google Sheet 存寶可夢箱</span></div>
+  <div class="sechead"><h2>雲端同步</h2><span class="muted" style="font-size:12.5px">用你自己的 Google Sheet 跨裝置同步</span></div>
   <div class="panel"><div class="pbody">
     <div class="wk">
       <label class="f span2">Apps Script Web App 網址
@@ -143,7 +143,10 @@
       <button class="btn ghost" id="syncOff" type="button">停用同步</button>
       <span class="status" id="syncStatus"></span>
     </div>
-    <div class="notice" style="margin-top:12px">網址與金鑰只存在<b>這台瀏覽器</b>，不會上傳到任何地方。設定步驟見 repo 裡的 <code>SETUP-google-sheet.md</code>。</div>
+    <!-- #syncWhat 由 renderStorageNote() 填 —— 和食譜等級那一頁取同一句，不要各寫一份。 -->
+    <div class="notice" style="margin-top:12px"><span id="syncWhat"></span>
+      網址與金鑰<b>只存在這台瀏覽器</b>，不會上傳到任何地方 —— 所以每台裝置都要填一次（也只要填這兩個）。
+      設定步驟見 repo 裡的 <code>SETUP-google-sheet.md</code>。</div>
   </div></div>
 </section>
 
@@ -328,6 +331,8 @@
       <button class="btn sm" id="rlvClear" type="button">清除全部個別設定</button>
     </div>
     <div class="notice" style="margin-bottom:12px">留空的食譜會套用「本週條件」裡的<b>預設食譜等級</b>。只需要填你真的煮過的那幾道 —— 其他留空就好。</div>
+    <!-- 這一頁要填的東西最多，所以一定要講清楚存在哪裡。內容由 renderStorageNote() 填。 -->
+    <div class="notice" id="rlvWhere" style="margin-bottom:12px"></div>
     <div class="scroll"><table class="rlvtable"><thead><tr>
       <th>食譜</th><th>類型</th><th style="text-align:right">食材數</th><th style="text-align:center">等級</th><th style="text-align:right">倍率</th><th style="text-align:right">單道能量</th>
     </tr></thead><tbody id="rlvBody"></tbody></table></div>
@@ -399,7 +404,7 @@ try {
      也放到 window 上：app.js 有一份自己的 APP_V，兩者不符就整頁擋下來。
      理由和 game.json 的 SCHEMA 一樣 —— 過期的 app.js 會靜靜地畫出舊版 UI，
      而使用者只會覺得「你根本沒改」，完全不知道是快取。 */
-  const ASSET_V = '20260908e';
+  const ASSET_V = '20260908f';
   window.ASSET_V = ASSET_V;
   for (const src of ['./src/engine.js', './src/import.js', './src/app.js']) {
     await new Promise((ok, bad) => {
