@@ -212,8 +212,21 @@ function simulate(bs, m, wk, ctx){
   const nightNormal = Math.min(helpsNight, helpsTillFull);
   const snack = Math.max(0, helpsNight - nightNormal);
   const productive = helpsDay + nightNormal;
+  /* 主技能發動次數：**只有醒著的幫忙會即時觸發**，睡眠期間累積的最多結算
+     `bankedProcs` 次（技能專長 2 次，其他 1 次）。
+
+     `productive` 含 `nightNormal` 對**樹果與食材**是對的 —— 睡覺時撿的東西醒來會收到，
+     所以下面的 `berries` 和 memberOutput 的 `ing` 照樣用 `productive`。但技能發動不是
+     同一回事：夜間那批幫忙不會每一次都即時發動技能，那正是 `bankedProcs` 這個上限的
+     用意。以前這裡寫的是 `productive*effSkill + min(banked, ...)`，等於夜間幫忙先被
+     完整乘過一次 effSkill（而且沒有上限）、再加一次 banked —— 同一批算了兩次。
+
+     實測（Lv55、睡 8.5h）：技能型的 `skillStrength` 高估 **20.8%**（AMPHAROS 週能量
+     190,026 → 150,468、DARKRAI 254,114 → 201,779），而樹果型的樹果收入與食材型的
+     食材收入**完全不受影響** —— 也就是說偏差只打在其中一種專長上，會系統性地把
+     技能型推進推薦名單。詳見 DECISIONS.md。 */
   const bankedProcs = bs.p.sp==='skill' ? 2 : 1;
-  const procs = productive*bs.effSkill + Math.min(bankedProcs, nightNormal*bs.effSkill);
+  const procs = helpsDay*bs.effSkill + Math.min(bankedProcs, nightNormal*bs.effSkill);
   return {freqBase, helpsDay, helpsNight, productive, snack, procs,
           fastHours: fastSteps/6, fastShare: totalSteps ? fastSteps/totalSteps : 0, wakeEnergy: start,
           berries: productive*(1-bs.ingChance)*bs.berriesPerDrop + snack*bs.berriesPerDrop};

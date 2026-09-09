@@ -467,6 +467,25 @@ Google Sheet 後端在 `apps-script/Code.gs`，設定步驟見 `SETUP-google-she
 治癒波動的額外幫手、蹭蹭臉頰的技能幫手，以及三個「夢之碎片不計分」。
 **目前沒有任何 `over`（會高估）的項目了。**
 
+### 6d. `productive` 含夜間，但**技能發動不含**（2026-09-09）
+
+`simulate` 裡有兩個不同的「幫忙次數」，用錯會靜靜地偏袒某一種專長：
+
+| 用途 | 該用哪個 | 為什麼 |
+|---|---|---|
+| 樹果 `berries`、食材 `ing` | `productive`（= `helpsDay + nightNormal`） | 睡覺時撿的東西**醒來會收到** |
+| 主技能發動 `procs` | `helpsDay` ＋ `min(bankedProcs, nightNormal*effSkill)` | 睡眠期間只累積、醒來最多結算 1~2 次 |
+
+**踩過：** `procs` 原本寫成 `productive*effSkill + min(banked, ...)` —— 夜間幫忙先被完整
+乘過一次 `effSkill`（無上限）、再加一次 banked，同一批算了兩次。`bankedProcs` 這個上限
+的存在本身就承認夜間要被 cap，所以那兩項是互相矛盾的。
+
+後果是**偏差只打在技能型身上**：技能能量高估 **20.8%**（AMPHAROS 週能量 190,026 →
+150,468），而樹果型的樹果收入與食材型的食材顆數**完全不變**。實測會把「樹果4/食材1」
+擠下去換成技能型，食材型幾乎不入選。量測與捨棄的替代模型見 `DECISIONS.md`。
+
+**加新的「每次幫忙都有機率發生」的效果時，先問它在睡眠期間到底會不會發生。**
+
 ### 6. 記憶化的 context key
 
 `ctxKey()` 決定 `memberOutput` 的快取粒度。加新的 team-level 效果時**一定要加進 `ctxKey`**（`hbRows` 是 map，要用 `hbKey()` 排序後序列化，否則同一組合會因為鍵的順序不同而各存一份），否則會拿到別的隊伍組成算出來的結果。`supportEnergy` / `extraHelps` 有量化（`qE` / `qH`）來控制快取爆炸。
