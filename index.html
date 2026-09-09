@@ -14,7 +14,7 @@
      這裡、下面載入器的 ASSET_V、以及 src/app.js 的 APP_V。
      光靠 ?v= 只是降低機率，APP_V 的斷言才會真的擋下過期的 app.js。
      tests/smoke.mjs 第 11 節會斷言三處一致。 -->
-<link rel="stylesheet" href="./src/app.css?v=20260909g">
+<link rel="stylesheet" href="./src/app.css?v=20260909h">
 </head>
 <body>
 <div class="wrap">
@@ -27,6 +27,7 @@
   <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
     <nav class="viewnav" id="viewNav">
       <button type="button" data-view="plan" aria-pressed="true">推演</button>
+      <button type="button" data-view="team" aria-pressed="false">自組隊伍</button>
       <button type="button" data-view="box" aria-pressed="false">寶可夢箱</button>
       <button type="button" data-view="recipes" aria-pressed="false">食譜等級</button>
     </nav>
@@ -124,6 +125,30 @@
 </section>
 
 </div><!-- /view-plan -->
+
+<!-- 自組隊伍：手動指定 5 隻看數字，而不是讓推演去找。
+     計算基礎完全比照推演（同一份 wk、同一個 scoreTeam / finalizeTeams），
+     所以這裡的數字可以直接跟推演結果對照。純檢視狀態，不進 serialize()。 -->
+<div class="view" id="view-team" hidden>
+<section>
+  <div class="sechead">
+    <h2>自組隊伍</h2>
+    <span class="muted" style="font-size:12.5px">用「本週設定」那一頁的條件計算 · 最多 4 支隊伍互相比較 · <b>只是檢視，重新整理就清空</b></span>
+  </div>
+  <div class="panel"><div class="pbody">
+    <div class="tmbar">
+      <button type="button" class="btn sm" id="tmAdd">＋ 建立新隊伍</button>
+      <span class="tmsep"></span>
+      <select id="tmPlanSel" class="tmplansel"></select>
+      <button type="button" class="btn sm ghost" id="tmFromPlan">從推演結果複製</button>
+      <span class="muted" id="tmNote" style="font-size:12px"></span>
+    </div>
+    <div id="teamList"></div>
+  </div></div>
+</section>
+<div id="teamCompare"></div>
+<div id="teamDetail"></div>
+</div><!-- /view-team -->
 
 <div class="view" id="view-box" hidden>
 <section id="syncSection" hidden>
@@ -418,6 +443,25 @@
 </details>
 </div>
 
+<!-- 自組隊伍的寶可夢選擇器。放在 .wrap 之外是因為它 position:fixed —— 留在
+     view 裡面的話，祖先只要有 transform／filter 就會變成它的定位容器，浮層會
+     跑到奇怪的位置。切換分頁時 showView() 會關掉它。 -->
+<div id="tmPicker" class="picker" hidden>
+  <div class="pickhead">
+    <input type="search" id="pickQ" placeholder="搜尋暱稱／學名／主技能／食材…" autocomplete="off">
+    <span class="muted" id="pickCount" style="font-size:11.5px"></span>
+  </div>
+  <div class="pickspec">
+    <button type="button" class="chip" data-pickspec="" aria-pressed="true">全部</button>
+    <button type="button" class="chip" data-pickspec="berry" aria-pressed="false">樹果</button>
+    <button type="button" class="chip" data-pickspec="ingredient" aria-pressed="false">食材</button>
+    <button type="button" class="chip" data-pickspec="skill" aria-pressed="false">技能</button>
+    <button type="button" class="chip" data-pickspec="all" aria-pressed="false">全能</button>
+  </div>
+  <div class="picklist" id="pickList"></div>
+  <div class="pickfoot muted">排序沿用「寶可夢箱」目前的設定</div>
+</div>
+
 <script type="module">
 /* 資料先 fetch 完才載入 app.js —— app.js 的頂層就會用到 D。
    刻意用注入 classic script 的方式而不是 import()：module 會把頂層宣告
@@ -439,7 +483,7 @@ try {
      也放到 window 上：app.js 有一份自己的 APP_V，兩者不符就整頁擋下來。
      理由和 game.json 的 SCHEMA 一樣 —— 過期的 app.js 會靜靜地畫出舊版 UI，
      而使用者只會覺得「你根本沒改」，完全不知道是快取。 */
-  const ASSET_V = '20260909g';
+  const ASSET_V = '20260909h';
   window.ASSET_V = ASSET_V;
   for (const src of ['./src/engine.js', './src/import.js', './src/app.js']) {
     await new Promise((ok, bad) => {

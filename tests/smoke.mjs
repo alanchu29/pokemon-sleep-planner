@@ -645,7 +645,7 @@ console.log('\n[8b] 一次性設定連結（#sync=…&token=…）');
 }
 
 console.log('\n[9] 每個 view 都能渲染');
-for (const v of ['plan', 'box', 'recipes']) {
+for (const v of ['plan', 'team', 'box', 'recipes']) {
   await page.evaluate((x) => showView(x), v);
   await page.waitForTimeout(400);
   ok(`view-${v} 有內容`, await page.evaluate((x) => $('view-' + x).innerText.trim().length > 50, v));
@@ -1972,6 +1972,234 @@ console.log('\n[11i] 寶可夢箱：潛力（理想個體 %）與雙向排序');
 }
 
 /* 用另開的頁面跑 —— 這一節刻意觸發致命錯誤，不能污染上面的 errors 收集。 */
+console.log('\n[11j] 自組隊伍：手動指定 5 隻，計算基礎必須和推演一致');
+{
+  const mkm = (n) => ({sp:n, level:55, nature:'Bashful',
+    ss:['Helping Speed M','Ingredient Finder M','Skill Trigger M',null,null],
+    ingSet:[0,0,0], skillLv:6, ribbon:0, pin:false, ex:false, nick:''});
+  const BOX = ['SALAMENCE','STEELIX','SWAMPERT','BLAZIKEN','CLEFABLE','KANGASKHAN',
+               'VENUSAUR','AMPHAROS','ESPEON','GALLADE'];
+  await page.evaluate((names, mk) => {
+    deserialize({roster: names.map(n => JSON.parse(mk.replace('__N__', n)))});
+  }, BOX, JSON.stringify(mkm('__N__')));
+  await doRun(`wk.recipeScope='all'; wk.recipePick='auto'; syncWeeklyUI()`);
+
+  /* ---- 這一節的核心：自組隊伍與推演對**同一組 5 隻**必須算出相同的數字。
+     這是「計算基礎完全比照推演」唯一可執行的定義。走鐘的話兩個分頁會對同一支
+     隊伍給出不同的總能量，那比沒有這個功能更糟。 ---- */
+  const same = await page.evaluate(() => {
+    const best = lastResults[0];
+    showView('team');
+    teams = [newTeam()];
+    teams[0].members = best.idxs.slice();
+    renderTeamsView();
+    const mine = teams[0].result;
+    const F = ['total','berryS','dishS','skillS','cooksCapped','rv','potEff'];
+    return {
+      diffs: F.filter(k => Math.abs((best[k]||0) - (mine[k]||0)) > 1e-6)
+              .map(k => `${k}: ${best[k]} vs ${mine[k]}`),
+      recipe: [best.recipe.n, mine.recipe.n],
+      hasMp: !!mine.mp,
+    };
+  });
+  ok('自組隊伍 = 推演（逐欄位）', same.diffs.length === 0, same.diffs.join(' | '));
+  ok('自組隊伍選中的主食譜也相同', same.recipe[0] === same.recipe[1], same.recipe.join(' vs '));
+  ok('自組隊伍有跑 21 餐排程', same.hasMp);
+
+  // 順序不變：members 的排列不該影響結果（和引擎的順序不變量同一個道理）
+  const ord = await page.evaluate(() => {
+    const a = teams[0].result.total;
+    teams[0].members = teams[0].members.slice().reverse();
+    renderTeamsView();
+    return [a, teams[0].result.total];
+  });
+  ok('members 順序不影響結果', Math.abs(ord[0] - ord[1]) < 1e-6, ord.join(' vs '));
+
+  // 不足 5 隻不給結果 —— teamContext 的 energyTeam*5 / qE(energy/5) 都寫死 5 人
+  const partial = await page.evaluate(() => {
+    teams[0].members[4] = null;
+    renderTeamsView();
+    return {res: teams[0].result, txt: $('teamList').innerText, detail: $('teamDetail').innerText};
+  });
+  ok('不足 5 隻不算結果', partial.res === null);
+  ok('不足 5 隻要說還差幾隻', /還差\s*1\s*隻/.test(partial.txt), partial.txt.slice(0, 60));
+  ok('不足 5 隻不顯示詳情', !/本週卡比獸總能量/.test(partial.detail));
+
+  /* ---- 選擇器 ---- */
+  const pick = await page.evaluate(() => {
+    teams = [newTeam()];
+    teams[0].members = [0, 1, 2, null, null];
+    renderTeamsView();
+    const slot = $('teamList').querySelector('[data-pick="0.3"]');
+    openPicker(0, 3, slot);
+    const rows = [...$('pickList').querySelectorAll('[data-take]')];
+    return {
+      open: !$('tmPicker').hidden,
+      total: rows.length,
+      disabled: rows.filter(r => r.disabled).map(r => +r.dataset.take).sort((a,b)=>a-b),
+    };
+  });
+  ok('點空位會開啟選擇器', pick.open);
+  ok('同一隊已選的不能重複選', JSON.stringify(pick.disabled) === JSON.stringify([0,1,2]),
+     JSON.stringify(pick.disabled));
+  ok('其餘的都可以選', pick.total === 10, `列出 ${pick.total} 隻`);
+
+  // 搜尋走共用的 monHaystack —— 暱稱與學名都要吃
+  const search = await page.evaluate(() => {
+    roster[7].nick = '電電';                       // AMPHAROS
+    renderTeamsView();
+    openPicker(0, 3, $('teamList').querySelector('[data-pick="0.3"]'));
+    const hit = (q) => { pickerQ = q; renderPickerList();
+      return [...$('pickList').querySelectorAll('[data-take]')].map(r => +r.dataset.take); };
+    return {nick: hit('電電'), sci: hit('電龍'), none: hit('這個一定找不到')};
+  });
+  ok('選擇器搜得到暱稱', search.nick.length === 1 && search.nick[0] === 7, JSON.stringify(search.nick));
+  ok('選擇器也搜得到學名', search.sci.includes(7), JSON.stringify(search.sci));
+  ok('搜不到就是空的', search.none.length === 0);
+
+  // 跨隊可以重複（比較兩隊通常只換 1~2 隻），同隊不行
+  const cross = await page.evaluate(() => {
+    pickerQ = ''; closePicker();
+    teams = [newTeam(), newTeam()];
+    teams[0].members = [0,1,2,3,4];
+    teams[1].members = [0,1,2,3,null];
+    renderTeamsView();
+    openPicker(1, 4, $('teamList').querySelector('[data-pick="1.4"]'));
+    const rows = [...$('pickList').querySelectorAll('[data-take]')];
+    const r4 = rows.find(r => +r.dataset.take === 4);
+    return {canTake4: !r4.disabled, marked: /隊伍\s*1/.test(r4.innerText)};
+  });
+  ok('同一隻可以同時在兩隊', cross.canTake4);
+  ok('已在別隊的要標出來', cross.marked);
+
+  /* ---- 比較列 ---- */
+  const cmp = await page.evaluate(() => {
+    closePicker();
+    teams[1].members = [0,1,2,3,5];
+    renderTeamsView();
+    const t = $('teamCompare').innerText;
+    return {shown: t.length > 20, hasDiff: /[+−]/.test(t), base: /差額對「隊伍 1」/.test(t),
+            rows: /本週卡比獸總能量/.test(t) && /料理/.test(t) && /主技能/.test(t)};
+  });
+  ok('兩隊都滿才出現比較列', cmp.shown);
+  ok('比較列有差額', cmp.hasDiff);
+  ok('比較列寫明基準是隊伍 1', cmp.base);
+  ok('比較列有四個分項', cmp.rows);
+  const oneTeam = await page.evaluate(() => {
+    teams = [newTeam()]; teams[0].members = [0,1,2,3,4]; teamShown = 0;
+    renderTeamsView();
+    return {cmp: $('teamCompare').innerText.trim(), detail: /本週卡比獸總能量/.test($('teamDetail').innerText)};
+  });
+  ok('只有一隊時不出現比較列', oneTeam.cmp === '', oneTeam.cmp.slice(0, 40));
+  ok('只有一隊時照樣有完整詳情', oneTeam.detail);
+
+  /* ---- 上限與刪除 ---- */
+  const lim = await page.evaluate(() => {
+    teams = [newTeam(), newTeam(), newTeam(), newTeam()];
+    renderTeamsView();
+    return {disabled: $('tmAdd').disabled, n: teams.length, max: TEAMS_MAX};
+  });
+  ok(`最多 ${lim.max} 支隊伍`, lim.disabled && lim.n === lim.max);
+
+  const del = await page.evaluate(() => {
+    const orig = window.confirm;
+    const out = {};
+    teams = [newTeam(), newTeam()];
+    teams[0].members = [0,1,2,3,4];
+    renderTeamsView();
+    // 有成員 → 要問，按取消就不刪
+    window.confirm = (m) => { out.asked = m; return false; };
+    $('teamList').querySelector('[data-delteam="0"]').click();
+    out.afterCancel = teams.length;
+    // 空的那一隊 → 不該問
+    out.asked2 = null;
+    window.confirm = (m) => { out.asked2 = m; return true; };
+    $('teamList').querySelector('[data-delteam="1"]').click();
+    out.afterEmptyDel = teams.length;
+    window.confirm = orig;
+    return out;
+  });
+  ok('刪除有成員的隊伍要 confirm', !!del.asked, String(del.asked).slice(0, 50));
+  ok('confirm 訊息寫出是哪幾隻', /・|、/.test(del.asked || '') || (del.asked || '').length > 12, del.asked);
+  ok('按取消就不刪', del.afterCancel === 2);
+  ok('空隊伍直接刪不打斷', del.asked2 === null && del.afterEmptyDel === 1);
+
+  /* ---- roster 索引維護：和 monOpen 完全一樣的陷阱 ---- */
+  const idx = await page.evaluate(() => {
+    teams = [newTeam()];
+    teams[0].members = [0, 2, 4, 6, 8];
+    const before = teams[0].members.map(i => D.dex[roster[i].sp].n);
+    teamsAfterDelete(2);                 // 假裝箱子刪掉了第 2 隻
+    roster.splice(2, 1);
+    const after = teams[0].members.map(i => i == null ? null : D.dex[roster[i].sp].n);
+    return {before, after};
+  });
+  ok('roster 刪除後：被刪的那格清空', idx.after[1] === null, JSON.stringify(idx.after));
+  ok('roster 刪除後：後面的索引跟著前移（還是同一隻）',
+     idx.after[2] === idx.before[2] && idx.after[3] === idx.before[3] && idx.after[4] === idx.before[4],
+     `${JSON.stringify(idx.before)} → ${JSON.stringify(idx.after)}`);
+
+  const reset = await page.evaluate((names, mk) => {
+    teams = [newTeam(), newTeam()];
+    teams[0].members = [0,1,2,3,4];
+    teamShown = 1;
+    deserialize({roster: names.map(n => JSON.parse(mk.replace('__N__', n)))});
+    return {n: teams.length, m: teams[0].members, shown: teamShown};
+  }, BOX, JSON.stringify(mkm('__N__')));
+  ok('整批取代 roster 要清空自組隊伍', reset.n === 1 && reset.m.every(x => x === null),
+     JSON.stringify(reset));
+  ok('清空時 teamShown 也要歸零', reset.shown === 0);
+
+  /* ---- 從推演結果複製 ---- */
+  const copy = await page.evaluate(() => {
+    teams = [newTeam()];
+    teamFromResult(0);
+    const filled = teams[0].members.slice();
+    teamFromResult(1);                    // 第一支已經有人 → 應該長出第二支
+    return {first: filled, n: teams.length, second: teams[1].members.slice(),
+            same: JSON.stringify(filled) === JSON.stringify(lastResults[0].idxs),
+            second2: JSON.stringify(teams[1].members) === JSON.stringify(lastResults[1].idxs)};
+  });
+  ok('複製推演結果會填滿 5 格', copy.same, JSON.stringify(copy.first));
+  ok('第一支有人時會長出新的一支', copy.n === 2 && copy.second2);
+
+  /* ---- strictBerry：不擋選，但要講出來 ---- */
+  const sb = await page.evaluate(() => {
+    // 找一隻樹果型，然後把本週加成樹果設成別的
+    const bi = roster.findIndex(m => D.dex[m.sp].sp === 'berry');
+    const mine = D.dex[roster[bi].sp].b;
+    const other = D.berries.map(b => b[0]).find(b => b !== mine);
+    wk.fav = new Set([other]); wk.strictBerry = true;
+    teams = [newTeam()];
+    teams[0].members = [bi, ...roster.map((_,i)=>i).filter(i=>i!==bi).slice(0,4)];
+    renderTeamsView();
+    return {has: !!teams[0].result, txt: $('teamList').innerText,
+            name: monName(roster[bi])};
+  });
+  ok('strictBerry 不擋手動選（照樣算得出結果）', sb.has);
+  ok('但要講出推演不會選這組', /推演分頁.*不會選|不產本週加成樹果/.test(sb.txt), sb.txt.slice(0, 120));
+  ok('而且要寫出是哪一隻', sb.txt.includes(sb.name), sb.name);
+
+  /* ---- 食材利用率（推演與自組共用同一份） ---- */
+  const util = await page.evaluate(() => {
+    wk.fav = new Set(); wk.strictBerry = true;
+    const low = {wIng: new Float64Array(NING), potEff: 57,
+                 mp: {plan: [{r: {cnt: 10}, n: 2}], idleMeals: 0}};
+    low.wIng[0] = 1000;                    // 產 1000、只煮掉 20 → 2%
+    const high = {wIng: new Float64Array(NING), potEff: 57,
+                  mp: {plan: [{r: {cnt: 45}, n: 21}], idleMeals: 0}};
+    high.wIng[0] = 1000;                   // 煮掉 945 → 94.5%
+    return {low: ingUtilNotice(low), high: ingUtilNotice(high),
+            none: ingUtilNotice({wIng: new Float64Array(NING), potEff: 57, mp: null})};
+  });
+  ok('食材大量過剩時要出聲', /食材利用率/.test(util.low) && /2%/.test(util.low), util.low.slice(0, 90));
+  ok('利用率高就不囉嗦', util.high === '');
+  ok('沒有排程結果時不猜數字', util.none === '');
+
+  // 收尾：把狀態還原，不要影響後面的節次
+  await page.evaluate(() => { teams = [newTeam()]; teamShown = 0; closePicker(); showView('plan'); });
+}
+
 console.log('\n[12] 快取偏移：schema 不符必須明確擋下');
 {
   ok('資料帶著 schema 版本', await page.evaluate(() => typeof D.meta.schema === 'number'));

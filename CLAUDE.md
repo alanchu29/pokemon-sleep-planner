@@ -12,7 +12,7 @@ Pokémon Sleep 每週最佳隊伍推演工具。零依賴、無 build step、純
 
 | 檔案 | 內容 |
 |---|---|
-| `index.html` | 骨架：`<head>`（字型、`app.css`）＋ markup（三個 `.view`：`view-plan` / `view-box` / `view-recipes`，加「資料版本」footer）＋ 尾端的載入器 |
+| `index.html` | 骨架：`<head>`（字型、`app.css`）＋ markup（四個 `.view`：`view-plan` / `view-team` / `view-box` / `view-recipes`，加「資料版本」footer 與 `.wrap` 之外的選擇器浮層 `#tmPicker`）＋ 尾端的載入器 |
 | `src/app.css` | CSS 變數（三種主題狀態）與版面 |
 | `src/engine.js` | **純引擎**，約 500 行。window 與 Worker 兩邊都載入同一份 |
 | `src/engine.worker.js` | 薄薄一層 Worker 外殼，約 50 行 |
@@ -113,7 +113,32 @@ app.js  run()   ──{init, data:D}──▶  engine.worker.js × N
 5. **狀態**：`roster` `wk` `lastResults`
 6. **持久層**：雙後端配接器（見下）
 7. **Worker 管線**：`spawnWorker` `killWorker` `searchViaWorker` `setRunning`
-8. **UI**：`buildWeekly`、`ingPick` / `monCard` / `setMonValues`（**寶可夢箱與截圖校對區共用同一個卡片渲染器**）、`boxFlt` / `monMatch` / `applyBoxFilter` / `renderBox`、`buildImport` 那一組、`run` `renderResults` `renderRecipeLevels` `showView` `renderVersion`
+8. **UI**：`buildWeekly` / `weeklyChanged`、`ingPick` / `monCard` / `setMonValues`（**寶可夢箱與截圖校對區共用同一個卡片渲染器**）、`boxFlt` / `monMatch` / `monHaystack` / `applyBoxFilter` / `renderBox`、`buildImport` 那一組、`run`、`ingUtilNotice` / `teamDetailHTML` / `bindTeamDetail`（**推演與自組隊伍共用的結果渲染器**）、`renderResults`、自組隊伍那一組（`computeTeam` / `renderTeamsView` / `openPicker`…）、`renderRecipeLevels` `showView` `renderVersion`
+
+### 自組隊伍（`view-team`）
+
+手動指定 5 隻看數字，而不是讓推演去找。和推演是「同一件事的兩種模式」，所以分頁排在它旁邊。
+
+**引擎層本來就支援** —— 📌 固定 5 隻時 `combinations` 的 `need === 0` 只列舉一組。這個分頁做的是 UX：不用去箱子裡一隻一隻找、按 pin、算完再清掉。
+
+六條規則：
+
+1. **計算基礎百分之百比照推演。** `computeTeam` 就是 `scoreTeam` ＋ `finalizeTeams([r], roster, wk, 1)[0]` —— **不自己重寫決賽排程**。走鐘的後果是兩個分頁對同一支隊伍給出不同的總能量，那比沒有這個功能更糟。第 11j 節斷言「自組 = 推演，逐欄位」以及「= 把那 5 隻 pin 起來跑推演」。
+2. **結果渲染器只有一份**（`teamDetailHTML`）。和 `monCard` 同時給箱子與截圖校對區用同一個理由。`opts.rosterLabel` 只換那行小標題 —— 推演是「建議先發 5 隻」，自組隊伍講「建議」就是文案說謊。
+3. **湊滿 5 隻才算。** `teamContext` 的 `energyTeam*5` 與 `qE(energy/5)` 兩邊都寫死 5 人，不足 5 隻算出來的數字沒有意義。**不要為了試算中間態去把那個 5 改成 `idxs.length`** —— 那會改動所有既有推演結果的數值，而遊戲裡隊伍本來就是 5 隻。
+4. **`members` 存 roster 索引**，所以和 `monOpen` 是完全一樣的陷阱：箱子刪除要 `teamsAfterDelete(i)`（被刪的清空、後面前移），整批取代要 `teamsReset()`。漏掉不會有任何錯誤訊息，只是靜靜地指到別隻。`sanitizeTeams()` 是最後一道防線。
+5. **不進 `serialize()`。** 純檢視狀態，和 `boxFlt` / `monOpen` 同待遇 —— 切分頁保留、重新整理清空，所以 `SCHEMA` 不用動。**這件事要寫在分頁標題上**，否則使用者會以為隊伍存起來了。
+6. **`strictBerry` 不擋手動選，但要講出來。** 它是候選過濾規則，手動隊已經指定了 5 隻所以自然不生效（使用者的立場：手動權力最大）。但那會造成「這裡算得好好的、推演卻永遠不推薦」的矛盾，所以隊中有不符的樹果型時要顯示 `.notice` 並寫出是哪一隻 —— 「靜靜地少算候選」的鏡像。
+
+**選擇器是浮層（`#tmPicker`），不是內嵌展開。** 這個分頁的核心動作是「換掉一隻馬上看數字怎麼變」，內嵌展開每開一次就把正在看的結果推走，每次換人都要重新找回視線位置。它放在 `.wrap` **之外** —— `position:fixed` 的祖先只要有 `transform`／`filter` 就會變成定位容器。`showView` 切走時要 `closePicker()`。
+
+搜尋走 `monHaystack`（**和箱子的篩選列共用**，暱稱＋學名都吃），排序沿用 `boxOrder()`，但**篩選條件是選擇器自己的**（`pickerQ` / `pickerSpec`）—— 吃 `boxFlt` 的話會出現「箱子篩了食材 → 這裡莫名少了一半」。
+
+**同隊不可重複、跨隊可以。** 同一隻放進同一隊兩次會讓 Helper Boost 的物種計數、流星群的龍屬性種類數全部算錯；跨隊重複則是必要的（比較兩隊通常只換 1~2 隻），已在別隊的要標出來。
+
+### 食材利用率（`ingUtilNotice`）
+
+`21 餐 × 鍋容量` 就是一週能煮掉的食材上限，**超過的部分分數是零**。以前 UI 只在食材**不足**（`mp.idleMeals > 0`）時警告，但實際更常見的是相反：實測預設設定（鍋 57／食譜 Lv20）下一支全食材隊浪費 **80%**，而畫面一片安靜 —— 使用者只會覺得「推演怎麼都不選食材型」，不知道是鍋子太小。低於 `ING_UTIL_WARN`（60%）就出聲，推演與自組隊伍共用。
 
 ### 寶可夢箱的卡片版面：摺疊列 ＋ 展開編輯
 
@@ -583,7 +608,7 @@ node tools/extract-data.mjs        # 會印出用法
 
 ```bash
 npm i playwright-core
-npm test                         # smoke：引擎、單調性、窮舉不變量、雙後端、Sheet 往返（含離線沖出、失敗重試、「資料存在哪裡」的文案）、Worker、截圖匯入、箱子篩選／排序（含雙向）／潛力％／重複偵測／暱稱與 escape、JSON 追加／取代、文案與資源版本一致、schema 偏移
+npm test                         # smoke：引擎、單調性、窮舉不變量、雙後端、Sheet 往返（含離線沖出、失敗重試、「資料存在哪裡」的文案）、Worker、截圖匯入、箱子篩選／排序（含雙向）／潛力％／重複偵測／暱稱與 escape、JSON 追加／取代、自組隊伍（與推演逐欄位一致／索引維護／選擇器）、文案與資源版本一致、schema 偏移
 npm run verify                   # 慢速（數分鐘）：大箱子的順序不變性、FINALISTS 夠不夠
 ```
 

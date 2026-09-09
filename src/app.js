@@ -57,7 +57,7 @@ const SCHEMA = 4;   // 4: 新增 msExtra{}（上游沒有的主技能數值表�
    「新的 index.html ＋ 舊的 app.js」—— 畫面畫出舊版 UI，而使用者只會覺得
    「你根本沒改」，完全不知道是快取。有了這個斷言，過期的 app.js 會直接被擋下來
    並要求強制重新整理。tests/smoke.mjs 第 11 節會斷言三處一致。 */
-const APP_V = '20260909g';
+const APP_V = '20260909h';
 
 /** 致命錯誤：整頁換成一段說明。這種狀況下繼續跑只會產生錯的數字。 */
 function fatal(html){
@@ -115,6 +115,15 @@ const BLANK = () => ({sp: D.dex.findIndex(p=>p.n==='PIKACHU'), level:30, nature:
 let roster = [];
 let wk = {island:'greengrass', fav:new Set(), areaBonus:15, pot:57, sleepH:8.5, camp:0, mode:'total', dishType:'curry', recipeName:null, recipeLv:20, recipePick:'auto', recipeScope:'type', recipeLevels:{}, strictBerry:true};
 let lastResults = null, shownAlt = 0;
+/* 自組隊伍（見檔案後段的「自組隊伍」那一區）。**宣告放在這裡而不是那一區旁邊** ——
+   `deserialize` 會呼叫 `teamsReset()`，而它在前段；`let` 不會提升，宣告留在後面就有
+   TDZ 風險（和陷阱 1 的 `$` 同一類）。函式本身是 function 宣告，會提升，留在後面沒問題。 */
+const TEAMS_MAX = 4;
+const newTeam = () => ({members:[null,null,null,null,null], result:null});
+let teams = [newTeam()];
+let teamShown = 0;
+let picker = null;                       // {t, s} = 正在挑「隊伍 t 的第 s 格」
+let pickerQ = '', pickerSpec = '';
 
 /* ================= PERSISTENCE ================= */
 /* One codebase, two backends:
@@ -150,7 +159,7 @@ function deserialize(o, opts){
        整個 roster 換掉了 —— 留著就會展開到「剛好是同一個索引」的那一隻身上
        （從雲端下載、JSON「取代」匯入都會走到這）。和 del 之後要 clear 同一個
        理由，見 CLAUDE.md「刪除之後的展開狀態」。append 不動舊的索引，所以不清。 */
-    if (!(opts && opts.append)) monOpen.clear();
+    if (!(opts && opts.append)) { monOpen.clear(); teamsReset(); }
   }
   if (o.wk && !(opts && opts.append)){
     const f = o.wk.fav||[];
@@ -497,6 +506,13 @@ if ($('syncPull')){
 }
 
 /* ================= UI: weekly ================= */
+/* 週設定改動 → 存檔，**而且自組隊伍分頁開著的話立刻重算**。
+   單隊 `scoreTeam` 是毫秒級，便宜到沒有不重算的道理，而「改個鍋容量看數字怎麼變」
+   正是那個分頁的用途之一。推演結果刻意**不**自動重跑 —— 那是 3 萬組，得使用者自己按。 */
+function weeklyChanged(){
+  save();
+  if (!$('view-team').hidden) renderTeamsView();
+}
 function buildWeekly(){
   $('island').innerHTML = D.islands.map(i=>`<option value="${i.s}">${isl(i.n)}</option>`).join('');
   $('favBerries').innerHTML = BERRY_NAMES.map(b=>`<button type="button" class="chip" data-berry="${b}" aria-pressed="false" title="${b.toLowerCase()}">${bz(b)}</button>`).join('');
@@ -504,23 +520,23 @@ function buildWeekly(){
     const b = e.target.closest('[data-berry]'); if (!b) return;
     const k = b.dataset.berry;
     if (wk.fav.has(k)) wk.fav.delete(k); else wk.fav.add(k);
-    syncWeeklyUI(); save();
+    syncWeeklyUI(); weeklyChanged();
   });
   $('island').addEventListener('change', e=>{
     wk.island = e.target.value;
     const isl = D.islands.find(i=>i.s===wk.island);
     if (isl && isl.b.length){ wk.fav = new Set(isl.b); }
-    syncWeeklyUI(); save();
+    syncWeeklyUI(); weeklyChanged();
   });
-  $('dishType').addEventListener('change', e=>{ wk.dishType = e.target.value; wk.recipeName = null; fillRecipes(); save(); });
-  $('recipe').addEventListener('change', e=>{ wk.recipeName = e.target.value; syncRecipeIngs(); save(); });
+  $('dishType').addEventListener('change', e=>{ wk.dishType = e.target.value; wk.recipeName = null; fillRecipes(); weeklyChanged(); });
+  $('recipe').addEventListener('change', e=>{ wk.recipeName = e.target.value; syncRecipeIngs(); weeklyChanged(); });
   for (const [id, key, num] of [['areaBonus','areaBonus',1],['pot','pot',1],['sleepH','sleepH',1],['recipeLv','recipeLv',1],['camp','camp',1]]){
-    $(id).addEventListener('change', e=>{ wk[key] = num ? Number(e.target.value) : e.target.value; save(); });
+    $(id).addEventListener('change', e=>{ wk[key] = num ? Number(e.target.value) : e.target.value; weeklyChanged(); });
   }
-  $('mode').addEventListener('change', e=>{ wk.mode = e.target.value; save(); });
-  $('recipePick').addEventListener('change', e=>{ wk.recipePick = e.target.value; syncWeeklyUI(); save(); });
-  $('recipeScope').addEventListener('change', e=>{ wk.recipeScope = e.target.value; syncWeeklyUI(); save(); });
-  $('strictBerry').addEventListener('change', e=>{ wk.strictBerry = e.target.checked; save(); });
+  $('mode').addEventListener('change', e=>{ wk.mode = e.target.value; weeklyChanged(); });
+  $('recipePick').addEventListener('change', e=>{ wk.recipePick = e.target.value; syncWeeklyUI(); weeklyChanged(); });
+  $('recipeScope').addEventListener('change', e=>{ wk.recipeScope = e.target.value; syncWeeklyUI(); weeklyChanged(); });
+  $('strictBerry').addEventListener('change', e=>{ wk.strictBerry = e.target.checked; weeklyChanged(); });
   $('runBtn').addEventListener('click', run);
 }
 /* option 只放名稱與食材數。完整食材清單放在 select 下方的 #recipeIngs ——
@@ -1175,16 +1191,20 @@ function monMatch(m, idx){
   if (boxFlt.state === 'ex' && !m.ex) return false;
   if (boxFlt.state === 'plain' && (m.pin || m.ex)) return false;
   if (boxFlt.state === 'dup' && !monDup.has(idx)) return false;
-  if (boxFlt.q){
-    /* 暱稱一定要可搜 —— 摺疊列顯示的就是它，搜不到等於這個功能只做一半。
-       學名也留著：打「嘎啦嘎啦」照樣要找得到取名成「樹果萌萌」的那隻。 */
-    const hay = [m.nick||'', pz(p), p.d, '#'+p.no, SPEC_ZH[p.sp], bz(p.b), msz(p.ms),
-      ...m.ss.filter(Boolean).map(ssz),
-      ...[0,1,2].map(s=>{ const k = ingPick(m, s); return k && k[0]!=null ? iz(ING_NAME[k[0]]) : ''; }),
-    ].join(' ').toLowerCase();
-    if (!hay.includes(boxFlt.q.toLowerCase())) return false;
-  }
+  if (boxFlt.q && !monHaystack(m).includes(boxFlt.q.toLowerCase())) return false;
   return true;
+}
+/* 搜尋用的字串。**寶可夢箱的篩選列與自組隊伍的選擇器共用這一份** —— 兩邊各寫一份的話，
+   在其中一邊打得到、另一邊打不到，而那種差異不會有任何錯誤訊息。
+
+   暱稱一定要可搜 —— 摺疊列顯示的就是它，搜不到等於這個功能只做一半。
+   學名也留著：打「嘎啦嘎啦」照樣要找得到取名成「樹果萌萌」的那隻。 */
+function monHaystack(m){
+  const p = D.dex[m.sp];
+  return [m.nick||'', pz(p), p.d, '#'+p.no, SPEC_ZH[p.sp], bz(p.b), msz(p.ms),
+    ...m.ss.filter(Boolean).map(ssz),
+    ...[0,1,2].map(s=>{ const k = ingPick(m, s); return k && k[0]!=null ? iz(ING_NAME[k[0]]) : ''; }),
+  ].join(' ').toLowerCase();
 }
 /** 目前篩選下看得到的真實索引。 */
 const visibleIdx = () => roster.map((m,i)=>i).filter(i=> monMatch(roster[i], i));
@@ -1325,6 +1345,7 @@ $('boxList').addEventListener('click', e=>{
     const m = roster[i], p = D.dex[m.sp];
     if (!confirm(`確定要刪除「#${p.no} ${pz(p)} Lv${m.level} ${natZ(NAT[m.nature]||NAT.Bashful)}」嗎？\n\n刪掉之後沒辦法復原。`)) return;
     roster.splice(i,1); monOpen.clear();                    // 索引整批位移，全收起最安全
+    teamsAfterDelete(i);      // 自組隊伍存的也是 roster 索引，同一個位移問題
   }
   else if (a==='pin'){ roster[i].pin = !roster[i].pin; if (roster[i].pin) roster[i].ex = false; }
   else if (a==='ex'){ roster[i].ex = !roster[i].ex; if (roster[i].ex) roster[i].pin = false; }
@@ -1910,14 +1931,39 @@ function memberCard(rank, i, r, o){
     </div>
   </div>`;
 }
-function renderResults(){
-  if (!lastResults || !lastResults.length){
-    $('results').innerHTML = roster.filter(m=>!m.ex).length < 5
-      ? `<div class="notice">先到右上角「寶可夢箱」分頁建立至少 5 隻，才能開始推演。</div>`
-      : `<div class="notice">設定好本週條件後，按「推演最佳隊伍」。</div>`;
-    return;
-  }
-  const r = lastResults[shownAlt];
+/* 食材利用率：一週產出的食材裡，真正進了鍋的比例。
+ *
+ * **食材過剩以前完全不出聲。** UI 只在食材**不足**（`mp.idleMeals > 0`）時警告，但實際
+ * 更常見的是相反：`21 餐 × 鍋容量` 就是一週能煮掉的食材上限，超過的部分**分數是零**。
+ * 實測預設設定（鍋 57／食譜 Lv20）下一支全食材隊的浪費率是 80% —— 而畫面一片安靜，
+ * 使用者只會覺得「推演怎麼都不選食材型」，不知道是鍋子太小、食譜等級太低。
+ * 靜靜地丟掉 8 成食材而不講，和「靜靜地少算候選」是同一類的文案說謊。
+ *
+ * 沒有 `mp`（還沒跑決賽排程）就不出聲 —— 猜一個數字比不講更糟。 */
+const ING_UTIL_WARN = 0.6;
+function ingUtilNotice(r){
+  if (!r.mp) return '';
+  let total = 0; for (let k=0;k<NING;k++) total += r.wIng[k];
+  if (total <= 0) return '';
+  let used = 0; for (const x of r.mp.plan) used += x.r.cnt * x.n;
+  if (used / total >= ING_UTIL_WARN) return '';
+  return `<div class="notice">食材利用率 <b>${Math.round(used/total*100)}%</b>`
+    + `（一週產 ${Math.round(total)} 個，只煮掉 ${Math.round(used)} 個）——`
+    + `剩下的食材<b>沒有分數</b>。一週最多 ${MEALS_WEEK} 餐、每餐最多 ${r.potEff} 個食材，`
+    + `所以食材型再多也吃不下；要讓料理這一塊變高得先提高鍋子容量或食譜等級。</div>`;
+}
+
+/* 一支隊伍的完整詳情：5 個 panel（成員卡＋能量拆解／食材缺口／最能煮的食譜／21 餐排程）。
+ *
+ * **推演分頁與「自組隊伍」分頁共用這一份。** 和 `monCard` 同時給寶可夢箱與截圖校對區用、
+ * `idealPctFrom` 只能有一份是同一個理由：兩份一定會走鐘，而走鐘的那份會**靜靜地**顯示
+ * 錯的數字。這裡尤其危險 —— 兩個分頁對同一支隊伍給出不同數字，整個工具的可信度就沒了。
+ *
+ * 吃的是 `scoreTeam` ＋ `finalizeTeams` 產出的結果物件，**不讀「目前在看哪一隊」那類
+ * 全域狀態** —— 那是呼叫端的事。`opts.rosterLabel` 只換那行小標題（推演是「建議」，
+ * 自組隊伍是使用者自己挑的，講「建議」就變成文案說謊）。 */
+function teamDetailHTML(r, opts){
+  const O = opts || {};
   const TR = r.recipe;
   const recipeIngs = new Map(TR.ings);
   const bars = TR.ings.map(([i,a])=>{
@@ -1934,13 +1980,14 @@ function renderResults(){
   extra.sort((a,b)=>b[1]-a[1]);
 
   const warn = !r.fits ? `<div class="notice warn">鍋子容量不足：這道食譜需要 ${TR.cnt} 個食材，你目前平日有效容量 ${r.potEff}。換小一點的食譜，或把「食譜選擇」切到自動配對讓它自己挑。</div>` : '';
+  const util = ingUtilNotice(r);
   const bn = r.bottleneck!=null ? iz(ING_NAME[r.bottleneck]) : '—';
 
-  $('results').innerHTML = `
-  ${warn}
-  <div class="panel hero" style="margin-top:${warn?'12px':'0'}">
+  return `
+  ${warn}${util}
+  <div class="panel hero" style="margin-top:${warn||util?'12px':'0'}">
     <div class="roster">
-      <div class="eyebrow">建議先發 5 隻</div>
+      <div class="eyebrow">${O.rosterLabel || '建議先發 5 隻'}</div>
       ${r.idxs.map((i,n)=>memberCard(n+1, i, r, r.outs[n])).join('')}
       <div class="pillrow" style="margin-top:4px">
         <span class="pill">HB ×${r.ctx.nHB}</span>
@@ -2003,35 +2050,325 @@ function renderResults(){
       <td class="n" style="text-align:right">${fmt(x.n*x.each*r.mul)}</td></tr>`).join('')}
       ${r.mp.idleMeals>0?`<tr><td></td><td class="muted">食材不足，${r.mp.idleMeals} 餐無法排入（實際遊戲會退成拌拌料理）</td><td class="n" style="text-align:right">${r.mp.idleMeals}</td><td></td><td class="n" style="text-align:right">—</td></tr>`:''}
     </tbody></table></div></div>
-  </div>` : ''}
+  </div>` : ''}`;
+}
 
+/* 「設為目標」按鈕。詳情 HTML 掛在哪裡就在哪裡綁。
+   `after` 是改完食譜之後要做的事 —— 推演分頁要重跑整個推演（3 萬組，很貴），
+   自組隊伍分頁只要重畫（單隊 scoreTeam 是毫秒級）。 */
+function bindTeamDetail(host, after){
+  host.querySelectorAll('[data-setrecipe]').forEach(b=>b.addEventListener('click', ()=>{
+    wk.recipeName = b.dataset.setrecipe; $('recipe').value = wk.recipeName; syncRecipeIngs(); save();
+    (after || run)();
+  }));
+}
+
+function renderResults(){
+  if (!lastResults || !lastResults.length){
+    $('results').innerHTML = roster.filter(m=>!m.ex).length < 5
+      ? `<div class="notice">先到右上角「寶可夢箱」分頁建立至少 5 隻，才能開始推演。</div>`
+      : `<div class="notice">設定好本週條件後，按「推演最佳隊伍」。</div>`;
+    return;
+  }
+  const r = lastResults[shownAlt];
+  $('results').innerHTML = teamDetailHTML(r) + `
   <div class="grid" style="grid-template-columns:1fr;margin-top:16px;gap:16px">
     <div class="panel">
-      <div class="phead"><h3>替代隊伍</h3><span class="muted" style="font-size:12px">點一列切換</span></div>
+      <div class="phead"><h3>替代隊伍</h3><span class="muted" style="font-size:12px">點一列切換　·　「→ 自組隊伍」把那一組帶去手動換人</span></div>
       <div class="pbody" style="padding:0">
         <div class="scroll" style="border:0;border-radius:0 0 12px 12px">
-        <table><thead><tr><th>#</th><th>組合</th><th style="text-align:right">週能量</th><th style="text-align:right">煮</th></tr></thead>
+        <table><thead><tr><th>#</th><th>組合</th><th style="text-align:right">週能量</th><th style="text-align:right">煮</th><th></th></tr></thead>
         <tbody>${lastResults.map((x,n)=>`<tr class="alt${n===shownAlt?' on':''}" data-alt="${n}">
           <td class="n">${n+1}</td>
           <td>${x.idxs.map(i=>pz(D.dex[roster[i].sp])).join('・')}</td>
           <td class="n" style="text-align:right">${fmt(x.total)}</td>
-          <td class="n" style="text-align:right">${x.cooksCapped}</td></tr>`).join('')}
+          <td class="n" style="text-align:right">${x.cooksCapped}</td>
+          <td><button class="btn sm ghost" data-toteam="${n}" title="把這一組複製成一支新的自組隊伍，可以換人再看數字">→ 自組隊伍</button></td></tr>`).join('')}
         </tbody></table></div>
       </div>
     </div>
   </div>`;
-  $('results').querySelectorAll('.alt').forEach(tr=>tr.addEventListener('click', ()=>{ shownAlt = +tr.dataset.alt; renderResults(); }));
-  $('results').querySelectorAll('[data-setrecipe]').forEach(b=>b.addEventListener('click', ()=>{
-    wk.recipeName = b.dataset.setrecipe; $('recipe').value = wk.recipeName; syncRecipeIngs(); save(); run();
+  $('results').querySelectorAll('.alt').forEach(tr=>tr.addEventListener('click', e=>{
+    if (e.target.closest('[data-toteam]')) return;   // 按鈕不該順便切換「正在看哪一組」
+    shownAlt = +tr.dataset.alt; renderResults();
   }));
+  $('results').querySelectorAll('[data-toteam]').forEach(b=>b.addEventListener('click', ()=>{
+    teamFromResult(+b.dataset.toteam);
+  }));
+  bindTeamDetail($('results'));
+}
+
+/* ================= 自組隊伍 =================
+   手動指定 5 隻看數字，而不是讓推演去找。和推演分頁的關係是「同一件事的兩種模式」。
+
+   **計算基礎百分之百比照推演**：同一份 `wk`、同一個 `scoreTeam`、同一個 `finalizeTeams`。
+   刻意不自己重寫決賽排程 —— 兩份一定會走鐘，而這裡走鐘的後果是兩個分頁對同一支隊伍
+   給出不同的數字。`tests/smoke.mjs` 直接斷言「自組隊伍算出的 total ＝ 推演對同一組
+   算出的 total」，那是「計算基礎一致」唯一可執行的定義。
+
+   **不進 `serialize()`。** 純檢視狀態，和 `boxFlt` / `monOpen` 同一個待遇：切分頁保留、
+   重新整理清空。所以 `SCHEMA` 不用動，也沒有雲端同步的問題。
+
+   `members` 存的是**真實 roster 索引**（和 `data-i` 同一套慣例）。因此箱子刪除成員時
+   一定要跟著修（`teamsAfterDelete`）、整批取代 roster 時一定要清（`teamsReset`）——
+   和 `monOpen` 完全一樣的陷阱，而且同樣不會有任何錯誤訊息，只是靜靜地指到別隻。
+
+   狀態（`teams` / `teamShown` / `picker`…）宣告在檔案前段的狀態區，見那裡的註解。 */
+
+/** roster 被刪掉第 di 隻：指到牠的格子清空，後面的索引整批前移一格。 */
+function teamsAfterDelete(di){
+  for (const t of teams)
+    t.members = t.members.map(x => x == null ? null : x === di ? null : (x > di ? x - 1 : x));
+}
+/** 整批換掉 roster（雲端下載、JSON「取代」匯入）時，舊索引指的已經是完全不同的寶可夢。 */
+function teamsReset(){ teams = [newTeam()]; teamShown = 0; picker = null; }
+/** 索引越界就地清成 null —— 任何路徑漏了上面兩個掛鉤時的最後一道防線。 */
+function sanitizeTeams(){
+  for (const t of teams)
+    t.members = t.members.map(x => (x != null && x >= 0 && x < roster.length) ? x : null);
+  if (teamShown >= teams.length) teamShown = 0;
+}
+
+/** 搜尋與 POOL 的前置，和 `run()` 開頭做的是同一件事。 */
+function prepTeamCalc(){
+  wk.recipe = D.recipes.find(r=>r.n===wk.recipeName) || D.recipes[0];
+  buildPool(wk);
+  if (!POOL.length) return false;
+  roster.forEach(m => { m._bs = baseStats(m, wk); });
+  return true;
+}
+/** 一支隊伍的結果。**湊滿 5 隻才算**（見下），沒滿就是 null。 */
+function computeTeam(t, ready){
+  t.result = null;
+  if (!ready) return;
+  if (t.members.some(x => x == null)) return;
+  /* `teamContext` 的 `energyTeam*5` 與 `qE(energy/5)` 兩邊都寫死 5 人，所以不足 5 隻
+     算出來的數字沒有意義（技能補的能量會被低估）。與其給一個看起來像答案的錯數字，
+     不如老實說還差幾隻。 */
+  const r = scoreTeam(t.members, roster, wk, new Map());
+  t.result = finalizeTeams([r], roster, wk, 1)[0] || null;
+}
+
+/* `lastResults` 是**跑推演那一刻**的 roster 索引。之後在箱子裡刪掉一隻，那些索引就
+   會越界或指到別隻 —— 而刪除只呼叫 `renderBox()`，不會清掉 lastResults。所以凡是要
+   拿舊結果的索引去讀 `roster` 的地方，都要先確認它還有效。 */
+const resultAlive = r => !!r && r.idxs.every(i => i >= 0 && i < roster.length);
+
+/** 把推演結果的第 n 組複製成一支自組隊伍。推演分頁與本分頁共用這一個入口。 */
+function teamFromResult(n){
+  const r = lastResults && lastResults[n];
+  if (!resultAlive(r)) return;
+  let ti = teams.findIndex(t => t.members.every(x => x == null));
+  if (ti < 0){
+    if (teams.length < TEAMS_MAX){ teams.push(newTeam()); ti = teams.length - 1; }
+    else {
+      ti = teams.length - 1;
+      if (!confirm(`已經有 ${TEAMS_MAX} 支隊伍（上限）。要覆蓋「隊伍 ${ti+1}」嗎？`)) return;
+    }
+  }
+  teams[ti].members = r.idxs.slice();
+  teamShown = ti;
+  showView('team');
+  renderTeamsView();
+}
+
+/* `strictBerry` 是**候選過濾**規則，不是計分規則 —— 手動隊已經親手指定了 5 隻，所以它
+   自然不生效（你的立場：手動權力最大）。但那會造成一個看起來矛盾的狀況：這裡算得好好的
+   一支隊伍，推演分頁永遠不會推薦。講出來才不會變成另一種「文案說謊」。 */
+function teamBerryWarn(t){
+  if (wk.strictBerry === false || !wk.fav || !wk.fav.size) return '';
+  const bad = t.members.filter(i => i != null).filter(i => {
+    const dx = D.dex[roster[i].sp];
+    return dx.sp === 'berry' && !wk.fav.has(dx.b);
+  });
+  if (!bad.length) return '';
+  const who = bad.map(i => `${esc(monName(roster[i]))}（${bz(D.dex[roster[i].sp].b)}）`).join('、');
+  return `<div class="notice" style="margin:8px 0 0">這裡照算：${who} 是樹果型但不產本週加成樹果。`
+       + `推演分頁因為「樹果型必須產本週加成樹果」不會選出這個組合 —— 數字本身沒問題，`
+       + `只是別拿它跟推演的名次對照。</div>`;
+}
+
+function teamSlotHTML(ti, si){
+  const i = teams[ti].members[si];
+  if (i == null)
+    return `<button type="button" class="tmslot empty" data-pick="${ti}.${si}">＋ 選擇</button>`;
+  const m = roster[i], p = D.dex[m.sp], bs = m._bs;
+  const nick = (m.nick||'').trim();
+  const lv = bs ? ` Lv${bs.skillLv}` : '';
+  return `<div class="tmslot filled">
+    <button type="button" class="tmpick" data-pick="${ti}.${si}" title="換一隻">
+      <div class="tms-1"><span class="num">#${p.no}</span><b${nick?' class="is-nick"':''}>${esc(nick || pz(p))}</b><span class="num">Lv${m.level}</span><span class="tag ${SPEC_TAG[p.sp]}">${SPEC_ZH[p.sp]}</span>${m.ex?'<span class="tag" title="在推演裡被排除，但自組隊伍不受限">🚫</span>':''}</div>
+      <div class="tms-2">${nick?esc(pz(p))+' · ':''}${msz(p.ms)}${lv} · ${natZ(NAT[m.nature]||NAT.Bashful)}</div>
+    </button>
+    <button type="button" class="tmx" data-clear="${ti}.${si}" title="移除這一格">✕</button>
+  </div>`;
+}
+function teamCardHTML(t, ti){
+  const filled = t.members.filter(x => x != null).length;
+  const r = t.result;
+  return `<div class="tmcard${ti===teamShown?' on':''}" data-team="${ti}">
+    <div class="tmhead">
+      <b>隊伍 ${ti+1}</b>
+      ${r ? `<span class="tmtot">週能量 ${fmt(r.total)}</span>`
+          : `<span class="muted">還差 ${5-filled} 隻</span>`}
+      <button type="button" class="tmx" data-delteam="${ti}"
+        title="${teams.length>1?'刪除這支隊伍':'清空這支隊伍'}">✕</button>
+    </div>
+    <div class="tmslots">${[0,1,2,3,4].map(s=>teamSlotHTML(ti,s)).join('')}</div>
+    ${teamBerryWarn(t)}
+  </div>`;
+}
+
+/* 比較列。**差額一律對「第一支算得出結果的隊伍」算** —— 對「目前在看的那一隊」算會讓
+   數字隨著點來點去一直變，對「目前最高分」算則在你刻意比較兩個非最佳方案時繞路。 */
+const TEAM_ROWS = [
+  ['本週卡比獸總能量', r => r.total,  true],
+  ['樹果',            r => r.berryS, true],
+  ['料理',            r => r.dishS,  true],
+  ['主技能',          r => r.skillS, true],
+  ['主食譜可煮',      r => r.cooksCapped, false],
+];
+function renderTeamCompare(){
+  const host = $('teamCompare');
+  const done = teams.map((t,i)=>({t,i})).filter(x => x.t.result);
+  if (done.length < 2){ host.innerHTML = ''; return; }
+  const base = done[0];
+  const diff = (v, bv, money) => {
+    const d = v - bv;
+    if (Math.abs(d) < 0.5) return '';
+    const s = (d > 0 ? '+' : '−') + (money ? fmt(Math.abs(d)) : Math.abs(d));
+    return ` <span class="tmdiff ${d>0?'up':'down'}">${s}</span>`;
+  };
+  host.innerHTML = `<div class="panel" style="margin-top:16px">
+    <div class="phead"><h3>隊伍比較</h3><span class="muted" style="font-size:12px">差額對「隊伍 ${base.i+1}」</span></div>
+    <div class="pbody" style="padding:0"><div class="scroll" style="border:0">
+    <table><thead><tr><th>項目</th>${done.map(x=>`<th style="text-align:right">隊伍 ${x.i+1}</th>`).join('')}</tr></thead>
+    <tbody>${TEAM_ROWS.map(([label, get, money])=>`<tr>
+      <td>${label}</td>
+      ${done.map(x=>{
+        const v = get(x.t.result), bv = get(base.t.result);
+        return `<td class="n" style="text-align:right">${money?fmt(v):v}${x.i===base.i?'':diff(v,bv,money)}</td>`;
+      }).join('')}
+    </tr>`).join('')}</tbody></table></div></div>
+  </div>`;
+}
+function renderTeamDetailPane(){
+  const host = $('teamDetail');
+  const done = teams.map((t,i)=>({t,i})).filter(x => x.t.result);
+  if (!done.length){
+    host.innerHTML = roster.length
+      ? `<div class="notice" style="margin-top:16px">每支隊伍湊滿 5 隻才會算出結果 —— 隊伍情境（幫忙加成、技能補能量、Helper Boost 的列數）要 5 隻才成立，不足 5 隻算出來的數字沒有意義。</div>`
+      : '';
+    return;
+  }
+  if (!teams[teamShown] || !teams[teamShown].result) teamShown = done[0].i;
+  const tabs = done.length > 1
+    ? `<div class="tmtabs">${done.map(x=>`<button type="button" class="tmtab${x.i===teamShown?' on':''}" data-showteam="${x.i}">隊伍 ${x.i+1}</button>`).join('')}</div>`
+    : '';
+  host.innerHTML = `<div style="margin-top:16px">${tabs}</div>`
+    + teamDetailHTML(teams[teamShown].result, {rosterLabel:`隊伍 ${teamShown+1} 的 5 隻`});
+  bindTeamDetail(host, renderTeamsView);
+}
+function syncTeamBar(){
+  $('tmAdd').disabled = teams.length >= TEAMS_MAX;
+  $('tmAdd').title = teams.length >= TEAMS_MAX
+    ? `最多 ${TEAMS_MAX} 支 —— 再多就比不動了，先刪掉一支反而更容易做決定`
+    : '再加一支隊伍來比較';
+  /* 只列出索引還有效的那幾組（見 resultAlive）—— 箱子刪過寶可夢之後，舊的推演結果
+     指到的可能已經是別隻或越界。`value` 用原本的名次，選了才對得回 lastResults。 */
+  const alive = (lastResults || []).map((x,n)=>({x,n})).filter(o => resultAlive(o.x));
+  $('tmPlanSel').disabled = !alive.length;
+  $('tmFromPlan').disabled = !alive.length;
+  $('tmPlanSel').innerHTML = alive.length
+    ? alive.map(({x,n})=>`<option value="${n}">推演 #${n+1}　${fmt(x.total)}　${x.idxs.map(i=>pz(D.dex[roster[i].sp])).join('・')}</option>`).join('')
+    : `<option>（還沒跑過推演）</option>`;
+  $('tmNote').textContent = alive.length ? ''
+    : (lastResults && lastResults.length ? '箱子改過了，推演結果已過期 —— 請重新推演一次。'
+                                         : '「從推演結果複製」要先到推演分頁跑一次。');
+}
+function renderTeamsView(){
+  sanitizeTeams();
+  const host = $('teamList');
+  if (!roster.length){
+    host.innerHTML = `<div class="notice">先到「寶可夢箱」分頁建立寶可夢，才能組隊。</div>`;
+    $('teamCompare').innerHTML = ''; $('teamDetail').innerHTML = '';
+    syncTeamBar(); return;
+  }
+  const ready = prepTeamCalc();
+  teams.forEach(t => computeTeam(t, ready));
+  host.innerHTML = teams.map((t,i)=>teamCardHTML(t,i)).join('');
+  renderTeamCompare();
+  renderTeamDetailPane();
+  syncTeamBar();
+}
+
+/* ---- 選擇器（浮層）----
+   點空位在旁邊開一個浮層，不推擠版面 —— 這個分頁的核心動作是「換掉一隻馬上看數字
+   怎麼變」，內嵌展開的話每開一次選擇器就把正在看的結果推走，每次換人都要重新找回視線。
+
+   排序沿用寶可夢箱當前的 `boxFlt.sort`／`dir`（`boxOrder()`），搜尋走共用的
+   `monHaystack` —— 但**篩選條件是選擇器自己的**（`pickerQ` / `pickerSpec`），
+   不吃 `boxFlt` 的篩選，否則會出現「箱子篩了食材 → 這裡莫名少了一半」。 */
+function openPicker(ti, si, anchor){
+  picker = {t: ti, s: si};
+  pickerQ = ''; pickerSpec = '';
+  $('pickQ').value = '';
+  renderPickerList();
+  const el = $('tmPicker');
+  el.hidden = false;
+  for (const b of el.querySelectorAll('[data-pickspec]'))
+    b.setAttribute('aria-pressed', b.dataset.pickspec === pickerSpec ? 'true' : 'false');
+  positionPicker(anchor);
+  $('pickQ').focus();
+}
+function closePicker(){ picker = null; $('tmPicker').hidden = true; }
+function positionPicker(anchor){
+  const el = $('tmPicker'), r = anchor.getBoundingClientRect();
+  el.style.visibility = 'hidden'; el.hidden = false;
+  const w = el.offsetWidth, h = el.offsetHeight;
+  let left = r.left, top = r.bottom + 6;
+  if (left + w > innerWidth - 8) left = Math.max(8, innerWidth - 8 - w);
+  if (top + h > innerHeight - 8) top = Math.max(8, r.top - 6 - h);   // 下面放不下就翻到上面
+  el.style.left = left + 'px';
+  el.style.top = top + 'px';
+  el.style.visibility = '';
+}
+function renderPickerList(){
+  if (!picker) return;
+  const t = teams[picker.t];
+  /* 同一隊裡不能重複 —— `scoreTeam` 用 roster 索引，同一隻放兩次會讓 Helper Boost
+     的物種計數、龍屬性種類數等等全部算錯。跨隊則刻意允許（比較兩隊通常只換 1~2 隻）。 */
+  const taken = new Set(t.members.filter((x,k) => x != null && k !== picker.s));
+  const q = pickerQ.trim().toLowerCase();
+  const rows = boxOrder().filter(i => {
+    const m = roster[i];
+    if (pickerSpec && D.dex[m.sp].sp !== pickerSpec) return false;
+    if (q && !monHaystack(m).includes(q)) return false;
+    return true;
+  });
+  $('pickCount').textContent = rows.length ? `${rows.length} 隻` : '';
+  $('pickList').innerHTML = rows.length ? rows.map(i => {
+    const m = roster[i], p = D.dex[m.sp], nick = (m.nick||'').trim();
+    const dis = taken.has(i);
+    /* 在別隊出現過要標出來 —— 你正在比較兩隊，「這隻兩邊都有」正是你需要知道的事。 */
+    const other = teams.map((x,n)=> n!==picker.t && x.members.includes(i) ? n+1 : 0).filter(Boolean);
+    const pct = idealPct(m);
+    return `<button type="button" class="pickrow" data-take="${i}"${dis?' disabled title="這一隊已經有牠了"':''}>
+      <div class="pk-1"><span class="num">#${p.no}</span><b${nick?' class="is-nick"':''}>${esc(nick || pz(p))}</b><span class="num">Lv${m.level}</span><span class="tag ${SPEC_TAG[p.sp]}">${SPEC_ZH[p.sp]}</span>${m.ex?'<span class="tag">🚫</span>':''}${other.length?`<span class="tag pin">隊伍 ${other.join('、')}</span>`:''}</div>
+      <div class="pk-2">${nick?esc(pz(p))+' · ':''}${msz(p.ms)}${pct!=null?` · 潛力 ${Math.round(pct)}%`:''}</div>
+    </button>`;
+  }).join('') : `<div class="muted" style="padding:14px;text-align:center">找不到符合的</div>`;
 }
 
 /* ================= VIEWS ================= */
+const VIEWS = ['plan','team','box','recipes'];
 function showView(name){
-  for (const v of ['plan','box','recipes']) $('view-'+v).hidden = (v !== name);
+  for (const v of VIEWS) $('view-'+v).hidden = (v !== name);
   for (const b of $('viewNav').querySelectorAll('[data-view]'))
     b.setAttribute('aria-pressed', b.dataset.view === name ? 'true' : 'false');
+  if (name !== 'team') closePicker();     // 浮層是 fixed 的，切走了不關會浮在別的分頁上
   if (name === 'recipes') renderRecipeLevels();
+  if (name === 'team') renderTeamsView();
   // 潛力值只在看得到箱子的時候才背景算（見 idealFillAsync），所以切過來要補開一輪
   if (name === 'box') idealFillAsync();
   window.scrollTo({top:0, behavior:'instant'});
@@ -2039,6 +2376,83 @@ function showView(name){
 $('viewNav').addEventListener('click', e=>{
   const b = e.target.closest('[data-view]'); if (b) showView(b.dataset.view);
 });
+
+/* ---- 自組隊伍的事件（委派）----
+   `renderTeamsView()` 每次都重畫整個 #teamList，所以綁在容器上一次就好 ——
+   和寶可夢箱同一個做法。跨一次重畫沿用舊的元素參考會靜靜地失效（那個節點已經
+   脫離 DOM，dispatchEvent 不會冒泡到委派處理器），測試裡要每次重新 querySelector。 */
+$('teamList').addEventListener('click', e=>{
+  const pick = e.target.closest('[data-pick]');
+  if (pick){
+    const [ti, si] = pick.dataset.pick.split('.').map(Number);
+    openPicker(ti, si, pick);
+    return;
+  }
+  const clr = e.target.closest('[data-clear]');
+  if (clr){
+    const [ti, si] = clr.dataset.clear.split('.').map(Number);
+    teams[ti].members[si] = null;
+    closePicker(); renderTeamsView();
+    return;
+  }
+  const del = e.target.closest('[data-delteam]');
+  if (del){
+    const ti = +del.dataset.delteam;
+    const t = teams[ti];
+    const has = t.members.some(x => x != null);
+    /* 有成員才問。重建一支隊伍要重選 5 隻，不是零成本 —— 和「刪除寶可夢一定要問」
+       同一個道理，只是這裡不會動到真實資料，所以空隊直接刪不必打斷。 */
+    if (has && !confirm(`要${teams.length>1?'刪除':'清空'}「隊伍 ${ti+1}」嗎？\n\n`
+        + t.members.filter(x=>x!=null).map(i=>monName(roster[i])).join('、'))) return;
+    if (teams.length > 1) teams.splice(ti, 1); else teams[0] = newTeam();
+    if (teamShown >= teams.length) teamShown = teams.length - 1;
+    closePicker(); renderTeamsView();
+    return;
+  }
+  const card = e.target.closest('[data-team]');
+  if (card){ teamShown = +card.dataset.team; renderTeamsView(); }
+});
+$('teamDetail').addEventListener('click', e=>{
+  const tab = e.target.closest('[data-showteam]');
+  if (tab){ teamShown = +tab.dataset.showteam; renderTeamsView(); }
+});
+$('tmAdd').addEventListener('click', ()=>{
+  if (teams.length >= TEAMS_MAX) return;
+  teams.push(newTeam());
+  teamShown = teams.length - 1;
+  renderTeamsView();
+});
+$('tmFromPlan').addEventListener('click', ()=>{
+  const n = +$('tmPlanSel').value;
+  if (Number.isFinite(n)) teamFromResult(n);
+});
+
+/* ---- 選擇器的事件 ---- */
+$('pickQ').addEventListener('input', e=>{ pickerQ = e.target.value; renderPickerList(); });
+$('tmPicker').addEventListener('click', e=>{
+  const sp = e.target.closest('[data-pickspec]');
+  if (sp){
+    pickerSpec = sp.dataset.pickspec;
+    for (const b of $('tmPicker').querySelectorAll('[data-pickspec]'))
+      b.setAttribute('aria-pressed', b.dataset.pickspec === pickerSpec ? 'true' : 'false');
+    renderPickerList();
+    return;
+  }
+  const take = e.target.closest('[data-take]');
+  if (take && !take.disabled && picker){
+    teams[picker.t].members[picker.s] = +take.dataset.take;
+    closePicker();
+    renderTeamsView();
+  }
+});
+/* 外點關閉。用 capture 是因為 #teamList 的處理器會在同一次點擊裡重畫整個列表 ——
+   等冒泡上來時原本的目標節點已經不在 DOM 裡，closest 就判斷不出點在哪。 */
+document.addEventListener('mousedown', e=>{
+  if (!picker) return;
+  if (e.target.closest('#tmPicker') || e.target.closest('[data-pick]')) return;
+  closePicker();
+}, true);
+document.addEventListener('keydown', e=>{ if (e.key === 'Escape' && picker) closePicker(); });
 
 /* ================= RECIPE LEVELS ================= */
 const RLB_MAX = D.rlb[70] || 3.58;
@@ -2138,7 +2552,7 @@ $('themeBtn').addEventListener('click', ()=>{
 });
 
 /* ================= INIT ================= */
-function renderAll(){ syncWeeklyUI(); renderBox(); renderResults(); renderVersion(); if (!$('view-recipes').hidden) renderRecipeLevels(); }
+function renderAll(){ syncWeeklyUI(); renderBox(); renderResults(); renderVersion(); if (!$('view-recipes').hidden) renderRecipeLevels(); if (!$('view-team').hidden) renderTeamsView(); }
 buildWeekly();
 buildBoxBar(); syncIngFilterUI(); syncSortDirUI();
 buildImport();
