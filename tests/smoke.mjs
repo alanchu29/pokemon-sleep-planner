@@ -137,6 +137,61 @@ await doRun(`wk.recipeScope = 'all'; wk.recipePick = 'auto'; syncWeeklyUI()`);
   ok('最快檔位比例在 0..1', r.fast.every(f => f >= 0 && f <= 1));
 }
 
+console.log('\n[2d] 收取區間：白天也要分段（遊戲不會自動收取）');
+{
+  /* 遊戲機制（使用者確認）：不是自動收取，要上線點才收；主技能最多累積 2 次。
+     以前只有夜間套這兩個上限，白天完全不套 —— 而那個偏差**只打在技能觸發率高的
+     身上**（哥達鴨 20.4% 是全 dex 第 2），會系統性地把牠們推進推薦名單。 */
+  const r = await page.evaluate(() => {
+    const mk = (n, nat, ss, sk) => ({sp:n, level:60, nature:nat||'Bashful',
+      ss:[...(ss||[]), ...Array(5-(ss||[]).length).fill(null)],
+      ingSet:[0,0,0], skillLv:sk||6, ribbon:0, pin:false, ex:false, nick:''});
+    // 哥達鴨：技能率 12.5%（全 dex 第 2）+ 技能率M + 溫順 → 20.4%
+    const hi = mk('GOLDUCK', 'Gentle', ['Skill Trigger M'], 6);
+    // 達克萊伊：技能率 2.3%（很低）
+    const lo = mk('DARKRAI', 'Bashful', ['Skill Trigger M'], 6);
+    const base = {fav:new Set(), camp:false, sleepH:8.5, areaBonus:0, pot:57, recipeLv:20,
+                  recipePick:'auto', recipeScope:'all', recipeLevels:{}, dishType:'curry'};
+    const CTX = {nHB:0,nERB:0,supportEnergy:0,extraHelps:0,darkDrain:0,hbRows:null,
+      hasPlus:false,hasMinus:false,hasLatias:false,hasLatios:false,nDragon:1};
+    const procsAt = (m, ch) => {
+      const wk = {...base, collectH: ch};
+      const bs = baseStats(m, wk);
+      return simulate(bs, m, wk, CTX).procs;
+    };
+    return {
+      hiInf: procsAt(hi, 0), hi3: procsAt(hi, 3), hi6: procsAt(hi, 6),
+      loInf: procsAt(lo, 0), lo3: procsAt(lo, 3),
+      scoreWk: typeof SCORE_WK === 'object' ? SCORE_WK.collectH : null,
+      def: typeof DEFAULT_COLLECT_H === 'number' ? DEFAULT_COLLECT_H : null,
+      wkHas: wk.collectH,
+    };
+  });
+  ok('沒設 collectH 時走「隨時收」的舊行為（不設上限）', r.hiInf > r.hi3,
+     `∞=${r.hiInf.toFixed(2)} 3h=${r.hi3.toFixed(2)}`);
+  ok('收得越不勤，主技能拿得越少', r.hi3 > r.hi6, `3h=${r.hi3.toFixed(2)} 6h=${r.hi6.toFixed(2)}`);
+  // 這是這一節的重點：偏差只打在高觸發率的身上
+  const hiLoss = 1 - r.hi3 / r.hiInf, loLoss = 1 - r.lo3 / r.loInf;
+  ok('技能觸發率高的折損明顯大於低的', hiLoss > loLoss + 0.1,
+     `哥達鴨 -${(hiLoss*100).toFixed(0)}% vs 達克萊伊 -${(loLoss*100).toFixed(0)}%`);
+  /* 個體產能的基準一定要有 collectH，否則寶可夢箱裡技能率高的會像推演以前那樣被高估 */
+  ok('SCORE_WK 有固定的 collectH', r.scoreWk === r.def && r.def > 0, `${r.scoreWk} / ${r.def}`);
+  ok('wk 預設有 collectH', r.wkHas > 0, String(r.wkHas));
+
+  // UI 欄位存在，而且改了會重算
+  const ui = await page.evaluate(async () => {
+    const before = wk.collectH;
+    $('collectH').value = '6';
+    $('collectH').dispatchEvent(new Event('change', {bubbles:true}));
+    const after = wk.collectH;
+    $('collectH').value = String(before);
+    $('collectH').dispatchEvent(new Event('change', {bubbles:true}));
+    return {before, after, restored: wk.collectH, shown: $('collectH').value};
+  });
+  ok('「白天多久收一次」欄位改動會進 wk', ui.after === 6 && ui.restored === ui.before,
+     JSON.stringify(ui));
+}
+
 console.log('\n[2b] 料理分數：搜尋目標與決賽目標不能脫鉤');
 {
   /* 這一節擋的是一個實際發生過的 bug：搜尋階段用 `proxyDish`（走訪食譜填餐次但
@@ -221,6 +276,7 @@ console.log('\n[2c] 結果卡：為什麼選這一隻 · 術語要看得懂');
       whys: cards.map(c => { const w = c.querySelector('.why'); return w ? w.innerText.trim() : ''; }),
       pills: [...$('results').querySelectorAll('.pillrow .pill')].map(p => p.innerText.trim()),
       titles: [...$('results').querySelectorAll('[title]')].map(e => e.title).join('\n'),
+      labels: [...$('results').querySelectorAll('.mem .out div')].map(e => e.innerText.trim()),
     };
   });
   ok('每一隻都有「為什麼選牠」', r.whys.length === 5 && r.whys.every(w => w.length > 4),
@@ -232,7 +288,24 @@ console.log('\n[2c] 結果卡：為什麼選這一隻 · 術語要看得懂');
   ok('隊伍加成寫成中文', r.pills.some(p => /幫忙加成/.test(p)) && r.pills.some(p => /活力回復提升/.test(p)),
      JSON.stringify(r.pills));
   ok('「幫忙」有解釋', /每天實際完成的幫忙次數/.test(r.titles));
-  ok('「最快檔位」有解釋（含活力檔位表）', /活力 80 以上/.test(r.titles) && /×0\.45/.test(r.titles));
+  /* `energyGiven` / `helpsGiven` 內部是「整隊合計」（每人的量 ×5），但**畫面一律顯示
+     每隻**（使用者要的指標），這樣才和下方 pill 的 supportEnergy / extraHelps 同單位。
+     兩處單位不同又不標，就會被讀成同一件事（實際被問過：「這是一整隊 5 隻總共，還是單隻？」）。 */
+  const units = await page.evaluate(() => ({
+    why: [...$('results').querySelectorAll('.why')].map(e => e.innerText).join('\n'),
+    pills: [...$('results').querySelectorAll('.pillrow .pill')].map(e => e.innerText).join('\n'),
+  }));
+  ok('補活力／額外幫忙：成員卡顯示「每隻」',
+     !/每日補活力|每日多幫忙/.test(units.why) || /每隻/.test(units.why), units.why.slice(0, 140));
+  ok('補活力／額外幫忙：pill 也標「每隻」',
+     !/技能補活力|額外幫忙/.test(units.pills) || /每隻/.test(units.pills), units.pills);
+  /* 「最快檔位」這個標籤字面上看不出它在講活力（使用者看了 tooltip 還是不懂），
+     所以標籤本身改成「活力80以上」，tooltip 補完整的檔位表與「該怎麼辦」。 */
+  ok('活力那一欄的標籤要看得出在講活力',
+     r.labels.some(t => /活力\s*80/.test(t)), JSON.stringify(r.labels.slice(0, 3)));
+  ok('活力檔位有完整解釋（五檔 ＋ 該怎麼辦）',
+     /活力 80 以上/.test(r.titles) && /×0\.45/.test(r.titles) && /×1\.00/.test(r.titles)
+     && /補師/.test(r.titles), r.titles.slice(0, 100));
   ok('「背包滿」有解釋', /持有上限/.test(r.titles) || !/背包滿/.test(r.titles), r.titles.slice(0, 80));
 }
 

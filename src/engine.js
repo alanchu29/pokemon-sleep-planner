@@ -45,6 +45,9 @@ const BAD_DREAMS_DRAIN = 12;
 const HEAL_PULSE_TARGETS = 2;
 const MAGNET_POOL = ING_NAME.map((n,i)=>i).filter(i=>ING_NAME[i]!=='Tail');
 const MEALS_WEEK = 21;
+/* 白天平均多久上線收取一次（小時）。**這個遊戲不會自動收取**，所以產出是按
+   「兩次收取之間」結算的，每一段都有背包上限與主技能累積上限 —— 見 `simulate`。 */
+const DEFAULT_COLLECT_H = 4;
 
 /* ================= ENGINE ================= */
 const energyF = e => e>=80?0.45 : e>=60?0.52 : e>=40?0.58 : e>=1?0.66 : 1.00;
@@ -206,28 +209,48 @@ function simulate(bs, m, wk, ctx){
   }
   // extra helps injected by team main skills, spread across the day
   helpsDay += ctx.extraHelps || 0;
-  // carry-size truncation applies at night only
+
+  /* ================= 收取區間（2026-09-09）=================
+     **這個遊戲不會自動收取，要上線點才收**（使用者確認）。所以產出是按「兩次收取
+     之間」結算的，而每一段都有兩個上限：
+
+       · 樹果／食材：背包裝滿就停（`helpsTillFull`）。滿了之後進入「偷吃」——
+         只產樹果、食材歸零。
+       · 主技能：**最多累積 `bankedProcs` 次**（技能專長 2 次，其他 1 次）。
+
+     以前只有**夜間**那一段套這兩個上限，白天完全不套 —— 等於假設你整個白天隨時在
+     收取。實測那個假設對高頻技能型影響極大：哥達鴨的技能觸發率 20.4%（全 dex 第 2），
+     白天 81 次幫忙本來算出 18.5 次發動，但每 4 小時才收一次的話，每段只拿得到 2 次，
+     一天實際只有 **9.75 次（53%）**。而低頻的達克萊伊（3.8%）**完全不受影響** ——
+     偏差只打在「技能率高」的那些身上，於是牠們被系統性地推進推薦名單。
+
+     `wk.collectH` = 白天平均多久收取一次（小時）。夜間永遠是一整段（`sleepH`）。 */
   const dropPerHelp = (1-bs.ingChance)*bs.berriesPerDrop + bs.ingChance*bs.avgIngAmt;
   const helpsTillFull = dropPerHelp>0 ? bs.carry/dropPerHelp : Infinity;
-  const nightNormal = Math.min(helpsNight, helpsTillFull);
-  const snack = Math.max(0, helpsNight - nightNormal);
-  const productive = helpsDay + nightNormal;
-  /* 主技能發動次數：**只有醒著的幫忙會即時觸發**，睡眠期間累積的最多結算
-     `bankedProcs` 次（技能專長 2 次，其他 1 次）。
-
-     `productive` 含 `nightNormal` 對**樹果與食材**是對的 —— 睡覺時撿的東西醒來會收到，
-     所以下面的 `berries` 和 memberOutput 的 `ing` 照樣用 `productive`。但技能發動不是
-     同一回事：夜間那批幫忙不會每一次都即時發動技能，那正是 `bankedProcs` 這個上限的
-     用意。以前這裡寫的是 `productive*effSkill + min(banked, ...)`，等於夜間幫忙先被
-     完整乘過一次 effSkill（而且沒有上限）、再加一次 banked —— 同一批算了兩次。
-
-     實測（Lv55、睡 8.5h）：技能型的 `skillStrength` 高估 **20.8%**（AMPHAROS 週能量
-     190,026 → 150,468、DARKRAI 254,114 → 201,779），而樹果型的樹果收入與食材型的
-     食材收入**完全不受影響** —— 也就是說偏差只打在其中一種專長上，會系統性地把
-     技能型推進推薦名單。詳見 DECISIONS.md。 */
   const bankedProcs = bs.p.sp==='skill' ? 2 : 1;
-  const procs = helpsDay*bs.effSkill + Math.min(bankedProcs, nightNormal*bs.effSkill);
+  /* 一段區間內：`h` 次幫忙 → 產物受背包上限、技能發動受 banked 上限。 */
+  const segment = (h) => {
+    const normal = Math.min(h, helpsTillFull);
+    return {normal, snack: Math.max(0, h - normal),
+            procs: Math.min(normal * bs.effSkill, bankedProcs)};
+  };
+  const wakeH = wakeMin / 60;
+  /* 沒設定就當「隨時在收」（＝白天一段很短，等於不設上限）—— 舊資料相容。 */
+  const collectH = (wk.collectH > 0) ? Math.min(wk.collectH, wakeH) : 0;
+  let dayNormal, daySnack, dayProcs;
+  if (collectH > 0){
+    const nSeg = wakeH / collectH;                  // 白天分成幾段（可以是小數）
+    const seg = segment(helpsDay / nSeg);
+    dayNormal = seg.normal * nSeg; daySnack = seg.snack * nSeg; dayProcs = seg.procs * nSeg;
+  } else {
+    dayNormal = helpsDay; daySnack = 0; dayProcs = helpsDay * bs.effSkill;
+  }
+  const night = segment(helpsNight);                // 夜間就是一整段
+  const productive = dayNormal + night.normal;
+  const snack = daySnack + night.snack;
+  const procs = dayProcs + night.procs;
   return {freqBase, helpsDay, helpsNight, productive, snack, procs,
+          dayProcs, nightProcs: night.procs, daySnack, nightSnack: night.snack,
           fastHours: fastSteps/6, fastShare: totalSteps ? fastSteps/totalSteps : 0, wakeEnergy: start,
           berries: productive*(1-bs.ingChance)*bs.berriesPerDrop + snack*bs.berriesPerDrop};
 }
@@ -457,8 +480,34 @@ function bestSingleRecipe(wIng, potEff, mul){ return rankSingle(wIng, potEff, mu
    已經整段移除，改用 `mealPlan` 單起點（真實排程的**下界**）。**不要為了省時間再加回
    任何「不扣除食材」的近似**：料理分數的本質就是 `cooks = min(floor(pool[i]/a))` 這個
    木桶效應，忽略它等於忽略整個問題。實測成本只有 466ms / 33,649 組。 */
-/** Plain greedy is not monotone — raising one recipe's level could make it pick a
- *  worse opening move and lose value. So try several openings and keep the best. */
+/** 貪婪不是單調的 —— 調高某道食譜的等級可能讓它選錯開場、總分反而變低（陷阱 3）。
+ *  所以試多個開場，取最好的那個。
+ *
+ *  ## 開場只試 9 個（`null` ＋ `rankSingle` 前 8）——**試過全窮舉，會破壞單調性**
+ *
+ *  `rankSingle` 排的是「一直煮這道」的總分，那和「拿它開場、剩下再貪婪」是兩件事 ——
+ *  大菜常常只煮得出 1~2 次，在 `rankSingle` 裡排很後面，卻可能是更好的開場。實測
+ *  （120 組抽樣）改成「每一道煮得出來的都當開場」確實更好：
+ *
+ *  | 設定 | 全窮舉開場比只試 8 個好 | 平均多 | 最多多 |
+ *  |---|---|---|---|
+ *  | 鍋54+券 / Lv30 / 全食譜 | 41.7% | 0.90% | 4.26% |
+ *  | 鍋57 / Lv20 / 只咖哩 | 10.0% | 0.15% | 0.56% |
+ *
+ *  **但改下去之後單調性掛了**（40 組隨機食譜等級裡有 5 組總分下降，最多 −1.4%）。
+ *  `wk.collectH >= 3` 時剛好測不到（主技能被 cap 讓分數差距拉開），但 `<= 0.5`
+ *  照樣破 —— 那是巧合，不是修好。
+ *
+ *  **試過兩個修法，都失敗**（實驗數據見 DECISIONS.md）：
+ *
+ *  1. **加大 `FINALISTS`**（50 → 1000）：完全無效，下降組數一模一樣。而且對照
+ *     「全 33,649 組都跑決賽排程」的真值，`FINALISTS = 50` 早就選中真值 ——
+ *     所以問題從來不是「最佳解擠不進決賽」。
+ *  2. **貪婪比較函式加上空位價值**（`rv + 空位 × 剩餘食材均價`）：只從 5 組降到
+ *     4 組，而且基準分數還略降 0.3% —— 那個均價近似不夠準。
+ *
+ *  根因還沒找到。**單調性是使用者看得見的保證**（調高食譜等級不該讓總分變低），
+ *  比 0.9% 重要，所以維持 9 個開場。見 TODO.md 第 10c 項。 */
 function bestPlan(wIng, potEff, mul, forced, wk){
   const seeds = forced ? [forced]
     : [null, ...rankSingle(wIng, potEff, mul).slice(0, 8).map(x => x.c.r)];
@@ -628,7 +677,10 @@ function rankRecipesForTeam(r, wk){
    代價要講出來：**團隊型副技能量不到**。「幫忙加成」的價值主要在加速四個隊友，
    單獨一隻只看得到自己那 5%。所以 `monPower` 會回傳 `teamOnly`，UI 標一個徽章 ——
    量不到就說量不到，不要假裝那個數字包含了它。 */
-const SCORE_WK = {fav: new Set(), camp: false, sleepH: 8.5};
+/* `collectH` 固定 `DEFAULT_COLLECT_H` —— 個體產能要跨週可比，所以不跟著使用者的
+   週設定跑；但**一定要有值**，否則技能率高的那幾隻會像推演以前那樣被高估
+   （沒有「每段最多 2 次」的上限）。 */
+const SCORE_WK = {fav: new Set(), camp: false, sleepH: 8.5, collectH: DEFAULT_COLLECT_H};
 const SCORE_CTX = {nHB: 0, nERB: 0, supportEnergy: 0, extraHelps: 0, darkDrain: 0, hbRows: null, hasPlus: false, hasMinus: false, hasLatias: false, hasLatios: false, nDragon: 1};
 
 /** 一隻的個體產能。純函式，不碰 POOL、不需要參考隊。 */

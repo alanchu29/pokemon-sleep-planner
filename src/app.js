@@ -57,7 +57,7 @@ const SCHEMA = 4;   // 4: 新增 msExtra{}（上游沒有的主技能數值表�
    「新的 index.html ＋ 舊的 app.js」—— 畫面畫出舊版 UI，而使用者只會覺得
    「你根本沒改」，完全不知道是快取。有了這個斷言，過期的 app.js 會直接被擋下來
    並要求強制重新整理。tests/smoke.mjs 第 11 節會斷言三處一致。 */
-const APP_V = '20260909k';
+const APP_V = '20260909n';
 
 /** 致命錯誤：整頁換成一段說明。這種狀況下繼續跑只會產生錯的數字。 */
 function fatal(html){
@@ -113,7 +113,7 @@ const f1 = n => (Math.round(n*10)/10).toFixed(1);
 const NICK_MAX = 24;
 const BLANK = () => ({sp: D.dex.findIndex(p=>p.n==='PIKACHU'), level:30, nature:'Bashful', ss:[null,null,null,null,null], ingSet:[0,0,0], skillLv:1, ribbon:0, nick:'', pin:false, ex:false});
 let roster = [];
-let wk = {island:'greengrass', fav:new Set(), areaBonus:15, pot:57, sleepH:8.5, camp:0, mode:'total', dishType:'curry', recipeName:null, recipeLv:20, recipePick:'auto', recipeScope:'type', recipeLevels:{}, strictBerry:true};
+let wk = {island:'greengrass', fav:new Set(), areaBonus:15, pot:57, sleepH:8.5, camp:0, collectH:DEFAULT_COLLECT_H, mode:'total', dishType:'curry', recipeName:null, recipeLv:20, recipePick:'auto', recipeScope:'type', recipeLevels:{}, strictBerry:true};
 let lastResults = null, shownAlt = 0;
 /* 自組隊伍（見檔案後段的「自組隊伍」那一區）。**宣告放在這裡而不是那一區旁邊** ——
    `deserialize` 會呼叫 `teamsReset()`，而它在前段；`let` 不會提升，宣告留在後面就有
@@ -530,7 +530,7 @@ function buildWeekly(){
   });
   $('dishType').addEventListener('change', e=>{ wk.dishType = e.target.value; wk.recipeName = null; fillRecipes(); weeklyChanged(); });
   $('recipe').addEventListener('change', e=>{ wk.recipeName = e.target.value; syncRecipeIngs(); weeklyChanged(); });
-  for (const [id, key, num] of [['areaBonus','areaBonus',1],['pot','pot',1],['sleepH','sleepH',1],['recipeLv','recipeLv',1],['camp','camp',1]]){
+  for (const [id, key, num] of [['areaBonus','areaBonus',1],['pot','pot',1],['sleepH','sleepH',1],['collectH','collectH',1],['recipeLv','recipeLv',1],['camp','camp',1]]){
     $(id).addEventListener('change', e=>{ wk[key] = num ? Number(e.target.value) : e.target.value; weeklyChanged(); });
   }
   $('mode').addEventListener('change', e=>{ wk.mode = e.target.value; weeklyChanged(); });
@@ -562,6 +562,8 @@ function syncRecipeIngs(){
 function syncWeeklyUI(){
   $('island').value = wk.island; $('areaBonus').value = wk.areaBonus; $('pot').value = wk.pot;
   $('sleepH').value = wk.sleepH; $('camp').value = wk.camp; $('mode').value = wk.mode;
+  /* 舊資料沒有 collectH —— deserialize 的 {...wk, ...o.wk} 會保留預設值，這裡只是畫出來 */
+  $('collectH').value = wk.collectH != null ? wk.collectH : DEFAULT_COLLECT_H;
   $('dishType').value = wk.dishType; $('recipeLv').value = wk.recipeLv;
   $('recipePick').value = wk.recipePick; $('recipeScope').value = wk.recipeScope;
   $('strictBerry').checked = wk.strictBerry !== false;
@@ -1938,8 +1940,14 @@ function pickReason(k, r){
   if (bs.hasHB) bits.push(`帶「幫忙加成」：全隊幫手間隔 −5%`);
   if (bs.hasERB) bits.push(`帶「活力回復提升」：睡眠回復 +14%`);
   if (/^Helper Boost/.test(p.ms)) bits.push(`幫手加速：發動時讓全隊各多幫忙一次`);
-  if (o.energyGiven > 0) bits.push(`每日補全隊活力 ${f1(o.energyGiven)}`);
-  if (o.helpsGiven > 0.2) bits.push(`每日讓隊友多幫忙 ${f1(o.helpsGiven)} 次`);
+  /* **單位要標出來。** `energyGiven` / `helpsGiven` 是「這隻一天發出去的總量」
+     ＝ 每位成員拿到的量 × 5；而下方那排 pill 顯示的 `ctx.supportEnergy` /
+     `ctx.extraHelps` 是 `/5` 之後的**每人平均**。同一個畫面上兩個差 5 倍的數字，
+     不標單位就會被讀成同一件事（實際被問過）。 */
+  if (o.energyGiven > 0)
+    bits.push(`<span title="這隻的主技能每天補給隊上**每一位成員**的活力。&#10;整隊 5 隻收到的合計是 ${f1(o.energyGiven)}／日。&#10;下面那排 pill 的「技能補活力 每隻」是隊上所有補師加起來的每人總量。&#10;活力越高幫忙間隔越短，所以補師的價值是透過隊友的產出體現的。">每日補活力 <b>每隻 ${f1(o.energyGiven/5)}</b></span>`);
+  if (o.helpsGiven > 0.2)
+    bits.push(`<span title="這隻的主技能每天讓**每一位成員**多完成的幫忙次數。&#10;整隊 5 隻合計是 ${f1(o.helpsGiven)} 次／日。&#10;下面那排 pill 的「額外幫忙 每隻」是隊上所有來源加起來的每人總量。">每日多幫忙 <b>每隻 ${f1(o.helpsGiven/5)} 次</b></span>`);
   /* 代價也要寫出來 —— 只講好處就是選擇性呈現。夢魘的扣活力打的是非惡屬性隊友。 */
   if (o.energyDrain < 0) bits.push(`<span style="color:var(--neg)">代價：每日扣非惡屬性隊友活力 ${f1(-o.energyDrain)}</span>`);
   return bits.slice(0, 3).join('　·　');
@@ -1964,7 +1972,7 @@ function memberCard(rank, i, r, o){
     <div class="out">
       <div><span class="muted">週能量</span> ${fmt((o.berryStrength+o.skillStrength)*7*(1+wk.areaBonus/100))}</div>
       <div class="muted" title="每天實際完成的幫忙次數（含睡眠期間存下來的那些）。&#10;每次幫忙會帶回樹果或食材，也有機率發動主技能。">幫忙 ${f1(o.sim.productive)} 次／日${o.sim.snack>0.5?` · <span title="睡覺時背包裝滿之後仍在幫忙，但拿不到那些產物 —— 這個數字大就代表該補「持有上限」副技能或緞帶。">背包滿 ${f1(o.sim.snack)}</span>`:''}</div>
-      <div class="muted" title="活力 80 以上時幫忙間隔最短（×0.45）。&#10;活力檔位：80+ ×0.45 / 60+ ×0.52 / 40+ ×0.58 / 1+ ×0.66 / 0 ×1.00。&#10;這個比例越高，同樣的時間就幫越多次。" style="color:${o.sim.fastShare>=0.6?'var(--pos)':o.sim.fastShare>=0.3?'var(--ing)':'var(--neg)'}">最快檔位 ${f1(o.sim.fastHours)}h／日（${Math.round(o.sim.fastShare*100)}%）</div>
+      <div class="muted" title="活力 80 以上時，幫忙間隔最短（×0.45）—— 也就是產出最快的狀態。&#10;這個數字 = 一天有幾個小時處在那個狀態。&#10;&#10;活力檔位（決定幫忙間隔要乘多少）：&#10;　80 以上 ×0.45（最快）&#10;　60〜79　 ×0.52&#10;　40〜59　 ×0.58&#10;　1〜39　　×0.66&#10;　0　　　　×1.00（最慢）&#10;&#10;80 到 150 是同一格 —— 超過 80 不會更快，但掉回 80 以下要更久&#10;（起床 100 只撐 3.3 小時，起床 150 撐 11.7 小時）。&#10;&#10;比例低就是這隻活力不夠：考慮帶補師（活力填充／活力全體療癒），或睡久一點。" style="color:${o.sim.fastShare>=0.6?'var(--pos)':o.sim.fastShare>=0.3?'var(--ing)':'var(--neg)'}">活力80以上 ${f1(o.sim.fastHours)}h／日（${Math.round(o.sim.fastShare*100)}%）</div>
     </div>
   </div>`;
 }
@@ -2084,8 +2092,8 @@ function teamDetailHTML(r, opts){
       <div class="pillrow" style="margin-top:4px">
         <span class="pill" title="隊上帶「幫忙加成」副技能的隻數。&#10;每一隻讓全隊的幫手間隔 −5%（最多算到 5 隻）—— 所以它的價值主要在隊友身上。">幫忙加成 ×${r.ctx.nHB}</span>
         <span class="pill" title="隊上帶「活力回復提升」副技能的隻數。&#10;每一隻讓睡眠回復的活力 +14%（最多算到 5 隻），活力越高幫忙間隔越短。">活力回復提升 ×${r.ctx.nERB}</span>
-        <span class="pill" title="隊上的主技能（活力填充／活力全體療癒之類）每天補給每一位成員的活力。&#10;活力高 → 幫忙間隔短 → 產出變多。">技能補活力 ${Math.round(r.ctx.supportEnergy)}／日</span>
-        ${r.ctx.extraHelps>0.2?`<span class="pill" title="幫手支援S、治癒波動之類的主技能，每天讓每位成員額外完成的幫忙次數。">額外幫忙 ${f1(r.ctx.extraHelps)}／日</span>`:''}
+        <span class="pill" title="隊上的主技能（活力填充／活力全體療癒之類）每天補給**每一位成員**的活力。&#10;成員卡上那句「每日補活力 N 全隊合計」是這個數字 ×5。&#10;活力高 → 幫忙間隔短 → 產出變多。">技能補活力 每隻 ${Math.round(r.ctx.supportEnergy)}／日</span>
+        ${r.ctx.extraHelps>0.2?`<span class="pill" title="幫手支援S、治癒波動之類的主技能，每天讓**每一位成員**額外完成的幫忙次數。&#10;成員卡上那句「每日多幫忙 N 次 全隊合計」是這個數字 ×5。">額外幫忙 每隻 ${f1(r.ctx.extraHelps)}／日</span>`:''}
         ${r.ctx.darkDrain<0?`<span class="pill" style="color:var(--neg)" title="夢魘（達克萊伊）每天扣掉的活力，只打在**惡屬性以外**的成員身上。&#10;惡屬性隊友與達克萊伊自己免疫。">夢魘扣活力 ${Math.round(-r.ctx.darkDrain)}／日</span>`:''}
       </div>
     </div>
