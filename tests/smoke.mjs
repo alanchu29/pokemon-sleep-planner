@@ -149,13 +149,17 @@ console.log('\n[2b] 料理分數：搜尋目標與決賽目標不能脫鉤');
     const x = lastResults[0];
     let tableSum = 0;
     for (const p of x.mp.plan) tableSum += p.n * p.each * x.mul;
-    return {dishS: x.dishS, mpTotal: x.mp.total, tableSum, idle: x.mp.idleMeals};
+    return {dishS: x.dishS, mpTotal: x.mp.total, tableSum, idle: x.mp.idleMeals,
+            fillE: x.mp.fillE || 0, fillN: x.mp.fillN || 0, room: x.mp.room || 0};
   });
   // 使用者在同一個畫面上同時看得到這兩個數字，對不上就是文案說謊
   ok('「料理」＝ 21 餐排程表的小計', Math.abs(r.dishS - r.mpTotal) < 1,
      `dishS=${Math.round(r.dishS)} 排程=${Math.round(r.mpTotal)}`);
-  ok('排程表逐列加總也對得起來', Math.abs(r.tableSum - r.mpTotal) < 1,
-     `${Math.round(r.tableSum)} vs ${Math.round(r.mpTotal)}`);
+  /* 排程表 = 各道食譜的小計 ＋「鍋子空位填入其他食材」那一列。
+     填充那一列漏掉的話，表格加起來就會少一截而使用者看不出少在哪。 */
+  ok('排程表逐列加總（含填充列）對得起來', Math.abs(r.tableSum + r.fillE - r.mpTotal) < 1,
+     `食譜 ${Math.round(r.tableSum)} + 填充 ${Math.round(r.fillE)} vs ${Math.round(r.mpTotal)}`);
+  ok('填充量不超過鍋子空位總數', r.fillN <= r.room, `${r.fillN} / ${r.room}`);
 
   /* 搜尋階段的 dishS 必須是**下界**（≤ 真實排程），決賽才有得修正。
      這一條擋的是「為了省時間加一個樂觀近似」的回歸 —— 不管用什麼函式，
@@ -204,6 +208,32 @@ console.log('\n[2b] 料理分數：搜尋目標與決賽目標不能脫鉤');
   });
   ok('指定食譜模式也是下界', man.ratio <= 1.0001,
      `dishS=${Math.round(man.dishS)} real=${Math.round(man.real)} ratio=${man.ratio.toFixed(4)}`);
+}
+
+console.log('\n[2c] 結果卡：為什麼選這一隻 · 術語要看得懂');
+{
+  /* 使用者實際反應：「幫手 xx/日 是什麼意思」「偷吃是什麼」「最快檔位又是什麼」
+     「最下面 HB ERB 這些是什麼」—— HB/ERB 是原始碼裡的變數名，不是使用者看得懂的字。 */
+  const r = await page.evaluate(() => {
+    renderResults();
+    const cards = [...$('results').querySelectorAll('.mem')];
+    return {
+      whys: cards.map(c => { const w = c.querySelector('.why'); return w ? w.innerText.trim() : ''; }),
+      pills: [...$('results').querySelectorAll('.pillrow .pill')].map(p => p.innerText.trim()),
+      titles: [...$('results').querySelectorAll('[title]')].map(e => e.title).join('\n'),
+    };
+  });
+  ok('每一隻都有「為什麼選牠」', r.whys.length === 5 && r.whys.every(w => w.length > 4),
+     JSON.stringify(r.whys.map(w => w.slice(0, 40))));
+  // 理由要能對回卡片上看得到的數字，不能是無法查證的形容詞
+  ok('理由帶「佔這隊某分項的幾成」', r.whys.some(w => /佔這隊.{1,3}的 \d+%/.test(w)), r.whys[0]);
+  ok('隊伍加成不再用 HB / ERB 縮寫',
+     !r.pills.some(p => /^HB\b|^ERB\b/.test(p)), JSON.stringify(r.pills));
+  ok('隊伍加成寫成中文', r.pills.some(p => /幫忙加成/.test(p)) && r.pills.some(p => /活力回復提升/.test(p)),
+     JSON.stringify(r.pills));
+  ok('「幫忙」有解釋', /每天實際完成的幫忙次數/.test(r.titles));
+  ok('「最快檔位」有解釋（含活力檔位表）', /活力 80 以上/.test(r.titles) && /×0\.45/.test(r.titles));
+  ok('「背包滿」有解釋', /持有上限/.test(r.titles) || !/背包滿/.test(r.titles), r.titles.slice(0, 80));
 }
 
 console.log('\n[3] 單調性 — 調高食譜等級絕不能讓總分變低');
@@ -2255,11 +2285,15 @@ console.log('\n[11j] 自組隊伍：手動指定 5 隻，計算基礎必須和�
      真正的原因是木桶效應（每道料理要湊齊每一味）。歸錯原因會害人去加沒用的東西。 */
   const util = await page.evaluate(() => {
     wk.fav = new Set(); wk.strictBerry = true;
-    // produced 全押在食材 0，煮掉 cnt×n，剩下的堆在食材 0
+    /* produced 全押在食材 0；煮掉 cnt×n，鍋子空位（potEff−cnt 每餐）再塞進去，
+       真正剩下的才留在 leftover。填充是 2026-09-09 補上的機制（見 mealPlan）。 */
     const fake = (produced, cnt, n, potEff) => {
       const wIng = new Float64Array(NING), leftover = new Float64Array(NING);
-      wIng[0] = produced; leftover[0] = produced - cnt * n;
-      return {wIng, potEff, mp: {plan: [{r: {cnt}, n}], idleMeals: 0, leftover}};
+      const room = Math.max(0, potEff - cnt) * n;
+      const fillN = Math.max(0, Math.min(room, produced - cnt * n));
+      wIng[0] = produced; leftover[0] = produced - cnt * n - fillN;
+      return {wIng, potEff, mp: {plan: [{r: {cnt, n: D.recipes[0].n}, n, each: 100}],
+                                 idleMeals: 0, leftover, room, fillN, fillE: fillN * 100}};
     };
     return {
       low:     ingUtilNotice(fake(1000, 10, 2, 200)),   // 煮掉 20 → 2%，鍋子放得下所有食譜
@@ -2269,17 +2303,21 @@ console.log('\n[11j] 自組隊伍：手動指定 5 隻，計算基礎必須和�
       none:    ingUtilNotice({wIng: new Float64Array(NING), potEff: 57, mp: null}),
     };
   });
-  ok('食材大量過剩時要出聲', /食材利用率/.test(util.low) && /2%/.test(util.low), util.low.slice(0, 90));
-  ok('21 餐排滿且鍋子夠用時，不能把鍋子講成原因',
-     /鍋子容量也還有餘裕/.test(util.low) && !/加鍋子容量才有用/.test(util.low), util.low.slice(0, 160));
-  ok('要說明真正的原因是湊不齊每一味', /每一味/.test(util.low) && /最缺的那一味/.test(util.low));
+  ok('食材大量過剩時要出聲', /食材利用率/.test(util.low), util.low.slice(0, 90));
+  /* 用量要拆成兩段，否則使用者對不上：食譜指定的量 ＋ 塞進鍋子空位的量。
+     使用者原本的困惑（「一週產 1393、一餐可以用 81，為什麼只煮掉 519」）就是
+     因為填充那一段以前根本沒算。 */
+  ok('用量要拆成「食譜指定」＋「填鍋子空位」',
+     /食譜指定 \d+ ＋ 填進鍋子空位 \d+/.test(util.low), util.low.slice(0, 160));
+  ok('空位塞滿時要明講', /空位也全部塞滿了/.test(util.low), util.low.slice(0, 240));
+  // 診斷要可行動：填充補上之後，鍋子容量才真的是瓶頸
+  ok('要給可行動的兩條路', /加大鍋子容量/.test(util.low) && /食材數較少/.test(util.low),
+     util.low.slice(0, 300));
   ok('要列出剩最多的是哪幾味', /剩最多的是/.test(util.low), util.low.slice(-120));
-  ok('鍋子真的擋到高價食譜時才建議加鍋', /加鍋子容量才有用/.test(util.blocked), util.blocked.slice(-140));
-  /* 兩句不能同時出現 —— 早一版就是這樣自相矛盾的（說「不是鍋子太小」又說「加鍋子才有用」）*/
-  ok('「鍋子有餘裕」與「加鍋子才有用」不能同時出現',
-     !(/鍋子容量也還有餘裕/.test(util.blocked) && /加鍋子容量才有用/.test(util.blocked)),
-     util.blocked.slice(0, 160));
-  ok('餐數沒排滿時要講出來', /餐排不進去/.test(util.idle), util.idle.slice(0, 120));
+  ok('鍋子擋到高價食譜時要另外提', /加鍋子容量對這一項也有幫助/.test(util.blocked),
+     util.blocked.slice(-140));
+  ok('餐數沒排滿時要講出來，並說明拌拌料理不計分',
+     /餐排不進去/.test(util.idle) && /不計分/.test(util.idle), util.idle.slice(0, 160));
   ok('利用率高就不囉嗦', util.high === '');
   ok('沒有排程結果時不猜數字', util.none === '');
 

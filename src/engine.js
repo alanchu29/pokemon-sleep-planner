@@ -469,7 +469,48 @@ function bestPlan(wIng, potEff, mul, forced, wk){
   }
   return best;
 }
-/** Greedy fill of all 21 meals from one shared ingredient pool. */
+/** 21 餐的貪婪排程，共用同一個食材池。
+ *
+ *  ## 鍋子的剩餘空間會被別的食材填滿（2026-09-09 補上）
+ *
+ *  遊戲實際機制（使用者確認）：**湊齊食譜需要的食材之後，還可以繼續把別的食材塞進鍋子，
+ *  直到鍋子容量上限，那些食材的能量會直接加進這道料理。**
+ *
+ *  以前完全沒有這一段 —— 一道只要 23 個食材的食譜，在容量 81 的鍋子裡就只用 23 個，
+ *  剩下的 58 格空著。實測使用者那一週：食材產出 1393 個只用掉 519 個，而多出來的
+ *  874 個「沒有分數」。那個結論是錯的，它們是有分數的。
+ *
+ *  ## 兩種食材的計分方式不同（使用者 2026-09-09 說明，這是遊戲機制）
+ *
+ *  | | 食譜等級倍率 `rlb` | 食譜加成 `bonus` | 大成功（暴擊） | 島嶼加成 |
+ *  |---|---|---|---|---|
+ *  | **食譜規定的基礎食材** | ✓ | ✓ | ✓ | ✓ |
+ *  | **額外塞進去填鍋的** | ✗ | ✗ | ✓ | ✓ |
+ *
+ *  額外食材**只算它的原始基礎單價**：130 分的火辣香草丟進 Lv1 的蘋果汁或 Lv60 的
+ *  馬卡龍，都一樣是 130。但大成功與島嶼加成作用在**整鍋的總和**上，所以那兩個照吃 ——
+ *  程式上就是 `fillE * mul`（`mul = critMul × areaMul`），不乘 `rlb` 也不乘 `bonus`。
+ *
+ *  推論：**填鍋的食材基礎單價越高越好**（呆呆獸尾巴 342、南瓜 250、大蔥 185…），
+ *  所以填充是按食材能量由高到低塞。
+ *
+ *  **填充放在所有食譜都排完之後**，理由是那樣填充不會搶走食譜需要的食材，排程仍然
+ *  由「單道能量最高」決定。結果是可達的，所以 `mealPlan` 仍然是真值的下界（陷阱 5
+ *  的不變量靠這件事）。
+ *
+ *  ⚠ **已知的近似（量測過了）**：貪婪是按 `rv`（單道能量）挑食譜的，**沒有把「這道
+ *  留下多少空位」算進去**。食材數少的食譜留的空位多，而空位現在是有價值的，所以
+ *  「rv 稍低但 cnt 小」的食譜理論上可能反超。實測（591 組抽樣 × 3 種設定）：
+ *
+ *  | 設定 | 考慮空位會更好的隊伍 | 平均多 | 最多多 |
+ *  |---|---|---|---|
+ *  | 鍋54+券 / Lv30 / 全食譜 | 4.6% | 1.07% | 4.92% |
+ *  | 鍋57 / Lv20 / 只咖哩 | 2.4% | 0.26% | 0.75% |
+ *  | 鍋120 / Lv55 / 全食譜 | 4.1% | 1.71% | 5.74% |
+ *
+ *  影響存在但不大，而且要正確估「空位單價」得對剩餘食材池排序（每輪都做的話很貴）。
+ *  暫時不做，見 TODO.md。**不要把這一段誤讀成「貪婪是最佳的」** —— 它不是。
+ */
 function mealPlan(wIng, potEff, mul, forceFirst, wk){
   const pool = Array.from(wIng);
   const plan = []; let meals = MEALS_WEEK, total = 0, guard = 0;
@@ -499,7 +540,33 @@ function mealPlan(wIng, potEff, mul, forceFirst, wk){
     total += best.cooks * best.c.rv * mul;
     meals -= best.cooks;
   }
-  return {plan, total, idleMeals: meals, leftover: pool};
+  /* 把剩下的食材塞進每一鍋的空位（見函式開頭的說明）。
+   *
+   * **空位一律只計食材的基礎能量**，所以每一格的價值都一樣，可以當成一個扁平的
+   * `room` 一起填 —— 不需要按食譜分配。`total += fillE * mul` 的 `mul` 是
+   * `critMul × areaMul`，也就是大成功與島嶼加成照吃（那兩個作用在整鍋的總和上）。
+   *
+   * 能量高的食材先塞：空位有限，同一格當然放值錢的（呆呆獸尾巴 342、南瓜 250、
+   * 大蔥 185…）。使用者的話：「用大量的高分食材當肥料填滿大鍋子，即使只煮最基礎的
+   * 食譜，最後的總能量依然會非常可觀。」 */
+  let room = 0;
+  for (const x of plan) room += Math.max(0, potEff - x.r.cnt) * x.n;
+  let fillE = 0, fillN = 0;
+  if (room > 0){
+    const order = [];
+    for (let i = 0; i < NING; i++) if (pool[i] >= 1) order.push(i);
+    order.sort((a, b) => ING_VAL[b] - ING_VAL[a]);
+    for (const i of order){
+      if (fillN >= room) break;
+      const take = Math.min(Math.floor(pool[i]), room - fillN);
+      if (take <= 0) continue;
+      pool[i] -= take; fillN += take; fillE += take * ING_VAL[i];
+    }
+    total += fillE * mul;
+  }
+  /* `fillE` 回傳的是**已經乘過 mul 的分數**，和 `total` 同一個單位，UI 才能直接顯示
+     「其中多少來自填充」。`room` / `fillN` 給食材利用率那段用。 */
+  return {plan, total, idleMeals: meals, leftover: pool, fillE: fillE * mul, fillN, room};
 }
 
 function rankRecipesForTeam(r, wk){

@@ -57,7 +57,7 @@ const SCHEMA = 4;   // 4: 新增 msExtra{}（上游沒有的主技能數值表�
    「新的 index.html ＋ 舊的 app.js」—— 畫面畫出舊版 UI，而使用者只會覺得
    「你根本沒改」，完全不知道是快取。有了這個斷言，過期的 app.js 會直接被擋下來
    並要求強制重新整理。tests/smoke.mjs 第 11 節會斷言三處一致。 */
-const APP_V = '20260909i';
+const APP_V = '20260909k';
 
 /** 致命錯誤：整頁換成一段說明。這種狀況下繼續跑只會產生錯的數字。 */
 function fatal(html){
@@ -1908,6 +1908,42 @@ $('cancelBtn').addEventListener('click', ()=>{
 });
 
 /* ================= RESULTS RENDER ================= */
+/* 「為什麼是這一隻」。
+ *
+ * **每一句都從實際算出來的數字回推，不是事後編的說法。** 每個理由都對應到卡片上
+ * 看得到的欄位，否則就變成無法查證的形容詞 —— 那比不解釋更糟。
+ *
+ * 主力那一項用的是「佔隊伍該分項的比例」而不是絕對值：三種產出的單位不同
+ * （樹果／主技能是卡比獸能量，食材是還沒經過料理放大的原能量），絕對值不可比，
+ * 但「牠貢獻了這隊樹果的幾成」是可比的。 */
+function pickReason(k, r){
+  const i = r.idxs[k], m = roster[i], p = D.dex[m.sp], o = r.outs[k], bs = m._bs;
+  const A = 1 + wk.areaBonus/100;
+  const ingOf = x => { let v = 0; for (let n = 0; n < NING; n++) v += x.ing[n] * ING_VAL[n]; return v; };
+  const tot = f => r.outs.reduce((s, x) => s + f(x), 0);
+  const parts = [
+    ['樹果',   o.berryStrength, tot(x => x.berryStrength), v => `樹果 ${fmt(v * 7 * A)}／週`],
+    ['主技能', o.skillStrength, tot(x => x.skillStrength), v => `主技能能量 ${fmt(v * 7 * A)}／週`],
+    ['食材',   ingOf(o),        tot(ingOf),                v => `食材 ${fmt(v * 7)}／週（未經料理加成）`],
+  ].filter(x => x[1] > 0);
+  const bits = [];
+  if (parts.length){
+    const main = parts.slice().sort((a, b) => (b[1] / (b[2] || 1)) - (a[1] / (a[2] || 1)))[0];
+    bits.push(`${main[3](main[1])}　<b>佔這隊${main[0]}的 ${Math.round(main[1] / (main[2] || 1) * 100)}%</b>`);
+  }
+  /* 瓶頸食材是「為什麼非牠不可」最強的理由 —— 換掉牠，主食譜就少煮好幾次。 */
+  if (r.bottleneck != null && o.ing[r.bottleneck] * 7 > 1)
+    bits.push(`供應瓶頸食材 <b>${iz(ING_NAME[r.bottleneck])}</b> ${f1(o.ing[r.bottleneck] * 7)}／週`);
+  if (wk.fav.has(p.b)) bits.push(`產本週加成樹果（能量 ×2）`);
+  if (bs.hasHB) bits.push(`帶「幫忙加成」：全隊幫手間隔 −5%`);
+  if (bs.hasERB) bits.push(`帶「活力回復提升」：睡眠回復 +14%`);
+  if (/^Helper Boost/.test(p.ms)) bits.push(`幫手加速：發動時讓全隊各多幫忙一次`);
+  if (o.energyGiven > 0) bits.push(`每日補全隊活力 ${f1(o.energyGiven)}`);
+  if (o.helpsGiven > 0.2) bits.push(`每日讓隊友多幫忙 ${f1(o.helpsGiven)} 次`);
+  /* 代價也要寫出來 —— 只講好處就是選擇性呈現。夢魘的扣活力打的是非惡屬性隊友。 */
+  if (o.energyDrain < 0) bits.push(`<span style="color:var(--neg)">代價：每日扣非惡屬性隊友活力 ${f1(-o.energyDrain)}</span>`);
+  return bits.slice(0, 3).join('　·　');
+}
 function memberCard(rank, i, r, o){
   const m = roster[i], p = D.dex[m.sp], bs = m._bs;
   const act = bs.act.map(a=>sss(a));
@@ -1923,11 +1959,12 @@ function memberCard(rank, i, r, o){
       }<span class="tag ${SPEC_TAG[p.sp]}">${SPEC_ZH[p.sp]}</span>${wk.fav.has(p.b)?`<span class="tag fav">加成樹果</span>`:''}${m.pin?`<span class="tag pin">固定</span>`:''}</div>
       <div class="meta">Lv${m.level} · ${natZ(NAT[m.nature]||NAT.Bashful)} · ${act.length?act.join('／'):'無副技能'} · 頻率 ${Math.round(o.sim.freqBase/60*10)/10}分</div>\n      <div class="meta">${msz(p.ms)} Lv${bs.skillLv} · 每日發動 ${f1(o.sim.procs)} 次 ${msCaveat(p.ms)}</div>
       <div class="meta" style="color:var(--ing)">${ingList.length?ingList.join('　'):'（無食材產出）'}</div>
+      <div class="why">${pickReason(rank-1, r)}</div>
     </div>
     <div class="out">
       <div><span class="muted">週能量</span> ${fmt((o.berryStrength+o.skillStrength)*7*(1+wk.areaBonus/100))}</div>
-      <div class="muted">幫手 ${f1(o.sim.productive)}／日${o.sim.snack>0.5?` · 偷吃 ${f1(o.sim.snack)}`:''}</div>
-      <div class="muted" style="color:${o.sim.fastShare>=0.6?'var(--pos)':o.sim.fastShare>=0.3?'var(--ing)':'var(--neg)'}">最快檔位 ${f1(o.sim.fastHours)}h／日（${Math.round(o.sim.fastShare*100)}%）</div>
+      <div class="muted" title="每天實際完成的幫忙次數（含睡眠期間存下來的那些）。&#10;每次幫忙會帶回樹果或食材，也有機率發動主技能。">幫忙 ${f1(o.sim.productive)} 次／日${o.sim.snack>0.5?` · <span title="睡覺時背包裝滿之後仍在幫忙，但拿不到那些產物 —— 這個數字大就代表該補「持有上限」副技能或緞帶。">背包滿 ${f1(o.sim.snack)}</span>`:''}</div>
+      <div class="muted" title="活力 80 以上時幫忙間隔最短（×0.45）。&#10;活力檔位：80+ ×0.45 / 60+ ×0.52 / 40+ ×0.58 / 1+ ×0.66 / 0 ×1.00。&#10;這個比例越高，同樣的時間就幫越多次。" style="color:${o.sim.fastShare>=0.6?'var(--pos)':o.sim.fastShare>=0.3?'var(--ing)':'var(--neg)'}">最快檔位 ${f1(o.sim.fastHours)}h／日（${Math.round(o.sim.fastShare*100)}%）</div>
     </div>
   </div>`;
 }
@@ -1950,12 +1987,16 @@ function memberCard(rank, i, r, o){
  * 判斷，不能從利用率反推。
  *
  * 沒有 `mp`（還沒跑決賽排程）就不出聲 —— 猜一個數字比不講更糟。 */
-const ING_UTIL_WARN = 0.6;
+const ING_UTIL_WARN = 0.75;
 function ingUtilNotice(r){
   if (!r.mp) return '';
   let total = 0; for (let k=0;k<NING;k++) total += r.wIng[k];
   if (total <= 0) return '';
-  let used = 0; for (const x of r.mp.plan) used += x.r.cnt * x.n;
+  /* 用掉的 = 食譜指定的 ＋ 塞進鍋子空位的。**填充那一段以前完全沒算**（見 mealPlan），
+     所以這個百分比在 2026-09-09 之前是嚴重低估的。 */
+  let cooked = 0; for (const x of r.mp.plan) cooked += x.r.cnt * x.n;
+  const filled = r.mp.fillN || 0;
+  const used = cooked + filled;
   if (used / total >= ING_UTIL_WARN) return '';
 
   /* 「哪幾味堆著沒用」比一個百分比有用得多 —— 那才是你能拿去做決定的東西。 */
@@ -1967,21 +2008,37 @@ function ingUtilNotice(r){
      POOL 已經按單道能量由高到低排序，所以看前段就夠。這是唯一能推薦「加鍋容量」的
      依據 —— 從利用率反推會推出錯的結論（見上面的實測）。 */
   const blocked = POOL.slice(0, 15).filter(c => c.cnt > r.potEff);
+  /* **一定要講出「每道食譜的食材數是固定的」。**
+     使用者的實際反應：「一週產 1393，一餐可以用掉 81，為什麼只煮掉 519？」——
+     因為鍋容量是「一道最多能放幾個」的上限，而**每道食譜要幾個食材是食譜自己決定的**
+     （78 道的中位數只有 33，最小 7）。那次排程排出來的是「×16 每道 23 個」＋
+     「×5 每道 9 個」＝ 413 個，塞不進 81 個/餐的空間。只講百分比不講這件事，
+     使用者會以為是程式算錯。 */
+  const mealsCooked = r.mp.plan.reduce((s,x)=>s+x.n, 0);
+  const roomLeft = (r.mp.room || 0) - filled;
   return `<div class="notice">食材利用率 <b>${Math.round(used/total*100)}%</b>`
-    + `（一週產 ${Math.round(total)} 個，煮掉 ${Math.round(used)} 個）——剩下的沒有分數。`
+    + `（一週產 ${Math.round(total)} 個，用掉 ${Math.round(used)} 個`
+    + `＝食譜指定 ${Math.round(cooked)} ＋ 填進鍋子空位 ${Math.round(filled)}）`
+    + `——剩下的 ${Math.round(total-used)} 個沒有分數。`
     + (r.mp.idleMeals > 0
-        ? `而且還有 <b>${r.mp.idleMeals} 餐排不進去</b>，表示連便宜的食譜都湊不齊食材。`
-        : `${MEALS_WEEK} 餐<b>都排滿了</b>，所以不是餐數不夠${blocked.length ? '' : '，鍋子容量也還有餘裕'}。`)
-    + `每道料理都要湊齊它需要的<b>每一味</b>，最缺的那一味決定能煮幾次，`
-    + `所以產量再高、種類不均的話，多出來的那幾味也只能堆著。`
-    + (topLeft ? `目前剩最多的是 <b>${topLeft}</b> —— 要嘛換一道用得到它們的食譜，要嘛補上高價食譜缺的那幾味。` : '')
-    /* 這一句和上面那句是**兩件不同的事**：上面說的是「已經煮的這 21 餐用不掉你的食材」，
-       這裡說的是「還有更貴的食譜連進鍋的機會都沒有」。早一版把兩者混在一起，變成
-       同時說「不是鍋子太小」又說「加鍋子才有用」—— 自相矛盾。 */
+        ? `<br>還有 <b>${r.mp.idleMeals} 餐排不進去</b>，表示連便宜的食譜都湊不齊食材。`
+          + `（那幾餐在遊戲裡會退成拌拌料理，這個工具目前<b>不計分</b>。）`
+        : roomLeft <= 0
+          /* 填充補上之後，鍋子容量**真的**變成瓶頸了 —— 每一鍋的空位 = 容量 − 食譜的
+             食材數，21 餐加起來就是能額外塞進去的總量。這和「食材種類湊不齊」是不同的
+             限制：填充不挑種類，所以剩下的食材是被**空位**擋住，不是被木桶效應擋住。 */
+          ? `<br><b>${MEALS_WEEK} 餐都排滿了，而且每一鍋的空位也全部塞滿了</b>`
+            + `（總空位 ${Math.round(r.mp.room)} 格）。要再多用一點食材，只有兩條路：`
+            + `<b>加大鍋子容量</b>（每餐多出來的格子 × ${mealsCooked} 餐），`
+            + `或改煮<b>食材數較少</b>的食譜（空位變多，但單道能量較低 —— 通常不划算）。`
+          : `<br>${MEALS_WEEK} 餐都排滿了，鍋子空位還有 ${Math.round(roomLeft)} 格沒填滿。`)
+    + (topLeft ? `目前剩最多的是 <b>${topLeft}</b>。` : '')
+    /* 這一句和上面那句是**兩件不同的事**：上面說的是「這 21 鍋的容量用完了」，
+       這裡說的是「還有更貴的食譜連進鍋的機會都沒有」。 */
     + (blocked.length
         ? `<br>另外有 ${blocked.length} 道更高價的食譜因為鍋子容量只有 ${r.potEff} 而放不進去`
-          + `（最貴的那道要 ${blocked[0].cnt} 個）—— <b>那一項</b>加鍋子容量才有用，`
-          + `但上面堆著的食材不會因此變少，那是兩件事。`
+          + `（最貴的那道要 ${blocked[0].cnt} 個）—— 加鍋子容量對這一項也有幫助，`
+          + `但還是要湊得齊它們要的食材種類。`
         : '')
     + `</div>`;
 }
@@ -2022,11 +2079,14 @@ function teamDetailHTML(r, opts){
     <div class="roster">
       <div class="eyebrow">${O.rosterLabel || '建議先發 5 隻'}</div>
       ${r.idxs.map((i,n)=>memberCard(n+1, i, r, r.outs[n])).join('')}
+      <!-- 這一列是**整隊共用**的加成（teamContext 算出來的），不屬於任何一隻。
+           以前寫 HB / ERB 這種縮寫 —— 那是原始碼裡的變數名，不是使用者看得懂的字。 -->
       <div class="pillrow" style="margin-top:4px">
-        <span class="pill">HB ×${r.ctx.nHB}</span>
-        <span class="pill">ERB ×${r.ctx.nERB}</span>
-        <span class="pill">技能補能量 ${Math.round(r.ctx.supportEnergy)}/日</span>
-        ${r.ctx.extraHelps>0.2?`<span class="pill">額外幫手 ${f1(r.ctx.extraHelps)}/日</span>`:''}
+        <span class="pill" title="隊上帶「幫忙加成」副技能的隻數。&#10;每一隻讓全隊的幫手間隔 −5%（最多算到 5 隻）—— 所以它的價值主要在隊友身上。">幫忙加成 ×${r.ctx.nHB}</span>
+        <span class="pill" title="隊上帶「活力回復提升」副技能的隻數。&#10;每一隻讓睡眠回復的活力 +14%（最多算到 5 隻），活力越高幫忙間隔越短。">活力回復提升 ×${r.ctx.nERB}</span>
+        <span class="pill" title="隊上的主技能（活力填充／活力全體療癒之類）每天補給每一位成員的活力。&#10;活力高 → 幫忙間隔短 → 產出變多。">技能補活力 ${Math.round(r.ctx.supportEnergy)}／日</span>
+        ${r.ctx.extraHelps>0.2?`<span class="pill" title="幫手支援S、治癒波動之類的主技能，每天讓每位成員額外完成的幫忙次數。">額外幫忙 ${f1(r.ctx.extraHelps)}／日</span>`:''}
+        ${r.ctx.darkDrain<0?`<span class="pill" style="color:var(--neg)" title="夢魘（達克萊伊）每天扣掉的活力，只打在**惡屬性以外**的成員身上。&#10;惡屬性隊友與達克萊伊自己免疫。">夢魘扣活力 ${Math.round(-r.ctx.darkDrain)}／日</span>`:''}
       </div>
     </div>
     <div class="totals">
@@ -2073,7 +2133,7 @@ function teamDetailHTML(r, opts){
   </div>
 
   ${r.mp ? `<div class="panel" style="margin-top:16px">
-    <div class="phead"><h3>本週 21 餐排程</h3><span class="muted" style="font-size:12px">同一個食材池貪婪填滿 · 依單道能量由高到低</span></div>
+    <div class="phead"><h3>本週 21 餐排程</h3><span class="muted" style="font-size:12px">同一個食材池貪婪填滿 · 依單道能量由高到低 · 鍋子剩下的空位會塞其他食材</span></div>
     <div class="pbody" style="padding:0"><div class="scroll" style="border:0">
     <table><thead><tr><th>餐次</th><th>食譜</th><th style="text-align:right">次數</th><th style="text-align:right">單道</th><th style="text-align:right">小計</th></tr></thead>
     <tbody>${r.mp.plan.map((x,n)=>`<tr>
@@ -2082,7 +2142,12 @@ function teamDetailHTML(r, opts){
       <td class="n" style="text-align:right">${x.n}</td>
       <td class="n" style="text-align:right">${fmt(x.each)}</td>
       <td class="n" style="text-align:right">${fmt(x.n*x.each*r.mul)}</td></tr>`).join('')}
-      ${r.mp.idleMeals>0?`<tr><td></td><td class="muted">食材不足，${r.mp.idleMeals} 餐無法排入（實際遊戲會退成拌拌料理）</td><td class="n" style="text-align:right">${r.mp.idleMeals}</td><td></td><td class="n" style="text-align:right">—</td></tr>`:''}
+      ${r.mp.fillN>0?`<tr><td></td>
+        <td title="湊齊食譜需要的食材之後，鍋子剩下的空位可以繼續塞別的食材進去。&#10;額外食材只算它的原始基礎單價 —— 不吃食譜等級倍率、也不吃食譜加成，&#10;但大成功與島嶼加成作用在整鍋總和上，所以那兩個照吃。&#10;因此填鍋優先用基礎單價高的食材（呆呆獸尾巴 342、南瓜 250、大蔥 185…）。&#10;每一鍋的空位 = 鍋子容量 − 該食譜的食材數。"><b>鍋子空位填入其他食材</b> <span class="muted num">共 ${r.mp.room} 格</span> <span class="muted" style="font-size:11px">只計基礎單價</span></td>
+        <td class="n" style="text-align:right">${r.mp.fillN} 個</td>
+        <td class="n" style="text-align:right">—</td>
+        <td class="n" style="text-align:right">${fmt(r.mp.fillE)}</td></tr>`:''}
+      ${r.mp.idleMeals>0?`<tr><td></td><td class="muted">食材不足，${r.mp.idleMeals} 餐無法排入（實際遊戲會退成拌拌料理，這個工具不計分）</td><td class="n" style="text-align:right">${r.mp.idleMeals}</td><td></td><td class="n" style="text-align:right">—</td></tr>`:''}
     </tbody></table></div></div>
   </div>` : ''}`;
 }
