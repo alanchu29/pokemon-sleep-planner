@@ -137,6 +137,75 @@ await doRun(`wk.recipeScope = 'all'; wk.recipePick = 'auto'; syncWeeklyUI()`);
   ok('最快檔位比例在 0..1', r.fast.every(f => f >= 0 && f <= 1));
 }
 
+console.log('\n[2b] 料理分數：搜尋目標與決賽目標不能脫鉤');
+{
+  /* 這一節擋的是一個實際發生過的 bug：搜尋階段用 `proxyDish`（走訪食譜填餐次但
+     **不扣除食材**，同一批食材被多道食譜重複計算）。它高估中位數 1.389 倍、最高
+     2.85 倍，而且高估幅度隨隊伍的食材分布而變 —— 所以連排序都不保。後果是搜尋選出
+     的隊伍真實分數比最佳低 9.2%，真實前 8 名全部擠不進決賽；而且 `finalizeTeams` 的
+     `if (mp.total > b.dishS)` 因為上界永遠比較大而幾乎不成立，UI 的「料理」數字和
+     21 餐排程表的小計差了 58%。詳見 DECISIONS.md。 */
+  const r = await page.evaluate(() => {
+    const x = lastResults[0];
+    let tableSum = 0;
+    for (const p of x.mp.plan) tableSum += p.n * p.each * x.mul;
+    return {dishS: x.dishS, mpTotal: x.mp.total, tableSum, idle: x.mp.idleMeals};
+  });
+  // 使用者在同一個畫面上同時看得到這兩個數字，對不上就是文案說謊
+  ok('「料理」＝ 21 餐排程表的小計', Math.abs(r.dishS - r.mpTotal) < 1,
+     `dishS=${Math.round(r.dishS)} 排程=${Math.round(r.mpTotal)}`);
+  ok('排程表逐列加總也對得起來', Math.abs(r.tableSum - r.mpTotal) < 1,
+     `${Math.round(r.tableSum)} vs ${Math.round(r.mpTotal)}`);
+
+  /* 搜尋階段的 dishS 必須是**下界**（≤ 真實排程），決賽才有得修正。
+     這一條擋的是「為了省時間加一個樂觀近似」的回歸 —— 不管用什麼函式，
+     只要它會高估，這裡就會紅。 */
+  const bound = await page.evaluate(() => {
+    const memo = new Map();
+    const idx = roster.map((_, i) => i).filter(i => !roster[i].ex);
+    const out = {over: 0, n: 0, worst: 1};
+    // 抽 120 組（每組不同的 5 隻），比搜尋分數與真實排程
+    for (let t = 0; t < 120; t++){
+      const pick = [];
+      for (let k = 0; k < 5; k++) pick.push(idx[(t * 7 + k * 13 + k) % idx.length]);
+      if (new Set(pick).size !== 5) continue;
+      pick.sort((a, b) => a - b);
+      const s = scoreTeam(pick, roster, wk, memo);
+      const real = bestPlan(s.wIng, s.potEff, s.mul, wk.recipePick === 'manual' ? wk.recipe : null, wk).total;
+      out.n++;
+      if (real > 0){
+        const ratio = s.dishS / real;
+        if (ratio > 1.0001) out.over++;
+        out.worst = Math.max(out.worst, ratio);
+      }
+    }
+    return out;
+  });
+  ok('搜尋階段的料理分數是下界，不是上界',
+     bound.over === 0, `${bound.n} 組裡有 ${bound.over} 組高估，最大比值 ${bound.worst.toFixed(4)}`);
+
+  // 指定食譜模式也不能脫鉤（決賽會用別的食譜填滿剩下的餐，搜尋階段以前沒算那一段）
+  const man = await page.evaluate(async () => {
+    const keep = {pick: wk.recipePick, name: wk.recipeName};
+    wk.recipePick = 'manual';
+    wk.recipeName = D.recipes.find(r => r.cnt <= wk.pot).n;
+    wk.recipe = D.recipes.find(r => r.n === wk.recipeName);
+    buildPool(wk);
+    roster.forEach(m => { m._bs = baseStats(m, wk); });
+    const memo = new Map();
+    const idx = roster.map((_, i) => i).filter(i => !roster[i].ex).slice(0, 5);
+    const s = scoreTeam(idx, roster, wk, memo);
+    const real = bestPlan(s.wIng, s.potEff, s.mul, wk.recipe, wk).total;
+    const ratio = real > 0 ? s.dishS / real : 1;
+    Object.assign(wk, {recipePick: keep.pick, recipeName: keep.name});
+    wk.recipe = D.recipes.find(r => r.n === wk.recipeName) || D.recipes[0];
+    buildPool(wk);
+    return {ratio, dishS: s.dishS, real};
+  });
+  ok('指定食譜模式也是下界', man.ratio <= 1.0001,
+     `dishS=${Math.round(man.dishS)} real=${Math.round(man.real)} ratio=${man.ratio.toFixed(4)}`);
+}
+
 console.log('\n[3] 單調性 — 調高食譜等級絕不能讓總分變低');
 {
   await doRun('wk.recipeLevels = {}');
@@ -2180,21 +2249,49 @@ console.log('\n[11j] 自組隊伍：手動指定 5 隻，計算基礎必須和�
   ok('但要講出推演不會選這組', /推演分頁.*不會選|不產本週加成樹果/.test(sb.txt), sb.txt.slice(0, 120));
   ok('而且要寫出是哪一隻', sb.txt.includes(sb.name), sb.name);
 
-  /* ---- 食材利用率（推演與自組共用同一份） ---- */
+  /* ---- 食材利用率（推演與自組共用同一份）----
+     這一節盯的是**診斷不能歸錯原因**。第一版的文案說「一週最多 21 餐 × 鍋容量，
+     所以要先提高鍋子容量」，但實測 21 餐早就排滿、而且鍋子加到 4 倍利用率也不動 ——
+     真正的原因是木桶效應（每道料理要湊齊每一味）。歸錯原因會害人去加沒用的東西。 */
   const util = await page.evaluate(() => {
     wk.fav = new Set(); wk.strictBerry = true;
-    const low = {wIng: new Float64Array(NING), potEff: 57,
-                 mp: {plan: [{r: {cnt: 10}, n: 2}], idleMeals: 0}};
-    low.wIng[0] = 1000;                    // 產 1000、只煮掉 20 → 2%
-    const high = {wIng: new Float64Array(NING), potEff: 57,
-                  mp: {plan: [{r: {cnt: 45}, n: 21}], idleMeals: 0}};
-    high.wIng[0] = 1000;                   // 煮掉 945 → 94.5%
-    return {low: ingUtilNotice(low), high: ingUtilNotice(high),
-            none: ingUtilNotice({wIng: new Float64Array(NING), potEff: 57, mp: null})};
+    // produced 全押在食材 0，煮掉 cnt×n，剩下的堆在食材 0
+    const fake = (produced, cnt, n, potEff) => {
+      const wIng = new Float64Array(NING), leftover = new Float64Array(NING);
+      wIng[0] = produced; leftover[0] = produced - cnt * n;
+      return {wIng, potEff, mp: {plan: [{r: {cnt}, n}], idleMeals: 0, leftover}};
+    };
+    return {
+      low:     ingUtilNotice(fake(1000, 10, 2, 200)),   // 煮掉 20 → 2%，鍋子放得下所有食譜
+      blocked: ingUtilNotice(fake(1000, 10, 2, 20)),    // 同上，但鍋子只有 20 → 真的擋到高價食譜
+      high:    ingUtilNotice(fake(1000, 45, 21, 200)),  // 煮掉 945 → 94.5%
+      idle:    (() => { const f = fake(1000, 10, 2, 200); f.mp.idleMeals = 6; return ingUtilNotice(f); })(),
+      none:    ingUtilNotice({wIng: new Float64Array(NING), potEff: 57, mp: null}),
+    };
   });
   ok('食材大量過剩時要出聲', /食材利用率/.test(util.low) && /2%/.test(util.low), util.low.slice(0, 90));
+  ok('21 餐排滿且鍋子夠用時，不能把鍋子講成原因',
+     /鍋子容量也還有餘裕/.test(util.low) && !/加鍋子容量才有用/.test(util.low), util.low.slice(0, 160));
+  ok('要說明真正的原因是湊不齊每一味', /每一味/.test(util.low) && /最缺的那一味/.test(util.low));
+  ok('要列出剩最多的是哪幾味', /剩最多的是/.test(util.low), util.low.slice(-120));
+  ok('鍋子真的擋到高價食譜時才建議加鍋', /加鍋子容量才有用/.test(util.blocked), util.blocked.slice(-140));
+  /* 兩句不能同時出現 —— 早一版就是這樣自相矛盾的（說「不是鍋子太小」又說「加鍋子才有用」）*/
+  ok('「鍋子有餘裕」與「加鍋子才有用」不能同時出現',
+     !(/鍋子容量也還有餘裕/.test(util.blocked) && /加鍋子容量才有用/.test(util.blocked)),
+     util.blocked.slice(0, 160));
+  ok('餐數沒排滿時要講出來', /餐排不進去/.test(util.idle), util.idle.slice(0, 120));
   ok('利用率高就不囉嗦', util.high === '');
   ok('沒有排程結果時不猜數字', util.none === '');
+
+  // 「這隊最能煮的食譜」要指出卡在哪一味 —— rankRecipesForTeam 本來就算了 bn，只是沒顯示
+  const bn = await page.evaluate(() => {
+    teams = [newTeam()]; teams[0].members = lastResults[0].idxs.slice();
+    renderTeamsView();
+    const th = [...$('teamDetail').querySelectorAll('th')].map(e => e.innerText);
+    return {hasCol: th.includes('卡在'), txt: $('teamDetail').innerText};
+  });
+  ok('食譜表有「卡在」欄', bn.hasCol);
+  ok('「卡在」欄有填東西', /卡在/.test(bn.txt));
 
   // 收尾：把狀態還原，不要影響後面的節次
   await page.evaluate(() => { teams = [newTeam()]; teamShown = 0; closePicker(); showView('plan'); });

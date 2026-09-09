@@ -57,7 +57,7 @@ const SCHEMA = 4;   // 4: 新增 msExtra{}（上游沒有的主技能數值表�
    「新的 index.html ＋ 舊的 app.js」—— 畫面畫出舊版 UI，而使用者只會覺得
    「你根本沒改」，完全不知道是快取。有了這個斷言，過期的 app.js 會直接被擋下來
    並要求強制重新整理。tests/smoke.mjs 第 11 節會斷言三處一致。 */
-const APP_V = '20260909h';
+const APP_V = '20260909i';
 
 /** 致命錯誤：整頁換成一段說明。這種狀況下繼續跑只會產生錯的數字。 */
 function fatal(html){
@@ -1934,10 +1934,20 @@ function memberCard(rank, i, r, o){
 /* 食材利用率：一週產出的食材裡，真正進了鍋的比例。
  *
  * **食材過剩以前完全不出聲。** UI 只在食材**不足**（`mp.idleMeals > 0`）時警告，但實際
- * 更常見的是相反：`21 餐 × 鍋容量` 就是一週能煮掉的食材上限，超過的部分**分數是零**。
- * 實測預設設定（鍋 57／食譜 Lv20）下一支全食材隊的浪費率是 80% —— 而畫面一片安靜，
- * 使用者只會覺得「推演怎麼都不選食材型」，不知道是鍋子太小、食譜等級太低。
- * 靜靜地丟掉 8 成食材而不講，和「靜靜地少算候選」是同一類的文案說謊。
+ * 更常見的是相反：剩下的食材分數是零，而畫面一片安靜 —— 使用者只會覺得「推演怎麼都不
+ * 選食材型」。靜靜地丟掉一半食材而不講，和「靜靜地少算候選」是同一類的文案說謊。
+ *
+ * **但診斷不能歸錯原因。** 第一版寫的是「一週最多 21 餐 × 鍋容量，所以食材型再多也吃
+ * 不下，要先提高鍋子容量」—— 那是錯的，而且會害使用者去加一個沒用的東西。實測：
+ *
+ *   全食材隊 potEff 81：容量上限 21×81 = 1701，實際只煮掉 1373，而且 21 餐**全滿**
+ *   樹果隊把鍋子加到 332：容量上限 6972，利用率還是 52%（加鍋子完全沒有幫助）
+ *
+ * 真正的原因是**木桶效應**：每道料理要湊齊它需要的**每一味**，`cooks` 取的是
+ * `min(floor(pool[i]/a))` —— 最缺的那一味決定能煮幾次。所以產量高但種類不均的話，
+ * 多的那幾味只能堆著（那支全食材隊剩 1259 個蜂蜜，卻因為可可／蛋只有 104 個而煮不了
+ * 高價食譜）。鍋容量只有在**高價食譜的 `cnt` 超過 `potEff`** 時才真的在擋路，那要另外
+ * 判斷，不能從利用率反推。
  *
  * 沒有 `mp`（還沒跑決賽排程）就不出聲 —— 猜一個數字比不講更糟。 */
 const ING_UTIL_WARN = 0.6;
@@ -1947,10 +1957,33 @@ function ingUtilNotice(r){
   if (total <= 0) return '';
   let used = 0; for (const x of r.mp.plan) used += x.r.cnt * x.n;
   if (used / total >= ING_UTIL_WARN) return '';
+
+  /* 「哪幾味堆著沒用」比一個百分比有用得多 —— 那才是你能拿去做決定的東西。 */
+  const left = [];
+  for (let k=0;k<NING;k++) if (r.mp.leftover[k] > 1) left.push([k, r.mp.leftover[k]]);
+  left.sort((a,b)=>b[1]-a[1]);
+  const topLeft = left.slice(0,3).map(([k,v])=>`${iz(ING_NAME[k])} ${Math.round(v)}`).join('、');
+  /* 鍋子是不是**真的**在擋路：看有沒有高價食譜因為 `cnt > potEff` 根本進不了鍋。
+     POOL 已經按單道能量由高到低排序，所以看前段就夠。這是唯一能推薦「加鍋容量」的
+     依據 —— 從利用率反推會推出錯的結論（見上面的實測）。 */
+  const blocked = POOL.slice(0, 15).filter(c => c.cnt > r.potEff);
   return `<div class="notice">食材利用率 <b>${Math.round(used/total*100)}%</b>`
-    + `（一週產 ${Math.round(total)} 個，只煮掉 ${Math.round(used)} 個）——`
-    + `剩下的食材<b>沒有分數</b>。一週最多 ${MEALS_WEEK} 餐、每餐最多 ${r.potEff} 個食材，`
-    + `所以食材型再多也吃不下；要讓料理這一塊變高得先提高鍋子容量或食譜等級。</div>`;
+    + `（一週產 ${Math.round(total)} 個，煮掉 ${Math.round(used)} 個）——剩下的沒有分數。`
+    + (r.mp.idleMeals > 0
+        ? `而且還有 <b>${r.mp.idleMeals} 餐排不進去</b>，表示連便宜的食譜都湊不齊食材。`
+        : `${MEALS_WEEK} 餐<b>都排滿了</b>，所以不是餐數不夠${blocked.length ? '' : '，鍋子容量也還有餘裕'}。`)
+    + `每道料理都要湊齊它需要的<b>每一味</b>，最缺的那一味決定能煮幾次，`
+    + `所以產量再高、種類不均的話，多出來的那幾味也只能堆著。`
+    + (topLeft ? `目前剩最多的是 <b>${topLeft}</b> —— 要嘛換一道用得到它們的食譜，要嘛補上高價食譜缺的那幾味。` : '')
+    /* 這一句和上面那句是**兩件不同的事**：上面說的是「已經煮的這 21 餐用不掉你的食材」，
+       這裡說的是「還有更貴的食譜連進鍋的機會都沒有」。早一版把兩者混在一起，變成
+       同時說「不是鍋子太小」又說「加鍋子才有用」—— 自相矛盾。 */
+    + (blocked.length
+        ? `<br>另外有 ${blocked.length} 道更高價的食譜因為鍋子容量只有 ${r.potEff} 而放不進去`
+          + `（最貴的那道要 ${blocked[0].cnt} 個）—— <b>那一項</b>加鍋子容量才有用，`
+          + `但上面堆著的食材不會因此變少，那是兩件事。`
+        : '')
+    + `</div>`;
 }
 
 /* 一支隊伍的完整詳情：5 個 panel（成員卡＋能量拆解／食材缺口／最能煮的食譜／21 餐排程）。
@@ -2026,12 +2059,13 @@ function teamDetailHTML(r, opts){
       </div>
     </div>
     <div class="panel">
-      <div class="phead"><h3>這隊最能煮的食譜</h3><span class="muted" style="font-size:12px">以目前產量排序</span></div>
+      <div class="phead"><h3>這隊最能煮的食譜</h3><span class="muted" style="font-size:12px">以目前產量排序 ·「卡在」＝最缺的那一味</span></div>
       <div class="pbody" style="padding:0"><div class="scroll" style="border:0">
-      <table><thead><tr><th>食譜</th><th style="text-align:right">煮/週</th><th style="text-align:right">週能量</th><th></th></tr></thead>
+      <table><thead><tr><th>食譜</th><th style="text-align:right">煮/週</th><th>卡在</th><th style="text-align:right">週能量</th><th></th></tr></thead>
       <tbody>${rankRecipesForTeam(r, wk).slice(0,7).map(x=>`<tr${x.rec.n===wk.recipe.n?' style="background:color-mix(in srgb,var(--accent) 12%,transparent)"':''}>
         <td>${recipeZh(x.rec.n)} <span class="muted num">共${x.rec.cnt}</span>${x.fits?'':' <span class="tag pin">鍋子不足</span>'}</td>
         <td class="n" style="text-align:right">${x.capped}</td>
+        <td class="muted" style="font-size:11.5px">${x.capped < MEALS_WEEK && x.bn != null ? iz(ING_NAME[x.bn]) : '—'}</td>
         <td class="n" style="text-align:right">${fmt(x.strength)}</td>
         <td><button class="btn sm ghost" data-setrecipe="${x.rec.n}">設為目標</button></td></tr>`).join('')}
       </tbody></table></div></div>

@@ -9,10 +9,16 @@
  *   1. 順序不變性（大箱子）—— smoke 的第 4 節只能用 22 隻（26,334 組），
  *      抓不到「只在大箱子觸發的啟發式」。曾經有個預篩在 >120 萬組合時
  *      按 roster 順序砍到前 42 隻，實測差 −16.34%。這一節用 60 隻真的重現那個規模。
- *   2. FINALISTS 夠不夠 —— 搜尋階段用 proxyDish（樂觀上界），決賽用 bestPlan。
- *      若 FINALISTS 太小，最佳隊伍會被 proxy 擠出決賽（前科：原本 8，低估 27%）。
+ *   2. FINALISTS 夠不夠 —— 搜尋階段用 mealPlan 單起點（真值的下界），決賽用 bestPlan
+ *      多起點。若 FINALISTS 太小，最佳隊伍會被擠出決賽（前科：原本 8，低估 27%）。
  *
- * 什麼時候該跑：動 searchTeams / scoreTeam / proxyDish / bestPlan / FINALISTS 之後。
+ *      ⚠ 這一節「放大 FINALISTS 前 8 名不變」的實驗**偵測不到搜尋評分函式本身的偏差**。
+ *      2026-09-09 之前搜尋用的是 proxyDish（樂觀上界），而決賽也是按它排序
+ *      （finalizeTeams 的 if 在上界之下永遠不成立），所以多放進來的隊伍不會翻身 ——
+ *      這個測試當年因此給出「proxyDish 沒有擠掉最佳解」的錯誤結論。真正要驗的是
+ *      「搜尋排名 vs 真實排程排名」，那在 smoke.mjs 第 2b 節（搜尋分數必須是下界）。
+ *
+ * 什麼時候該跑：動 searchTeams / scoreTeam / mealPlan / bestPlan / FINALISTS 之後。
  */
 import { chromium } from 'playwright-core';
 import http from 'node:http';
@@ -129,7 +135,7 @@ console.log('\n[2] FINALISTS = 50 夠不夠 — 40 隻箱子比 50 / 200 / 1000'
   for (const x of r.runs) console.log(`      ${x.label.padEnd(15)} ${String(x.ms).padStart(6)}ms · 第1名 ${x.total}`);
   const ref = r.runs[0];
   const bad = r.runs.filter(x => x.top.join('|') !== ref.top.join('|'));
-  ok('放大決賽名額不改變前 8 名（proxyDish 沒有擠掉最佳解）', bad.length === 0,
+  ok('放大決賽名額不改變前 8 名（FINALISTS = 50 夠大）', bad.length === 0,
      bad.map(x => `${x.label}: ${x.top[0]} (${x.total}) vs ${ref.top[0]} (${ref.total}) → ${((x.total / ref.total - 1) * 100).toFixed(3)}%`).join('\n      '));
 }
 

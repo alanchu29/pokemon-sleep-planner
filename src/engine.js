@@ -377,8 +377,21 @@ function scoreTeam(idxs, roster, wk, memo){
   let r, cooksCapped, fits, rv, dishS;
   if (wk.recipePick === 'auto'){
     const b = bestSingleRecipe(wIng, potEff, mul);
+    /* 搜尋階段的料理分數＝**可達的下界**：`bestSingleRecipe`（一直煮同一道）與
+       `mealPlan` 單起點貪婪（換著煮，會扣除食材）取大的那個。
+
+       以前這裡是 `proxyDish` —— 它遍歷食譜時**不扣除食材**，同一批蘋果被每一道用到
+       蘋果的食譜重複計算。註解寫著「Over-counts, but ranks teams the same way the real
+       plan does」，**那個假設是錯的**（實測見 DECISIONS.md）：高估中位數 1.389 倍、
+       最高 2.85 倍，而且高估的幅度隨隊伍的食材種類分布而變 —— 所以它連排序都不保。
+       後果是搜尋選出的隊伍真實分數比最佳低 9.2%，而真實前 8 名**全部**擠不進決賽。
+
+       `mealPlan` 單起點恆 ≤ `bestPlan`（後者的多起點包含 `null`，就是單起點），
+       所以這是下界；`finalizeTeams` 的 `if (mp.total > b.dishS)` 因此會**真的生效**，
+       把決賽名單的分數修正到真值 —— 那正是那行程式碼原本的意圖。用上界的話它幾乎
+       永遠不成立，UI 的「料理」數字就會和 21 餐排程表的小計對不上（實測差 58%）。 */
     if (b){ r = b.c.r; cooksCapped = b.n; rv = b.c.rv; fits = true;
-            dishS = Math.max(b.s, proxyDish(wIng, potEff, mul)) / areaMul; }
+            dishS = Math.max(b.s, mealPlan(wIng, potEff, mul, null, wk).total) / areaMul; }
     else { r = wk.recipe; cooksCapped = 0; rv = recipeValue(r, rlvl(r, wk)); fits = r.cnt <= potEff; dishS = 0; }
   } else {
     r = wk.recipe;
@@ -387,7 +400,15 @@ function scoreTeam(idxs, roster, wk, memo){
     let cooks = Infinity;
     for (const [i,a] of r.ings) cooks = Math.min(cooks, wIng[i]/a);
     cooksCapped = Math.min(MEALS_WEEK, Math.floor(cooks));
-    dishS = fits ? cooksCapped * rv * critMul : 0;
+    /* 指定食譜模式也要跑排程，理由和 auto 分支一樣（第 5 條：搜尋目標與評分目標必須一致）。
+       決賽跑的是 `bestPlan(forced = wk.recipe)` —— 先把指定食譜煮到食材見底，**剩下的
+       餐次再用別的食譜填滿**。以前這裡只算指定食譜那一段，等於把填充的部分當成 0，
+       實測低估中位數 **26%**（比值 0.743），而且低估幅度隨隊伍的食材組成而變，
+       於是真實前 8 名有 5 組擠不進決賽。
+
+       `fits` 為 false（指定食譜放不進鍋）時也照跑：`mealPlan` 會自己跳過那道，用別的
+       食譜填 —— 那正是決賽的行為。UI 另外用 `fits` 顯示「鍋子容量不足」的警告。 */
+    dishS = mealPlan(wIng, potEff, mul, r, wk).total / areaMul;
   }
   let bottleneck = null, worstRatio = Infinity;
   for (const [i,a] of r.ings){ const c = wIng[i]/a; if (c < worstRatio){ worstRatio = c; bottleneck = i; } }
@@ -419,22 +440,23 @@ function rankSingle(wIng, potEff, mul){
   return out;
 }
 function bestSingleRecipe(wIng, potEff, mul){ return rankSingle(wIng, potEff, mul)[0] || null; }
-/** Search-stage proxy for the 21-meal plan: walk recipes by value, fill meals,
- *  ignore that ingredients are shared. Over-counts, but ranks teams the same way
- *  the real plan does — which is all the search needs. */
-function proxyDish(wIng, potEff, mul){
-  let meals = MEALS_WEEK, total = 0;
-  for (const c of POOL){
-    if (meals <= 0) break;
-    if (c.cnt > potEff) continue;
-    let cooks = Infinity;
-    for (const [i,a] of c.r.ings){ const k = Math.floor(wIng[i]/a); if (k < cooks) cooks = k; }
-    if (cooks < 1) continue;
-    const n = Math.min(cooks, meals);
-    total += n * c.rv * mul; meals -= n;
-  }
-  return total;
-}
+/* 這裡曾經有個 `proxyDish`：走訪 POOL 填滿 21 餐，但**不扣除食材** —— 同一批蘋果被
+   每一道用到蘋果的食譜重複計算。它的註解寫著「Over-counts, but ranks teams the same
+   way the real plan does — which is all the search needs」。
+
+   **那個假設是錯的，而且錯得很貴。** 實測（33,649 組窮舉，見 DECISIONS.md）：
+
+     proxyDish / 真實排程：中位數 1.389、最高 2.85 —— 高估的幅度隨隊伍的食材種類分布
+     而變，所以它連「排序」都不保。搜尋因此選出真實分數比最佳**低 9.2%** 的隊伍，
+     而真實前 8 名**全部 8 組**擠不進 FINALISTS = 50 的決賽（放到 1000 還有 5 組進不去）。
+
+   另一個看得見的症狀：`finalizeTeams` 的 `if (mp.total > b.dishS)` 因為上界永遠比較大
+   而幾乎不成立 —— 決賽算了真實排程卻沒用它，於是 UI 的「料理」數字和 21 餐排程表的
+   小計對不上（實測差 58%）。
+
+   已經整段移除，改用 `mealPlan` 單起點（真實排程的**下界**）。**不要為了省時間再加回
+   任何「不扣除食材」的近似**：料理分數的本質就是 `cooks = min(floor(pool[i]/a))` 這個
+   木桶效應，忽略它等於忽略整個問題。實測成本只有 466ms / 33,649 組。 */
 /** Plain greedy is not monotone — raising one recipe's level could make it pick a
  *  worse opening move and lose value. So try several openings and keep the best. */
 function bestPlan(wIng, potEff, mul, forced, wk){
