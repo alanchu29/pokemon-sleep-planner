@@ -14,7 +14,7 @@
      這裡、下面載入器的 ASSET_V、以及 src/app.js 的 APP_V。
      光靠 ?v= 只是降低機率，APP_V 的斷言才會真的擋下過期的 app.js。
      tests/smoke.mjs 第 11 節會斷言三處一致。 -->
-<link rel="stylesheet" href="./src/app.css?v=20260909n">
+<link rel="stylesheet" href="./src/app.css?v=20260909o">
 </head>
 <body>
 <div class="wrap">
@@ -359,7 +359,8 @@
       <div class="chips ing" id="fltIng"></div>
     </div>
     <!-- #scoreNote 由 renderStorageNote() 一併填 —— 評分的參考基準一定要顯示出來，
-         否則摺疊列上那個數字就是憑空來的。文案只有一份，在 app.js 的 scoreNote()。 -->
+         否則摺疊列上那個數字就是憑空來的。文案只有一份，在 app.js 的 scoreNote()：
+         摘要那一行永遠在外面，長篇原理摺進裡面的 <details class="more">。 -->
     <div class="notice" id="scoreNote" style="margin:10px 0 12px"></div>
     <div id="boxList"></div>
     <div class="empty" id="boxNone" hidden>沒有符合篩選條件的寶可夢。</div>
@@ -503,7 +504,7 @@ try {
      也放到 window 上：app.js 有一份自己的 APP_V，兩者不符就整頁擋下來。
      理由和 game.json 的 SCHEMA 一樣 —— 過期的 app.js 會靜靜地畫出舊版 UI，
      而使用者只會覺得「你根本沒改」，完全不知道是快取。 */
-  const ASSET_V = '20260909n';
+  const ASSET_V = '20260909o';
   window.ASSET_V = ASSET_V;
   for (const src of ['./src/engine.js', './src/import.js', './src/app.js']) {
     await new Promise((ok, bad) => {

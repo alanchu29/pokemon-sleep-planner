@@ -190,6 +190,12 @@ td.n{font-family:var(--mono);font-variant-numeric:tabular-nums}
 }
 .mon-acts{display:flex;gap:4px;margin-left:auto;flex:0 0 auto}
 .mon-acts .btn{padding:2px 7px;font-size:11.5px}
+/* ＋隊：已經在**目前顯示的那一支**隊伍裡就點亮（那才是這顆按鈕會動到的隊伍）——
+   按下去有沒有生效不該要切分頁才看得到。在別支隊伍裡則由 title 列出隊號。 */
+.mon-acts .btn.on{border-color:var(--accent);color:var(--accent);font-weight:600}
+/* 刪除沒有 undo，所以它不該和旁邊那兩顆隨手切換的按鈕長得一樣（見 CLAUDE.md）。 */
+.mon-acts .btn.danger{opacity:.55}
+.mon-acts .btn.danger:hover{opacity:1;border-color:var(--neg);background:color-mix(in srgb,var(--neg) 12%,transparent)}
 /* 副技能：底色＝稀有度（金／銀／白），這是 game.json 的 subskills[].r，不是我編的 */
 .rr{font-size:11px;padding:2px 6px;border-radius:5px;border:1px solid;white-space:nowrap;
   font-weight:600;line-height:1.5}
@@ -296,6 +302,17 @@ td.n{font-family:var(--mono);font-variant-numeric:tabular-nums}
 .ss-mini select{padding:4px 2px;font-size:11px;text-overflow:ellipsis}
 .notice{font-size:12.5px;padding:9px 12px;border-radius:8px;background:var(--surface-2);border:1px solid var(--line);color:var(--ink-2)}
 .notice.warn{border-color:color-mix(in srgb,var(--neg) 45%,var(--line));background:color-mix(in srgb,var(--neg) 8%,var(--surface))}
+/* .notice 裡的「還有更多說明」摺疊。摘要那一行永遠在外面（那是數字的出處，
+   不能藏），長篇的原理摺起來 —— 攤開有 300 多字，會把箱子列表推到畫面外。 */
+.notice>.sum{line-height:1.6}
+.notice>details.more{margin-top:6px}
+.notice>details.more>summary{cursor:pointer;color:var(--accent);font-weight:600;
+  list-style:none;display:inline-flex;align-items:center;gap:5px;user-select:none}
+.notice>details.more>summary::-webkit-details-marker{display:none}
+.notice>details.more>summary::before{content:'▸';font-size:10px;line-height:1}
+.notice>details.more[open]>summary::before{content:'▾'}
+.notice>details.more>div{margin-top:8px;padding-top:9px;border-top:1px solid var(--line);
+  max-width:80ch;line-height:1.7}
 .empty{padding:34px 16px;text-align:center;color:var(--muted);font-size:13.5px}
 details.notes{margin-top:26px;font-size:13px;color:var(--ink-2)}
 details.notes summary{cursor:pointer;font-family:var(--display);font-weight:600;font-size:14px;color:var(--ink)}

@@ -1534,7 +1534,7 @@ console.log('\n[11d] 寶可夢箱 UI：篩選、真實索引、完整顯示');
 
     /* 刪除會讓後面的索引整批位移 → 展開狀態必須清掉，
        不然會展開到「原本是下一隻」的那一隻身上。
-       ✕ 現在會先問一次 —— 這裡把 confirm 換掉，才能同時測「取消」和「確定」。
+       🗑 會先問一次 —— 這裡把 confirm 換掉，才能同時測「取消」和「確定」。
        （不用原生對話框：它會擋住 renderer，在 page.evaluate 裡容易卡死。） */
     const realConfirm = window.confirm;
     let askedMsg = '';
@@ -1553,7 +1553,7 @@ console.log('\n[11d] 寶可夢箱 UI：篩選、真實索引、完整顯示');
     const afterDel = {n: roster.length, open: monOpen.size,
       anyEdit: $('boxList').querySelectorAll('.mon-edit').length, before: beforeDel};
 
-    // 📌 和 🚫 就在 ✕ 旁邊，它們**不該**問 —— 隨手切換用的，而且可逆
+    // ＋隊／📌／✕（排除）就在 🗑 旁邊，它們**不該**問 —— 隨手切換用的，而且可逆
     let askedForToggle = false;
     window.confirm = () => { askedForToggle = true; return true; };
     $('boxList').querySelector('[data-i="0"] [data-act="pin"]').click();
@@ -1652,9 +1652,10 @@ console.log('\n[11d] 寶可夢箱 UI：篩選、真實索引、完整顯示');
   ok('副技能選項顯示全名', r.ssText === '幫忙速度M', r.ssText);
   ok('食材選項只放名稱，數量顯示在旁邊', r.ingText === '特選蘋果' && r.amount === '×1',
      `「${r.ingText}」 / 「${r.amount}」`);
-  /* ✕ 就在 📌 和 🚫 旁邊，手滑一格就少一隻，而且 save() 是即時的、雲端馬上跟著
-     覆蓋 —— 沒有 undo。所以刪除一定要問，而且訊息要寫出是哪一隻。 */
-  ok('按 ✕ 會先問，按取消一隻都不會少',
+  /* 刪除就排在三顆隨手切換的按鈕旁邊，手滑一格就少一隻，而且 save() 是即時的、
+     雲端馬上跟著覆蓋 —— 沒有 undo。所以刪除一定要問，而且訊息要寫出是哪一隻。
+     圖示也要分得開（見 11k）：✕ 讓給可逆的「排除」，刪除用 🗑。 */
+  ok('按 🗑 會先問，按取消一隻都不會少',
      r.afterCancel.n === r.afterDel.before, `${r.afterCancel.n} vs ${r.afterDel.before}`);
   ok('確認訊息寫出是哪一隻（排序／篩選後才分得出按到誰）',
      /#\d+/.test(r.afterCancel.msg) && /Lv\d+/.test(r.afterCancel.msg) && /雷丘|皮卡丘|大食花|呆殼獸|河馬獸|水箭龜|耿鬼/.test(r.afterCancel.msg),
@@ -1662,7 +1663,7 @@ console.log('\n[11d] 寶可夢箱 UI：篩選、真實索引、完整顯示');
   ok('按確定才真的刪，並清掉展開狀態（否則會展開到別隻身上）',
      r.afterDel.n === 4 && r.afterDel.before === 5 && r.afterDel.open === 0 && r.afterDel.anyEdit === 0,
      JSON.stringify(r.afterDel));
-  ok('📌 / 🚫 不會問（隨手切換用的，而且可逆）', r.toggleAsked === false, String(r.toggleAsked));
+  ok('📌 / ✕（排除）不會問（隨手切換用的，而且可逆）', r.toggleAsked === false, String(r.toggleAsked));
   ok('空食材欄位顯示「（無）」而不是 undefined', r.mewSlot3 === '（無）', r.mewSlot3);
   ok('摺疊列三格食材都顯示，未解鎖那格變淡（和副技能一致）',
      r.locked.heads === 3 && r.locked.headLock === 'false,false,true', JSON.stringify(r.locked));
@@ -1869,6 +1870,11 @@ console.log('\n[11g] 寶可夢箱：個體產能（三種專長各自的軸）')
             order, orderSpecs, groupedOk, withinOk, ranks, chips, rankChips, teamBadges,
             rowText, idealGE, pct, idealSs2, rows,
             note: $('scoreNote').textContent.trim(),
+            /* 長篇說明摺起來了（使用者反映「介紹太多了」），但**會害人讀錯數字的那四件事
+               必須留在摺疊外面** —— 摺起來等於沒有。這裡分開看摘要和摺疊區。 */
+            sum: $('scoreNote').querySelector('.sum').textContent.trim(),
+            exOpen: $('scoreNote').querySelector('details.more').open,
+            exText: $('scoreNote').querySelector('details.more>div').textContent.trim(),
             interval0: P[0].interval, procs2: P[2].procs, ingE1: P[1].ingE, ingCount1: P[1].ingCount};
   });
   ok('每一隻都算得出主指標', r.mains.every(v => v > 0), r.mains.map(v => v.toFixed(2)).join(', '));
@@ -1911,6 +1917,16 @@ console.log('\n[11g] 寶可夢箱：個體產能（三種專長各自的軸）')
      /單獨一隻/.test(r.note) && /不含本週加成/.test(r.note), r.note.slice(0, 60));
   ok('說明文案講明不影響推演', /不影響推演/.test(r.note), r.note.slice(-40));
   ok('說明文案講明隊伍型副技能量不到', /量不到/.test(r.note), r.note.slice(-90));
+  /* 完整說明有 300 多字，攤在篩選列和箱子列表中間會把真正要看的東西推到畫面外。
+     所以摺疊 —— 但**摘要那一行要獨力守住四件事**：基準情境、不能跨專長比、
+     潛力% 是練滿後的比值、不影響推演。少任何一件，摺起來的人就會讀錯數字。 */
+  ok('長篇說明預設摺起來（不然會把箱子列表推到畫面外）', r.exOpen === false && r.exText.length > 200,
+     `open=${r.exOpen} len=${r.exText.length}`);
+  ok('摘要那一行獨力講完四件會害人讀錯的事（基準／不能跨專長比／潛力是練滿後的比值／不影響推演）',
+     /單獨一隻/.test(r.sum) && /不含本週加成樹果/.test(r.sum) &&
+     /不能互相比較/.test(r.sum) && /Lv60/.test(r.sum) && /不影響推演/.test(r.sum),
+     r.sum);
+  ok('摘要要短（超過 120 字就等於沒摺）', r.sum.length <= 120, `${r.sum.length} 字`);
 }
 
 /* 食材篩選：「誰產這幾種食材、誰產最多」。食譜要的是**一組**特定食材，所以篩選
@@ -2406,6 +2422,101 @@ console.log('\n[11j] 自組隊伍：手動指定 5 隻，計算基礎必須和�
 
   // 收尾：把狀態還原，不要影響後面的節次
   await page.evaluate(() => { teams = [newTeam()]; teamShown = 0; closePicker(); showView('plan'); });
+}
+
+/* 寶可夢箱的四顆動作鈕。兩件事：
+   ①「＋隊」把箱子裡的一隻直接放進**目前顯示的那一支**自組隊伍 —— 找寶可夢的地方
+     本來就是箱子（有篩選、排序、潛力%），所以「看到就順手放進去」該少三步。
+   ② 圖示不能撞：`✕` 是「從推演中排除」（可逆），刪除是 `🗑`（不可逆）。原本
+     排除用 `○`，而 `○` 在中文慣例裡是「可以」，掛在一顆叫「排除」的按鈕上意思正好相反。 */
+console.log('\n[11k] 寶可夢箱：「＋隊」直接加進自組隊伍，以及按鈕圖示不能撞');
+{
+  const r = await page.evaluate(() => {
+    const mk = (n) => ({sp:n, level:60, nature:'Bashful', ss:[null,null,null,null,null],
+                        ingSet:[0,0,0], skillLv:1, ribbon:0, pin:false, ex:false});
+    deserialize({roster: ['RAICHU','SLOWKING','VICTREEBEL','GENGAR','ESPEON','SUDOWOODO'].map(mk)});
+    teams = [newTeam()]; teamShown = 0;
+    clearBoxFilter(); $('fltSort').value = 'added';
+    $('fltSort').dispatchEvent(new Event('change', {bubbles:true}));
+    monOpen.clear(); renderBox();
+    const btn = (i, a) => $('boxList').querySelector(`[data-i="${i}"] [data-act="${a}"]`);
+
+    /* 圖示：排除是 ✕（可逆的切換）、刪除是 🗑（不可逆）。兩顆長一樣就是在請人按錯。 */
+    const icons = {ex: btn(0,'ex').textContent.trim(), del: btn(0,'del').textContent.trim(),
+                   delTitle: btn(0,'del').title,
+                   danger: btn(0,'del').classList.contains('danger')};
+    // 排除中的狀態要看得出來（🚫），而且 title 要說得出怎麼放回去
+    roster[0].ex = true; renderBox();
+    const exOn = {icon: btn(0,'ex').textContent.trim(), title: btn(0,'ex').title};
+    roster[0].ex = false; renderBox();
+
+    // ＋隊：放進 teamShown 的第一個空格
+    const t0 = btn(1,'team').title;
+    btn(1,'team').click();
+    const add1 = {members: teams[0].members.slice(), status: $('saveStatus').textContent,
+                  on: btn(1,'team').classList.contains('on'), title: btn(1,'team').title};
+    // 同一隻再按一次：不能塞進第二格
+    btn(1,'team').click();
+    const again = {members: teams[0].members.slice(), status: $('saveStatus').textContent};
+
+    // 補滿到 5 隻，第 6 隻要被擋下來並說清楚
+    [0,2,3,4].forEach(i => btn(i,'team').click());
+    const full = {members: teams[0].members.slice(), status: $('saveStatus').textContent};
+    btn(5,'team').click();
+    const over = {members: teams[0].members.slice(), status: $('saveStatus').textContent,
+                  n: teams[0].members.filter(x => x != null).length};
+
+    /* 目標是 `teamShown`，不是「隨便找一支空的」—— 逐隻放的時候，一隻進 A、
+       下一隻跳到 B 就根本組不起來。切到隊伍 2 之後才該進隊伍 2。 */
+    teams.push(newTeam()); teamShown = 1; renderBox();
+    const t2title = btn(5,'team').title;
+    btn(5,'team').click();
+    const second = {t1: teams[0].members.slice(), t2: teams[1].members.slice(),
+                    status: $('saveStatus').textContent};
+    // 跨隊重複是允許的（比較兩隊通常只換 1~2 隻），按鈕要列出牠在哪幾支
+    btn(1,'team').click();
+    const cross = {t2: teams[1].members.slice(), title: btn(1,'team').title};
+
+    // 自組隊伍不進 serialize()（純檢視狀態）—— ＋隊不能把它寫進去
+    const ser = JSON.stringify(serialize());
+    teams = [newTeam()]; teamShown = 0; closePicker(); showView('plan');
+    return {icons, exOn, t0, add1, again, full, over, t2title, second, cross,
+            serHasTeams: /"teams"/.test(ser)};
+  });
+  ok('「從推演中排除」是 ✕（原本的 ○ 在中文慣例裡是「可以」，意思正好相反）',
+     r.icons.ex === '✕', `「${r.icons.ex}」`);
+  ok('排除中改顯示 🚫，而且 title 說得出怎麼放回去',
+     r.exOn.icon === '🚫' && /放回候選/.test(r.exOn.title), `「${r.exOn.icon}」 ${r.exOn.title}`);
+  /* 不可逆的動作不該和可逆的長得一樣 —— 這是「刪除一定要 confirm」之外的第二層防線。 */
+  ok('刪除改用 🗑，和旁邊三顆可逆的切換分得開',
+     r.icons.del === '🗑' && r.icons.del !== r.icons.ex && r.icons.danger,
+     `${r.icons.del} / danger=${r.icons.danger}`);
+  ok('title 要說出刪除沒有復原', /沒有復原/.test(r.icons.delTitle), r.icons.delTitle);
+
+  ok('＋隊的 title 寫出目標是哪一支隊伍（畫面上可能同時有 4 支）',
+     /隊伍 1/.test(r.t0), r.t0);
+  ok('＋隊放進第一個空格', r.add1.members.join(',') === '1,,,,', r.add1.members.join(','));
+  ok('加進去要出聲，訊息帶名字與格號',
+     /隊伍 1/.test(r.add1.status) && /第 1 格/.test(r.add1.status) && /還差 4 隻/.test(r.add1.status),
+     r.add1.status);
+  /* 按下去有沒有生效，不該要切分頁才看得到。 */
+  ok('已經在隊伍裡的那一隻按鈕會點亮，title 也列出隊號',
+     r.add1.on && /目前在隊伍 1/.test(r.add1.title), `on=${r.add1.on} ${r.add1.title}`);
+  /* 同一隻放進同一隊兩次會讓 Helper Boost 的物種計數、流星群的龍屬性種類數全部算錯。 */
+  ok('同隊不可重複：再按一次不會塞進第二格，而且要說明原因',
+     r.again.members.join(',') === '1,,,,' && /已經在隊伍 1/.test(r.again.status),
+     `${r.again.members.join(',')} / ${r.again.status}`);
+  ok('補到 5 隻', r.full.members.filter(x => x != null).length === 5, r.full.members.join(','));
+  ok('滿 5 隻時說「滿了」而不是靜靜地什麼都沒發生',
+     r.over.n === 5 && /滿 5 隻/.test(r.over.status), `${r.over.n} / ${r.over.status}`);
+  ok('目標是「目前顯示的那一支」，不是隨便找一支空的',
+     /隊伍 2/.test(r.t2title) && r.second.t1.filter(x => x != null).length === 5 &&
+     r.second.t2.join(',') === '5,,,,', `${r.t2title} | t2=${r.second.t2.join(',')}`);
+  ok('跨隊重複是允許的，按鈕要列出牠在哪幾支',
+     r.cross.t2.join(',') === '5,1,,,' && /目前在隊伍 1、2/.test(r.cross.title),
+     `${r.cross.t2.join(',')} | ${r.cross.title}`);
+  /* 自組隊伍和 monOpen / boxFlt 同待遇：切分頁保留、重新整理清空。 */
+  ok('＋隊不會把自組隊伍寫進 serialize()（純檢視狀態）', r.serHasTeams === false);
 }
 
 console.log('\n[12] 快取偏移：schema 不符必須明確擋下');

@@ -57,7 +57,7 @@ const SCHEMA = 4;   // 4: 新增 msExtra{}（上游沒有的主技能數值表�
    「新的 index.html ＋ 舊的 app.js」—— 畫面畫出舊版 UI，而使用者只會覺得
    「你根本沒改」，完全不知道是快取。有了這個斷言，過期的 app.js 會直接被擋下來
    並要求強制重新整理。tests/smoke.mjs 第 11 節會斷言三處一致。 */
-const APP_V = '20260909n';
+const APP_V = '20260909o';
 
 /** 致命錯誤：整頁換成一段說明。這種狀況下繼續跑只會產生錯的數字。 */
 function fatal(html){
@@ -232,7 +232,13 @@ function renderStorageNote(){
   const s = storageWhere();
   const a = $('rlvWhere'); if (a) a.innerHTML = s.html;
   const b = $('syncWhat'); if (b) b.innerHTML = `會一起同步的是：<b>${SYNCED_WHAT}</b>。`;
-  const d = $('scoreNote'); if (d) d.innerHTML = scoreNote();
+  const d = $('scoreNote');
+  if (d){
+    d.innerHTML = scoreNote();
+    /* innerHTML 每次都重建，所以摺疊狀態要自己記 —— 這個函式在同步成功時會重跑。 */
+    const ex = d.querySelector('details.more');
+    if (ex) ex.addEventListener('toggle', () => { scoreNoteOpen = ex.open; });
+  }
   const c = $('verBuild');
   if (c) c.textContent = (window.claude ? 'claude.ai artifact 版本' : '自架版本（GitHub Pages 等）')
                        + ' · 資料存在：' + s.short;
@@ -651,17 +657,31 @@ function rankOf(idx){
   const at = arr.indexOf(idx);
   return at < 0 ? null : {at: at + 1, of: arr.length};
 }
-/** 基準說明。**一定要顯示** —— 沒有這句話，那些數字就是憑空來的。 */
+/* 摺疊狀態要跨 renderStorageNote() 保留 —— 那個函式在雲端同步成功時會重跑，
+   不記住的話「讀到一半突然自己收起來」。純檢視狀態，和 monOpen 同待遇：不進 serialize()。 */
+let scoreNoteOpen = false;
+/** 基準說明。
+ *
+ *  **摘要那一行一定要顯示** —— 沒有它，摺疊列上那些數字就是憑空來的（見 CLAUDE.md
+ *  「個體產能」第 4 條：一個沒有出處的數字比沒有數字更糟，而「暗示可以互相比」又更糟）。
+ *  但完整說明有 300 多字，攤在篩選列和箱子列表中間會把真正要看的東西推到畫面外，
+ *  所以拆成兩段：**四件會害人讀錯數字的事留在外面**（基準情境、不能跨專長比、
+ *  潛力是練滿後的比值、不影響推演），其餘（為什麼是這三個軸、為什麼基準是 Lv60、
+ *  ≥ 是什麼意思、隊伍型徽章）摺進 `<details>`。 */
 function scoreNote(){
-  return `<b>產能</b>是<b>單獨一隻</b>的每日產出（沒有隊友加成，`
-       + `就是遊戲寶可夢詳細頁顯示幫忙間隔時的那個情境）：無露營券、睡 8.5 小時、`
-       + `<b>不含本週加成樹果</b>，所以跨週可比。`
-       + `<b>三種專長的數字不能互相比較</b> —— 職責不同：`
+  const brief = `<b>產能</b>是<b>單獨一隻</b>的每日產出（沒有隊友加成、無露營券、`
+              + `<b>不含本週加成樹果</b>）；<b>三種專長的數字不能互相比較</b>，能比的是同專長內的名次。`
+              + `摺疊列的 <b>潛力 N%</b> 是「練到 Lv${IDEAL_LEVEL} 之後離<b>自己</b>的天花板多近」。`
+              + `<b>這些數字不影響推演。</b>`;
+  const full = `基準就是遊戲寶可夢詳細頁顯示幫忙間隔時的那個情境：單獨一隻、無露營券、睡 8.5 小時、`
+       + `不含本週加成樹果，所以跨週可比。`
+       + `<b>三種專長各有自己的軸</b>，因為職責不同：`
        + `<b>樹果型</b>看總產能（樹果＋食材＋技能能量）、`
        + `<b>食材型</b>看食材原始能量（未經料理加成；配不配得上本週食譜是<b>推演</b>要決定的事）、`
        + `<b>技能型</b>看主技能發動次數（不同技能給的東西不同，換算成能量只會是憑空的假設）。`
-       + `能比的是<b>同專長內的名次</b>。`
-       + `摺疊列上的 <b>潛力 N%</b> 是<b>牠 ÷ 同物種的理想個體</b>（分子分母同一個單位，所以是純比值）。`
+       + `單位不同就是在提醒別跨專長比 —— 能比的是<b>同專長內的名次</b>。`
+       + `<br><br>`
+       + `<b>潛力 N%</b> 是<b>牠 ÷ 同物種的理想個體</b>（分子分母同一個單位，所以是純比值）。`
        + `它的基準是<b>雙方都練到 Lv${IDEAL_LEVEL}</b>（已經超過的就用牠的實際等級）——`
        + `第 3 格食材要 Lv60 才解鎖，用當前等級當基準的話那一格是好是壞會等到升上去<b>那一刻</b>才被算進去，`
        + `百分比會自己往下掉。所以<b>潛力問的是「練滿之後有多好」，左邊的產能問的才是「現在有多好」</b>。`
@@ -669,7 +689,12 @@ function scoreNote(){
        + `100% 的皮卡丘不會比 70% 的妙蛙花強。`
        + `副技能還有空格沒填時分子只會被低估，所以那種會標成 <b>≥</b>。`
        + `另外，「幫忙加成」這類<b>只對隊友有效</b>的副技能單獨一隻量不到，會另外標徽章。`
-       + `<b>這些數字不影響推演</b> —— 每週的推薦還是原本的演算法。`;
+       + `<br><br>`
+       + `<b>這些數字不影響推演</b> —— 每週的推薦還是原本的演算法，這裡只是幫你決定糖果餵給哪一隻。`;
+  return `<div class="sum">${brief}</div>`
+       + `<details class="more"${scoreNoteOpen ? ' open' : ''}>`
+       + `<summary>這些數字怎麼來的、為什麼不能跨專長比</summary>`
+       + `<div>${full}</div></details>`;
 }
 /* 理想值一隻要跑約 170 次 monPower（≈15ms）。展開一兩張感覺不到，但「展開全部」
    一次開 60 隻還是會頓 —— 和「一次攤開 60 隻要建一萬多個 <option>」同一個考量。
@@ -917,7 +942,7 @@ function msCaveat(ms){
  *  欄 2 都從同一個 x 開始 —— 用 `max-content` 的話每張卡的起點會隨名字長度浮動，
  *  掃 60 隻時反而更亂。名字太長會在欄內自己折，不裁切（裁掉等於沒有）。
  *
- *  欄 2 第 1 列（`.mon-rest`）：`[專長] [主技能] 性格 副技能… 技Lv [📌 🚫 ✕]`
+ *  欄 2 第 1 列（`.mon-rest`）：`[專長] [主技能] 性格 副技能… 技Lv [＋隊 📍 ✕ 🗑]`
  *  欄 1 第 2 列（`.mon-idl`）：**潛力 N%**（理想個體百分比），就在名字／等級底下。
  *  欄 2 第 2 列（`.mon-ings`）：**只有食材**，起點對齊上一列的專長標籤。
  *
@@ -946,6 +971,9 @@ function monHead(m, idx, open){
          + `${k[0]!=null?iz(ING_NAME[k[0]]):'（無）'}×${k[1]}</span>`;
   }).join('');
   const nick = (m.nick || '').trim();
+  /* 「牠現在在哪幾支自組隊伍裡」—— ＋隊那顆按鈕的狀態就是這個，不然按下去有沒有生效
+     只能切分頁才看得到。跨隊重複是允許的（比較兩隊通常只換 1~2 隻），所以是列表不是布林。 */
+  const inTeam = idx == null ? [] : teams.map((t, ti) => t.members.includes(idx) ? ti + 1 : 0).filter(Boolean);
   return `<div class="mon-head" data-act="toggle" title="點一下展開／收起">
       <span class="mon-idy">
         <span class="car">${open?'▼':'▶'}</span>
@@ -963,9 +991,10 @@ function monHead(m, idx, open){
         <span class="mon-sk" title="主技能 ${msz(p.ms)} 的基礎等級（副技能加成另計）">技Lv${m.skillLv}</span>
         ${scoreChip(m, idx)}
         <span class="mon-acts">
-          <button class="btn sm ghost" data-act="pin" title="固定在隊上（一定入選）">${m.pin?'📌':'📍'}</button>
-          <button class="btn sm ghost" data-act="ex" title="從推演中排除">${m.ex?'🚫':'○'}</button>
-          <button class="btn sm ghost" data-act="del" title="刪除">✕</button>
+          <button class="btn sm ghost${inTeam.includes(teamShown+1)?' on':''}" data-act="team" title="${teamAddTitle(idx, inTeam)}">＋隊</button>
+          <button class="btn sm ghost" data-act="pin" title="固定在隊上（推演一定選牠）">${m.pin?'📌':'📍'}</button>
+          <button class="btn sm ghost" data-act="ex" title="${m.ex?'目前排除在推演之外 —— 點一下放回候選':'從推演中排除（點一下排除）'}">${m.ex?'🚫':'✕'}</button>
+          <button class="btn sm ghost danger" data-act="del" title="刪除這一隻（會再問一次，沒有復原）">🗑</button>
         </span>
       </span>
       ${idealChip(m)}
@@ -1340,15 +1369,19 @@ $('boxList').addEventListener('click', e=>{
     renderBox();
     return;
   }
-  /* 刪除一定要問。✕ 就在 📌 和 🚫 旁邊，而那兩個是隨手切換用的 —— 手滑一格就
-     少一隻，而且沒有 undo（`save()` 是即時的，雲端也馬上跟著覆蓋）。訊息裡要寫出
-     是**哪一隻**，不然在排序或篩選過的列表上根本分不出按到誰。 */
+  /* 刪除一定要問。它就排在三顆隨手切換的按鈕旁邊，手滑一格就少一隻，而且沒有 undo
+     （`save()` 是即時的，雲端也馬上跟著覆蓋）。訊息裡要寫出是**哪一隻**，不然在排序
+     或篩選過的列表上根本分不出按到誰。圖示是 🗑 而不是 ✕：✕ 現在是「從推演中排除」
+     那顆可逆的切換，兩顆長一樣就是在請人按錯（原本 ✕＝刪除、○＝排除，而 ○ 在中文
+     慣例裡是「可以」，掛在一顆叫「排除」的按鈕上意思正好相反）。 */
   if (a==='del'){
     const m = roster[i], p = D.dex[m.sp];
     if (!confirm(`確定要刪除「#${p.no} ${pz(p)} Lv${m.level} ${natZ(NAT[m.nature]||NAT.Bashful)}」嗎？\n\n刪掉之後沒辦法復原。`)) return;
     roster.splice(i,1); monOpen.clear();                    // 索引整批位移，全收起最安全
     teamsAfterDelete(i);      // 自組隊伍存的也是 roster 索引，同一個位移問題
   }
+  /* ＋隊：純檢視狀態（自組隊伍不進 serialize()），所以不 save()，自己重畫就好。 */
+  else if (a==='team'){ teamAddFromBox(i); return; }
   else if (a==='pin'){ roster[i].pin = !roster[i].pin; if (roster[i].pin) roster[i].ex = false; }
   else if (a==='ex'){ roster[i].ex = !roster[i].ex; if (roster[i].ex) roster[i].pin = false; }
   renderBox(); save();
@@ -2277,6 +2310,43 @@ function teamFromResult(n){
   teamShown = ti;
   showView('team');
   renderTeamsView();
+}
+
+/** ＋隊按鈕的 title。**要說出目標是哪一支隊伍** —— 畫面上同時有 4 支的可能，
+ *  按下去進了哪一支不講清楚就是猜的。 */
+function teamAddTitle(idx, inTeam){
+  const here = inTeam.includes(teamShown + 1);
+  return (here ? `已經在隊伍 ${teamShown + 1} 裡` : `加進「自組隊伍」的隊伍 ${teamShown + 1}（放進第一個空格）`)
+       + (inTeam.length ? ` · 目前在隊伍 ${inTeam.join('、')}` : '');
+}
+/** 從寶可夢箱直接把一隻放進自組隊伍。
+ *
+ *  **目標是「目前顯示的那一支」（`teamShown`）的第一個空格**，不是隨便找一支空的 ——
+ *  和 `teamFromResult` 不同，那個是「整組複製過來」所以該開新的一支；這個是逐隻放，
+ *  一隻放進 A、下一隻卻跳到 B 的話根本組不起來。
+ *
+ *  找寶可夢的地方本來就是箱子（有篩選、排序、潛力%），所以「看到就順手放進去」比
+ *  「切到自組隊伍 → 開選擇器 → 再搜尋一次」少三步。規則和選擇器共用：
+ *  **同隊不可重複**（會讓 Helper Boost 的物種計數、流星群的龍屬性種類數全部算錯），
+ *  跨隊可以。滿了就說滿了，不要靜靜地什麼都沒發生。 */
+function teamAddFromBox(i){
+  sanitizeTeams();
+  const t = teams[teamShown]; if (!t) return;
+  const nm = monLabel(i), tn = teamShown + 1;
+  const at = t.members.indexOf(i);
+  if (at >= 0){ setStatus(`${nm} 已經在隊伍 ${tn} 的第 ${at + 1} 格`); return; }
+  const s = t.members.indexOf(null);
+  if (s < 0){ setStatus(`隊伍 ${tn} 已經滿 5 隻 —— 到「自組隊伍」清掉一格，或按 ＋ 開新的一支`); return; }
+  t.members[s] = i;
+  const left = t.members.filter(x => x == null).length;
+  setStatus(`${nm} → 隊伍 ${tn} 第 ${s + 1} 格` + (left ? `（還差 ${left} 隻）` : '（滿 5 隻，可以看數字了）'));
+  renderBox();              // ＋隊按鈕的狀態要跟著更新（只有箱子分頁按得到，所以不必重畫自組隊伍）
+}
+/** 給提示訊息用的稱呼：暱稱優先，但學名一定要在 —— 箱子裡有兩隻妙蛙花時分不出是哪一隻。 */
+function monLabel(i){
+  const m = roster[i]; if (!m) return '';
+  const p = D.dex[m.sp], nick = (m.nick || '').trim();
+  return nick ? `「${nick}」（${pz(p)}）` : `「${pz(p)}」`;
 }
 
 /* `strictBerry` 是**候選過濾**規則，不是計分規則 —— 手動隊已經親手指定了 5 隻，所以它
