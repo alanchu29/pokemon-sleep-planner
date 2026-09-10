@@ -94,7 +94,9 @@ const data = JSON.parse(readFileSync(rawPath, 'utf8'));
 const zhTxt = readFileSync(resolve(ROOT, 'tools/zh.txt'), 'utf8');
 const sec = {};
 let cur = null;
-for (const line of zhTxt.split('\n')) {
+/* `/\r?\n/` 不是防禦性寫法：`core.autocrlf=true` 的 Windows checkout 會把 zh.txt 變成 CRLF，
+   只切 '\n' 的話 465 個中文名會全部帶一個尾隨 \r —— 那在 UI 上看不出來。types.txt 本來就這樣切。 */
+for (const line of zhTxt.split(/\r?\n/)) {
   if (line.startsWith('##')) { cur = line.slice(2).trim(); sec[cur] = {}; continue; }
   if (!line.trim() || !cur) continue;
   const i = line.indexOf('=');
@@ -141,6 +143,7 @@ data.types = {};
     const bad = v.filter((n) => !known.has(n));
     if (bad.length) throw new Error('tools/types.txt 的 ' + k + ' 有不在 dex 裡的名字：' + bad.join(', '));
   }
+}
 
 /* ---- 合併上游沒有的主技能數值表（tools/skills-extra.json）----
    例如流星群（樹果遽增）依「隊上不同種類的龍屬性數」決定樹果數的那張表 ——
@@ -150,9 +153,8 @@ const msExtraRaw = JSON.parse(readFileSync(resolve(ROOT, 'tools/skills-extra.jso
 data.msExtra = {};
 for (const [k, v] of Object.entries(msExtraRaw)) {
   if (k.startsWith('_')) continue;
-  if (!ms[k]) throw new Error('tools/skills-extra.json 提到不存在的主技能：' + k);
+  if (!data.ms[k]) throw new Error('tools/skills-extra.json 提到不存在的主技能：' + k);
   data.msExtra[k] = Object.fromEntries(Object.entries(v).filter(([kk]) => !kk.startsWith('_')));
-}
 }
 
 data.meta = {

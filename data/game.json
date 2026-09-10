@@ -5992,7 +5992,7 @@
       "cs": 16,
       "pe": 0,
       "re": 0,
-      "ms": "Dream Shard Magnet S Range",
+      "ms": "Dream Shard Magnet S",
       "i0": [
         [
           8,
@@ -6300,7 +6300,7 @@
       "cs": 8,
       "pe": 0,
       "re": 1,
-      "ms": "Dream Shard Magnet S Range",
+      "ms": "Dream Shard Magnet S",
       "i0": [
         [
           2,
@@ -6344,7 +6344,7 @@
       "cs": 19,
       "pe": 1,
       "re": 0,
-      "ms": "Dream Shard Magnet S Range",
+      "ms": "Dream Shard Magnet S",
       "i0": [
         [
           2,
@@ -8700,7 +8700,7 @@
       "cs": 12,
       "pe": 0,
       "re": 1,
-      "ms": "Dream Shard Magnet S Range",
+      "ms": "Dream Shard Magnet S",
       "i0": [
         [
           1,
@@ -8744,7 +8744,7 @@
       "cs": 24,
       "pe": 1,
       "re": 0,
-      "ms": "Dream Shard Magnet S Range",
+      "ms": "Dream Shard Magnet S",
       "i0": [
         [
           1,
@@ -11067,446 +11067,6 @@
   ],
   "recipes": [
     {
-      "n": "OVERGROW_AVOCADO_GRATIN",
-      "t": "curry",
-      "bonus": 78,
-      "cnt": 115,
-      "ings": [
-        [
-          14,
-          22
-        ],
-        [
-          9,
-          20
-        ],
-        [
-          1,
-          41
-        ],
-        [
-          8,
-          32
-        ]
-      ]
-    },
-    {
-      "n": "BOUNCE_CURRY_UDON",
-      "t": "curry",
-      "bonus": 78,
-      "cnt": 112,
-      "ings": [
-        [
-          5,
-          39
-        ],
-        [
-          15,
-          31
-        ],
-        [
-          10,
-          22
-        ],
-        [
-          4,
-          20
-        ]
-      ]
-    },
-    {
-      "n": "CUT_SUKIYAKI_CURRY",
-      "t": "curry",
-      "bonus": 61,
-      "cnt": 101,
-      "ings": [
-        [
-          16,
-          27
-        ],
-        [
-          4,
-          26
-        ],
-        [
-          3,
-          26
-        ],
-        [
-          7,
-          22
-        ]
-      ]
-    },
-    {
-      "n": "HIDDEN_POWER_PERK_UP_STEW",
-      "t": "curry",
-      "bonus": 61,
-      "cnt": 92,
-      "ings": [
-        [
-          2,
-          28
-        ],
-        [
-          6,
-          25
-        ],
-        [
-          15,
-          23
-        ],
-        [
-          13,
-          16
-        ]
-      ]
-    },
-    {
-      "n": "INFERNO_CORN_KEEMA_CURRY",
-      "t": "curry",
-      "bonus": 48,
-      "cnt": 77,
-      "ings": [
-        [
-          10,
-          27
-        ],
-        [
-          4,
-          24
-        ],
-        [
-          11,
-          14
-        ],
-        [
-          5,
-          12
-        ]
-      ]
-    },
-    {
-      "n": "ROLE_PLAY_PUMPKABOO_STEW",
-      "t": "curry",
-      "bonus": 48,
-      "cnt": 69,
-      "ings": [
-        [
-          17,
-          10
-        ],
-        [
-          4,
-          16
-        ],
-        [
-          9,
-          18
-        ],
-        [
-          15,
-          25
-        ]
-      ]
-    },
-    {
-      "n": "GREENGRASS_CURRY_BUN",
-      "t": "curry",
-      "bonus": 48,
-      "cnt": 63,
-      "ings": [
-        [
-          5,
-          20
-        ],
-        [
-          10,
-          20
-        ],
-        [
-          2,
-          8
-        ],
-        [
-          8,
-          15
-        ]
-      ]
-    },
-    {
-      "n": "DREAM_EATER_BUTTER_CURRY",
-      "t": "curry",
-      "bonus": 35,
-      "cnt": 55,
-      "ings": [
-        [
-          9,
-          18
-        ],
-        [
-          6,
-          15
-        ],
-        [
-          12,
-          12
-        ],
-        [
-          1,
-          10
-        ]
-      ]
-    },
-    {
-      "n": "NINJA_CURRY",
-      "t": "curry",
-      "bonus": 48,
-      "cnt": 50,
-      "ings": [
-        [
-          2,
-          24
-        ],
-        [
-          4,
-          9
-        ],
-        [
-          16,
-          12
-        ],
-        [
-          15,
-          5
-        ]
-      ]
-    },
-    {
-      "n": "EGG_BOMB_CURRY",
-      "t": "curry",
-      "bonus": 25,
-      "cnt": 35,
-      "ings": [
-        [
-          3,
-          12
-        ],
-        [
-          0,
-          11
-        ],
-        [
-          7,
-          8
-        ],
-        [
-          9,
-          4
-        ]
-      ]
-    },
-    {
-      "n": "DIZZY_PUNCH_SPICY_CURRY",
-      "t": "curry",
-      "bonus": 35,
-      "cnt": 33,
-      "ings": [
-        [
-          13,
-          11
-        ],
-        [
-          10,
-          11
-        ],
-        [
-          3,
-          11
-        ]
-      ]
-    },
-    {
-      "n": "GRILLED_TAIL_CURRY",
-      "t": "curry",
-      "bonus": 25,
-      "cnt": 33,
-      "ings": [
-        [
-          18,
-          8
-        ],
-        [
-          10,
-          25
-        ]
-      ]
-    },
-    {
-      "n": "SPICY_LEEK_CURRY",
-      "t": "curry",
-      "bonus": 25,
-      "cnt": 32,
-      "ings": [
-        [
-          16,
-          14
-        ],
-        [
-          5,
-          10
-        ],
-        [
-          10,
-          8
-        ]
-      ]
-    },
-    {
-      "n": "LIMBER_CORN_STEW",
-      "t": "curry",
-      "bonus": 25,
-      "cnt": 30,
-      "ings": [
-        [
-          11,
-          14
-        ],
-        [
-          1,
-          8
-        ],
-        [
-          9,
-          8
-        ]
-      ]
-    },
-    {
-      "n": "BULK_UP_BEAN_CURRY",
-      "t": "curry",
-      "bonus": 20.51,
-      "cnt": 26,
-      "ings": [
-        [
-          2,
-          12
-        ],
-        [
-          4,
-          6
-        ],
-        [
-          10,
-          4
-        ],
-        [
-          7,
-          4
-        ]
-      ]
-    },
-    {
-      "n": "SPORE_MUSHROOM_CURRY",
-      "t": "curry",
-      "bonus": 20.51,
-      "cnt": 23,
-      "ings": [
-        [
-          15,
-          14
-        ],
-        [
-          9,
-          9
-        ]
-      ]
-    },
-    {
-      "n": "SOFT_POTATO_CHOWDER",
-      "t": "curry",
-      "bonus": 20.51,
-      "cnt": 22,
-      "ings": [
-        [
-          1,
-          10
-        ],
-        [
-          9,
-          8
-        ],
-        [
-          15,
-          4
-        ]
-      ]
-    },
-    {
-      "n": "HEARTY_CHEESEBURGER_CURRY",
-      "t": "curry",
-      "bonus": 18.77,
-      "cnt": 16,
-      "ings": [
-        [
-          1,
-          8
-        ],
-        [
-          4,
-          8
-        ]
-      ]
-    },
-    {
-      "n": "MELTY_OMELETTE_CURRY",
-      "t": "curry",
-      "bonus": 18.77,
-      "cnt": 16,
-      "ings": [
-        [
-          7,
-          10
-        ],
-        [
-          6,
-          6
-        ]
-      ]
-    },
-    {
-      "n": "DROUGHT_KATSU_CURRY",
-      "t": "curry",
-      "bonus": 18.77,
-      "cnt": 15,
-      "ings": [
-        [
-          4,
-          10
-        ],
-        [
-          8,
-          5
-        ]
-      ]
-    },
-    {
-      "n": "SOLAR_POWER_TOMATO_CURRY",
-      "t": "curry",
-      "bonus": 18.77,
-      "cnt": 15,
-      "ings": [
-        [
-          6,
-          10
-        ],
-        [
-          10,
-          5
-        ]
-      ]
-    },
-    {
       "n": "FANCY_APPLE_CURRY",
       "t": "curry",
       "bonus": 18.7,
@@ -11555,250 +11115,1106 @@
       ]
     },
     {
-      "n": "HONEY_GATHER_CHOCOLATE_WAFFLES",
-      "t": "dessert",
-      "bonus": 78,
-      "cnt": 115,
+      "n": "HEARTY_CHEESEBURGER_CURRY",
+      "t": "curry",
+      "bonus": 18.77,
+      "cnt": 16,
       "ings": [
         [
-          3,
-          38
+          1,
+          8
         ],
         [
-          11,
-          28
+          4,
+          8
+        ]
+      ]
+    },
+    {
+      "n": "DROUGHT_KATSU_CURRY",
+      "t": "curry",
+      "bonus": 18.77,
+      "cnt": 15,
+      "ings": [
+        [
+          4,
+          10
         ],
         [
           8,
-          28
-        ],
-        [
-          12,
-          21
+          5
         ]
       ]
     },
     {
-      "n": "SCARY_FACE_PANCAKES",
-      "t": "dessert",
-      "bonus": 78,
-      "cnt": 103,
+      "n": "SOLAR_POWER_TOMATO_CURRY",
+      "t": "curry",
+      "bonus": 18.77,
+      "cnt": 15,
       "ings": [
         [
-          17,
-          18
+          6,
+          10
         ],
+        [
+          10,
+          5
+        ]
+      ]
+    },
+    {
+      "n": "MELTY_OMELETTE_CURRY",
+      "t": "curry",
+      "bonus": 18.77,
+      "cnt": 16,
+      "ings": [
         [
           7,
-          24
-        ],
-        [
-          3,
-          32
+          10
         ],
         [
           6,
-          29
+          6
         ]
       ]
     },
     {
-      "n": "CLODSIRE_ECLAIR",
-      "t": "dessert",
-      "bonus": 61,
-      "cnt": 102,
+      "n": "SOFT_POTATO_CHOWDER",
+      "t": "curry",
+      "bonus": 20.51,
+      "cnt": 22,
       "ings": [
-        [
-          12,
-          30
-        ],
-        [
-          1,
-          26
-        ],
-        [
-          13,
-          24
-        ],
-        [
-          3,
-          22
-        ]
-      ]
-    },
-    {
-      "n": "ZING_ZAP_SPICED_COLA",
-      "t": "dessert",
-      "bonus": 61,
-      "cnt": 87,
-      "ings": [
-        [
-          0,
-          35
-        ],
-        [
-          5,
-          20
-        ],
-        [
-          16,
-          20
-        ],
-        [
-          13,
-          12
-        ]
-      ]
-    },
-    {
-      "n": "FLOWER_GIFT_MACARONS",
-      "t": "dessert",
-      "bonus": 48,
-      "cnt": 77,
-      "ings": [
-        [
-          12,
-          25
-        ],
-        [
-          7,
-          25
-        ],
-        [
-          3,
-          17
-        ],
         [
           1,
           10
+        ],
+        [
+          9,
+          8
+        ],
+        [
+          15,
+          4
         ]
       ]
     },
     {
-      "n": "TEATIME_CORN_SCONES",
-      "t": "dessert",
-      "bonus": 48,
-      "cnt": 67,
+      "n": "BULK_UP_BEAN_CURRY",
+      "t": "curry",
+      "bonus": 20.51,
+      "cnt": 26,
       "ings": [
         [
-          0,
-          20
+          2,
+          12
         ],
         [
-          5,
-          20
+          4,
+          6
         ],
         [
-          11,
-          18
+          10,
+          4
         ],
         [
-          1,
+          7,
+          4
+        ]
+      ]
+    },
+    {
+      "n": "SPORE_MUSHROOM_CURRY",
+      "t": "curry",
+      "bonus": 20.51,
+      "cnt": 23,
+      "ings": [
+        [
+          15,
+          14
+        ],
+        [
+          9,
           9
         ]
       ]
     },
     {
-      "n": "JIGGLYPUFFS_FRUITY_FLAN",
-      "t": "dessert",
+      "n": "EGG_BOMB_CURRY",
+      "t": "curry",
+      "bonus": 25,
+      "cnt": 35,
+      "ings": [
+        [
+          3,
+          12
+        ],
+        [
+          0,
+          11
+        ],
+        [
+          7,
+          8
+        ],
+        [
+          9,
+          4
+        ]
+      ]
+    },
+    {
+      "n": "LIMBER_CORN_STEW",
+      "t": "curry",
+      "bonus": 25,
+      "cnt": 30,
+      "ings": [
+        [
+          11,
+          14
+        ],
+        [
+          1,
+          8
+        ],
+        [
+          9,
+          8
+        ]
+      ]
+    },
+    {
+      "n": "DIZZY_PUNCH_SPICY_CURRY",
+      "t": "curry",
+      "bonus": 35,
+      "cnt": 33,
+      "ings": [
+        [
+          13,
+          11
+        ],
+        [
+          10,
+          11
+        ],
+        [
+          3,
+          11
+        ]
+      ]
+    },
+    {
+      "n": "SPICY_LEEK_CURRY",
+      "t": "curry",
+      "bonus": 25,
+      "cnt": 32,
+      "ings": [
+        [
+          16,
+          14
+        ],
+        [
+          5,
+          10
+        ],
+        [
+          10,
+          8
+        ]
+      ]
+    },
+    {
+      "n": "NINJA_CURRY",
+      "t": "curry",
+      "bonus": 48,
+      "cnt": 50,
+      "ings": [
+        [
+          2,
+          24
+        ],
+        [
+          4,
+          9
+        ],
+        [
+          16,
+          12
+        ],
+        [
+          15,
+          5
+        ]
+      ]
+    },
+    {
+      "n": "GRILLED_TAIL_CURRY",
+      "t": "curry",
+      "bonus": 25,
+      "cnt": 33,
+      "ings": [
+        [
+          18,
+          8
+        ],
+        [
+          10,
+          25
+        ]
+      ]
+    },
+    {
+      "n": "DREAM_EATER_BUTTER_CURRY",
+      "t": "curry",
       "bonus": 35,
       "cnt": 55,
       "ings": [
         [
-          3,
-          20
-        ],
-        [
-          7,
-          15
-        ],
-        [
-          1,
-          10
-        ],
-        [
-          0,
-          10
-        ]
-      ]
-    },
-    {
-      "n": "LEAF_TORNADO_SMOOTHIE",
-      "t": "dessert",
-      "bonus": 35,
-      "cnt": 48,
-      "ings": [
-        [
-          14,
+          9,
           18
         ],
         [
           6,
-          16
+          15
+        ],
+        [
+          12,
+          12
         ],
         [
           1,
-          14
+          10
         ]
       ]
     },
     {
-      "n": "EARLY_BIRD_COFFEE_JELLY",
-      "t": "dessert",
+      "n": "INFERNO_CORN_KEEMA_CURRY",
+      "t": "curry",
+      "bonus": 48,
+      "cnt": 77,
+      "ings": [
+        [
+          10,
+          27
+        ],
+        [
+          4,
+          24
+        ],
+        [
+          11,
+          14
+        ],
+        [
+          5,
+          12
+        ]
+      ]
+    },
+    {
+      "n": "HIDDEN_POWER_PERK_UP_STEW",
+      "t": "curry",
+      "bonus": 61,
+      "cnt": 92,
+      "ings": [
+        [
+          2,
+          28
+        ],
+        [
+          6,
+          25
+        ],
+        [
+          15,
+          23
+        ],
+        [
+          13,
+          16
+        ]
+      ]
+    },
+    {
+      "n": "CUT_SUKIYAKI_CURRY",
+      "t": "curry",
+      "bonus": 61,
+      "cnt": 101,
+      "ings": [
+        [
+          16,
+          27
+        ],
+        [
+          4,
+          26
+        ],
+        [
+          3,
+          26
+        ],
+        [
+          7,
+          22
+        ]
+      ]
+    },
+    {
+      "n": "ROLE_PLAY_PUMPKABOO_STEW",
+      "t": "curry",
+      "bonus": 48,
+      "cnt": 69,
+      "ings": [
+        [
+          17,
+          10
+        ],
+        [
+          4,
+          16
+        ],
+        [
+          9,
+          18
+        ],
+        [
+          15,
+          25
+        ]
+      ]
+    },
+    {
+      "n": "OVERGROW_AVOCADO_GRATIN",
+      "t": "curry",
+      "bonus": 78,
+      "cnt": 115,
+      "ings": [
+        [
+          14,
+          22
+        ],
+        [
+          9,
+          20
+        ],
+        [
+          1,
+          41
+        ],
+        [
+          8,
+          32
+        ]
+      ]
+    },
+    {
+      "n": "GREENGRASS_CURRY_BUN",
+      "t": "curry",
+      "bonus": 48,
+      "cnt": 63,
+      "ings": [
+        [
+          5,
+          20
+        ],
+        [
+          10,
+          20
+        ],
+        [
+          2,
+          8
+        ],
+        [
+          8,
+          15
+        ]
+      ]
+    },
+    {
+      "n": "BOUNCE_CURRY_UDON",
+      "t": "curry",
+      "bonus": 78,
+      "cnt": 112,
+      "ings": [
+        [
+          5,
+          39
+        ],
+        [
+          15,
+          31
+        ],
+        [
+          10,
+          22
+        ],
+        [
+          4,
+          20
+        ]
+      ]
+    },
+    {
+      "n": "FANCY_APPLE_SALAD",
+      "t": "salad",
+      "bonus": 18.7,
+      "cnt": 8,
+      "ings": [
+        [
+          0,
+          8
+        ]
+      ]
+    },
+    {
+      "n": "BEAN_HAM_SALAD",
+      "t": "salad",
+      "bonus": 18.7,
+      "cnt": 8,
+      "ings": [
+        [
+          4,
+          8
+        ]
+      ]
+    },
+    {
+      "n": "SNOOZY_TOMATO_SALAD",
+      "t": "salad",
+      "bonus": 18.7,
+      "cnt": 8,
+      "ings": [
+        [
+          6,
+          8
+        ]
+      ]
+    },
+    {
+      "n": "SNOW_CLOAK_CAESAR_SALAD",
+      "t": "salad",
+      "bonus": 18.77,
+      "cnt": 16,
+      "ings": [
+        [
+          1,
+          10
+        ],
+        [
+          4,
+          6
+        ]
+      ]
+    },
+    {
+      "n": "WATER_VEIL_TOFU_SALAD",
+      "t": "salad",
+      "bonus": 25,
+      "cnt": 24,
+      "ings": [
+        [
+          2,
+          15
+        ],
+        [
+          6,
+          9
+        ]
+      ]
+    },
+    {
+      "n": "HEAT_WAVE_TOFU_SALAD",
+      "t": "salad",
+      "bonus": 18.77,
+      "cnt": 16,
+      "ings": [
+        [
+          2,
+          10
+        ],
+        [
+          10,
+          6
+        ]
+      ]
+    },
+    {
+      "n": "FURY_ATTACK_CORN_SALAD",
+      "t": "salad",
+      "bonus": 25,
+      "cnt": 17,
+      "ings": [
+        [
+          11,
+          9
+        ],
+        [
+          8,
+          8
+        ]
+      ]
+    },
+    {
+      "n": "DAZZLING_APPLE_CHEESE_SALAD",
+      "t": "salad",
+      "bonus": 20.51,
+      "cnt": 23,
+      "ings": [
+        [
+          0,
+          15
+        ],
+        [
+          1,
+          5
+        ],
+        [
+          8,
+          3
+        ]
+      ]
+    },
+    {
+      "n": "MOOMOO_CAPRESE_SALAD",
+      "t": "salad",
+      "bonus": 20.51,
+      "cnt": 23,
+      "ings": [
+        [
+          1,
+          12
+        ],
+        [
+          6,
+          6
+        ],
+        [
+          8,
+          5
+        ]
+      ]
+    },
+    {
+      "n": "IMMUNITY_LEEK_SALAD",
+      "t": "salad",
+      "bonus": 18.77,
+      "cnt": 15,
+      "ings": [
+        [
+          16,
+          10
+        ],
+        [
+          5,
+          5
+        ]
+      ]
+    },
+    {
+      "n": "SUPERPOWER_EXTREME_SALAD",
+      "t": "salad",
+      "bonus": 20.51,
+      "cnt": 23,
+      "ings": [
+        [
+          4,
+          9
+        ],
+        [
+          5,
+          6
+        ],
+        [
+          7,
+          5
+        ],
+        [
+          9,
+          3
+        ]
+      ]
+    },
+    {
+      "n": "CONTRARY_CHOCOLATE_MEAT_SALAD",
+      "t": "salad",
+      "bonus": 20.51,
+      "cnt": 23,
+      "ings": [
+        [
+          12,
+          14
+        ],
+        [
+          4,
+          9
+        ]
+      ]
+    },
+    {
+      "n": "GLUTTONY_POTATO_SALAD",
+      "t": "salad",
+      "bonus": 25,
+      "cnt": 36,
+      "ings": [
+        [
+          9,
+          14
+        ],
+        [
+          7,
+          9
+        ],
+        [
+          4,
+          7
+        ],
+        [
+          0,
+          6
+        ]
+      ]
+    },
+    {
+      "n": "OVERHEAT_GINGER_SALAD",
+      "t": "salad",
+      "bonus": 25,
+      "cnt": 35,
+      "ings": [
+        [
+          10,
+          17
+        ],
+        [
+          5,
+          10
+        ],
+        [
+          6,
+          8
+        ]
+      ]
+    },
+    {
+      "n": "SPORE_MUSHROOM_SALAD",
+      "t": "salad",
+      "bonus": 25,
+      "cnt": 33,
+      "ings": [
+        [
+          15,
+          17
+        ],
+        [
+          6,
+          8
+        ],
+        [
+          8,
+          8
+        ]
+      ]
+    },
+    {
+      "n": "CALM_MIND_FRUIT_SALAD",
+      "t": "salad",
+      "bonus": 48,
+      "cnt": 49,
+      "ings": [
+        [
+          0,
+          21
+        ],
+        [
+          3,
+          16
+        ],
+        [
+          11,
+          12
+        ]
+      ]
+    },
+    {
+      "n": "SLOWPOKE_TAIL_PEPPER_SALAD",
+      "t": "salad",
+      "bonus": 25,
+      "cnt": 35,
+      "ings": [
+        [
+          18,
+          10
+        ],
+        [
+          10,
+          10
+        ],
+        [
+          8,
+          15
+        ]
+      ]
+    },
+    {
+      "n": "CROSS_CHOP_SALAD",
+      "t": "salad",
+      "bonus": 35,
+      "cnt": 56,
+      "ings": [
+        [
+          7,
+          20
+        ],
+        [
+          4,
+          15
+        ],
+        [
+          11,
+          11
+        ],
+        [
+          6,
+          10
+        ]
+      ]
+    },
+    {
+      "n": "GREENGRASS_SALAD",
+      "t": "salad",
+      "bonus": 48,
+      "cnt": 62,
+      "ings": [
+        [
+          8,
+          22
+        ],
+        [
+          11,
+          17
+        ],
+        [
+          6,
+          14
+        ],
+        [
+          9,
+          9
+        ]
+      ]
+    },
+    {
+      "n": "NINJA_SALAD",
+      "t": "salad",
+      "bonus": 48,
+      "cnt": 57,
+      "ings": [
+        [
+          16,
+          15
+        ],
+        [
+          2,
+          19
+        ],
+        [
+          15,
+          12
+        ],
+        [
+          5,
+          11
+        ]
+      ]
+    },
+    {
+      "n": "PETAL_BLIZZARD_LAYERED_SALAD",
+      "t": "salad",
+      "bonus": 48,
+      "cnt": 69,
+      "ings": [
+        [
+          7,
+          25
+        ],
+        [
+          8,
+          17
+        ],
+        [
+          9,
+          15
+        ],
+        [
+          4,
+          12
+        ]
+      ]
+    },
+    {
+      "n": "APPLE_ACID_YOGURT_DRESSED_SALAD",
+      "t": "salad",
+      "bonus": 78,
+      "cnt": 104,
+      "ings": [
+        [
+          7,
+          35
+        ],
+        [
+          0,
+          28
+        ],
+        [
+          6,
+          23
+        ],
+        [
+          1,
+          18
+        ]
+      ]
+    },
+    {
+      "n": "DEFIANT_COFFEE_DRESSED_SALAD",
+      "t": "salad",
+      "bonus": 61,
+      "cnt": 100,
+      "ings": [
+        [
+          13,
+          28
+        ],
+        [
+          4,
+          28
+        ],
+        [
+          8,
+          22
+        ],
+        [
+          9,
+          22
+        ]
+      ]
+    },
+    {
+      "n": "LUSCIOUS_AVOCADO_SALAD",
+      "t": "salad",
       "bonus": 35,
       "cnt": 42,
       "ings": [
         [
-          13,
-          16
-        ],
-        [
-          1,
+          14,
           14
         ],
         [
-          3,
-          12
-        ]
-      ]
-    },
-    {
-      "n": "MOLD_BREAKER_CORN_TIRAMISU",
-      "t": "dessert",
-      "bonus": 35,
-      "cnt": 40,
-      "ings": [
-        [
-          13,
-          14
-        ],
-        [
-          11,
-          14
-        ],
-        [
-          1,
-          12
-        ]
-      ]
-    },
-    {
-      "n": "EXPLOSION_POPCORN",
-      "t": "dessert",
-      "bonus": 35,
-      "cnt": 36,
-      "ings": [
-        [
-          11,
-          15
+          2,
+          18
         ],
         [
           8,
-          14
+          10
+        ]
+      ]
+    },
+    {
+      "n": "BULLDOZE_GUACAMOLE_AND_CHIPS",
+      "t": "salad",
+      "bonus": 78,
+      "cnt": 105,
+      "ings": [
+        [
+          14,
+          28
+        ],
+        [
+          11,
+          25
+        ],
+        [
+          10,
+          30
+        ],
+        [
+          2,
+          22
+        ]
+      ]
+    },
+    {
+      "n": "SCALD_CHUNKY_SALAD",
+      "t": "salad",
+      "bonus": 61,
+      "cnt": 95,
+      "ings": [
+        [
+          17,
+          20
+        ],
+        [
+          9,
+          30
+        ],
+        [
+          11,
+          18
+        ],
+        [
+          15,
+          27
+        ]
+      ]
+    },
+    {
+      "n": "WARM_MOOMOO_MILK",
+      "t": "dessert",
+      "bonus": 18.7,
+      "cnt": 7,
+      "ings": [
+        [
+          1,
+          7
+        ]
+      ]
+    },
+    {
+      "n": "FANCY_APPLE_JUICE",
+      "t": "dessert",
+      "bonus": 18.7,
+      "cnt": 8,
+      "ings": [
+        [
+          0,
+          8
+        ]
+      ]
+    },
+    {
+      "n": "CRAFT_SODA_POP",
+      "t": "dessert",
+      "bonus": 18.7,
+      "cnt": 9,
+      "ings": [
+        [
+          3,
+          9
+        ]
+      ]
+    },
+    {
+      "n": "LUCKY_CHANT_APPLE_PIE",
+      "t": "dessert",
+      "bonus": 18.77,
+      "cnt": 16,
+      "ings": [
+        [
+          0,
+          12
+        ],
+        [
+          1,
+          4
+        ]
+      ]
+    },
+    {
+      "n": "FLUFFY_SWEET_POTATOES",
+      "t": "dessert",
+      "bonus": 18.77,
+      "cnt": 14,
+      "ings": [
+        [
+          9,
+          9
+        ],
+        [
+          1,
+          5
+        ]
+      ]
+    },
+    {
+      "n": "EMBER_GINGER_TEA",
+      "t": "dessert",
+      "bonus": 18.77,
+      "cnt": 16,
+      "ings": [
+        [
+          5,
+          9
+        ],
+        [
+          0,
+          7
+        ]
+      ]
+    },
+    {
+      "n": "CLOUD_NINE_SOY_CAKE",
+      "t": "dessert",
+      "bonus": 18.77,
+      "cnt": 15,
+      "ings": [
+        [
+          7,
+          8
+        ],
+        [
+          2,
+          7
+        ]
+      ]
+    },
+    {
+      "n": "STALWART_VEGETABLE_JUICE",
+      "t": "dessert",
+      "bonus": 18.77,
+      "cnt": 16,
+      "ings": [
+        [
+          6,
+          9
+        ],
+        [
+          0,
+          7
+        ]
+      ]
+    },
+    {
+      "n": "BIG_MALASADA",
+      "t": "dessert",
+      "bonus": 20.51,
+      "cnt": 23,
+      "ings": [
+        [
+          8,
+          10
         ],
         [
           1,
           7
+        ],
+        [
+          3,
+          6
+        ]
+      ]
+    },
+    {
+      "n": "HUSTLE_PROTEIN_SMOOTHIE",
+      "t": "dessert",
+      "bonus": 20.51,
+      "cnt": 23,
+      "ings": [
+        [
+          2,
+          15
+        ],
+        [
+          12,
+          8
         ]
       ]
     },
@@ -11819,6 +12235,42 @@
         [
           12,
           7
+        ]
+      ]
+    },
+    {
+      "n": "SWEET_SCENT_CHOCOLATE_CAKE",
+      "t": "dessert",
+      "bonus": 20.51,
+      "cnt": 24,
+      "ings": [
+        [
+          3,
+          9
+        ],
+        [
+          12,
+          8
+        ],
+        [
+          1,
+          7
+        ]
+      ]
+    },
+    {
+      "n": "PETAL_DANCE_CHOCOLATE_TART",
+      "t": "dessert",
+      "bonus": 25,
+      "cnt": 22,
+      "ings": [
+        [
+          0,
+          11
+        ],
+        [
+          12,
+          11
         ]
       ]
     },
@@ -11891,702 +12343,250 @@
       ]
     },
     {
-      "n": "SWEET_SCENT_CHOCOLATE_CAKE",
+      "n": "EXPLOSION_POPCORN",
       "t": "dessert",
-      "bonus": 20.51,
-      "cnt": 24,
+      "bonus": 35,
+      "cnt": 36,
       "ings": [
         [
-          3,
-          9
-        ],
-        [
-          12,
-          8
-        ],
-        [
-          1,
-          7
-        ]
-      ]
-    },
-    {
-      "n": "BIG_MALASADA",
-      "t": "dessert",
-      "bonus": 20.51,
-      "cnt": 23,
-      "ings": [
-        [
-          8,
-          10
-        ],
-        [
-          1,
-          7
-        ],
-        [
-          3,
-          6
-        ]
-      ]
-    },
-    {
-      "n": "HUSTLE_PROTEIN_SMOOTHIE",
-      "t": "dessert",
-      "bonus": 20.51,
-      "cnt": 23,
-      "ings": [
-        [
-          2,
+          11,
           15
         ],
         [
-          12,
-          8
-        ]
-      ]
-    },
-    {
-      "n": "PETAL_DANCE_CHOCOLATE_TART",
-      "t": "dessert",
-      "bonus": 25,
-      "cnt": 22,
-      "ings": [
-        [
-          0,
-          11
-        ],
-        [
-          12,
-          11
-        ]
-      ]
-    },
-    {
-      "n": "LUCKY_CHANT_APPLE_PIE",
-      "t": "dessert",
-      "bonus": 18.77,
-      "cnt": 16,
-      "ings": [
-        [
-          0,
-          12
-        ],
-        [
-          1,
-          4
-        ]
-      ]
-    },
-    {
-      "n": "EMBER_GINGER_TEA",
-      "t": "dessert",
-      "bonus": 18.77,
-      "cnt": 16,
-      "ings": [
-        [
-          5,
-          9
-        ],
-        [
-          0,
-          7
-        ]
-      ]
-    },
-    {
-      "n": "STALWART_VEGETABLE_JUICE",
-      "t": "dessert",
-      "bonus": 18.77,
-      "cnt": 16,
-      "ings": [
-        [
-          6,
-          9
-        ],
-        [
-          0,
-          7
-        ]
-      ]
-    },
-    {
-      "n": "CLOUD_NINE_SOY_CAKE",
-      "t": "dessert",
-      "bonus": 18.77,
-      "cnt": 15,
-      "ings": [
-        [
-          7,
-          8
-        ],
-        [
-          2,
-          7
-        ]
-      ]
-    },
-    {
-      "n": "FLUFFY_SWEET_POTATOES",
-      "t": "dessert",
-      "bonus": 18.77,
-      "cnt": 14,
-      "ings": [
-        [
-          9,
-          9
-        ],
-        [
-          1,
-          5
-        ]
-      ]
-    },
-    {
-      "n": "CRAFT_SODA_POP",
-      "t": "dessert",
-      "bonus": 18.7,
-      "cnt": 9,
-      "ings": [
-        [
-          3,
-          9
-        ]
-      ]
-    },
-    {
-      "n": "FANCY_APPLE_JUICE",
-      "t": "dessert",
-      "bonus": 18.7,
-      "cnt": 8,
-      "ings": [
-        [
-          0,
-          8
-        ]
-      ]
-    },
-    {
-      "n": "WARM_MOOMOO_MILK",
-      "t": "dessert",
-      "bonus": 18.7,
-      "cnt": 7,
-      "ings": [
-        [
-          1,
-          7
-        ]
-      ]
-    },
-    {
-      "n": "BULLDOZE_GUACAMOLE_AND_CHIPS",
-      "t": "salad",
-      "bonus": 78,
-      "cnt": 105,
-      "ings": [
-        [
-          14,
-          28
-        ],
-        [
-          11,
-          25
-        ],
-        [
-          10,
-          30
-        ],
-        [
-          2,
-          22
-        ]
-      ]
-    },
-    {
-      "n": "APPLE_ACID_YOGURT_DRESSED_SALAD",
-      "t": "salad",
-      "bonus": 78,
-      "cnt": 104,
-      "ings": [
-        [
-          7,
-          35
-        ],
-        [
-          0,
-          28
-        ],
-        [
-          6,
-          23
-        ],
-        [
-          1,
-          18
-        ]
-      ]
-    },
-    {
-      "n": "DEFIANT_COFFEE_DRESSED_SALAD",
-      "t": "salad",
-      "bonus": 61,
-      "cnt": 100,
-      "ings": [
-        [
-          13,
-          28
-        ],
-        [
-          4,
-          28
-        ],
-        [
           8,
-          22
-        ],
-        [
-          9,
-          22
-        ]
-      ]
-    },
-    {
-      "n": "SCALD_CHUNKY_SALAD",
-      "t": "salad",
-      "bonus": 61,
-      "cnt": 95,
-      "ings": [
-        [
-          17,
-          20
-        ],
-        [
-          9,
-          30
-        ],
-        [
-          11,
-          18
-        ],
-        [
-          15,
-          27
-        ]
-      ]
-    },
-    {
-      "n": "PETAL_BLIZZARD_LAYERED_SALAD",
-      "t": "salad",
-      "bonus": 48,
-      "cnt": 69,
-      "ings": [
-        [
-          7,
-          25
-        ],
-        [
-          8,
-          17
-        ],
-        [
-          9,
-          15
-        ],
-        [
-          4,
-          12
-        ]
-      ]
-    },
-    {
-      "n": "GREENGRASS_SALAD",
-      "t": "salad",
-      "bonus": 48,
-      "cnt": 62,
-      "ings": [
-        [
-          8,
-          22
-        ],
-        [
-          11,
-          17
-        ],
-        [
-          6,
           14
         ],
         [
-          9,
-          9
+          1,
+          7
         ]
       ]
     },
     {
-      "n": "NINJA_SALAD",
-      "t": "salad",
-      "bonus": 48,
-      "cnt": 57,
-      "ings": [
-        [
-          16,
-          15
-        ],
-        [
-          2,
-          19
-        ],
-        [
-          15,
-          12
-        ],
-        [
-          5,
-          11
-        ]
-      ]
-    },
-    {
-      "n": "CROSS_CHOP_SALAD",
-      "t": "salad",
-      "bonus": 35,
-      "cnt": 56,
-      "ings": [
-        [
-          7,
-          20
-        ],
-        [
-          4,
-          15
-        ],
-        [
-          11,
-          11
-        ],
-        [
-          6,
-          10
-        ]
-      ]
-    },
-    {
-      "n": "CALM_MIND_FRUIT_SALAD",
-      "t": "salad",
-      "bonus": 48,
-      "cnt": 49,
-      "ings": [
-        [
-          0,
-          21
-        ],
-        [
-          3,
-          16
-        ],
-        [
-          11,
-          12
-        ]
-      ]
-    },
-    {
-      "n": "LUSCIOUS_AVOCADO_SALAD",
-      "t": "salad",
+      "n": "EARLY_BIRD_COFFEE_JELLY",
+      "t": "dessert",
       "bonus": 35,
       "cnt": 42,
       "ings": [
         [
-          14,
-          14
-        ],
-        [
-          2,
-          18
-        ],
-        [
-          8,
-          10
-        ]
-      ]
-    },
-    {
-      "n": "GLUTTONY_POTATO_SALAD",
-      "t": "salad",
-      "bonus": 25,
-      "cnt": 36,
-      "ings": [
-        [
-          9,
-          14
-        ],
-        [
-          7,
-          9
-        ],
-        [
-          4,
-          7
-        ],
-        [
-          0,
-          6
-        ]
-      ]
-    },
-    {
-      "n": "OVERHEAT_GINGER_SALAD",
-      "t": "salad",
-      "bonus": 25,
-      "cnt": 35,
-      "ings": [
-        [
-          10,
-          17
-        ],
-        [
-          5,
-          10
-        ],
-        [
-          6,
-          8
-        ]
-      ]
-    },
-    {
-      "n": "SLOWPOKE_TAIL_PEPPER_SALAD",
-      "t": "salad",
-      "bonus": 25,
-      "cnt": 35,
-      "ings": [
-        [
-          18,
-          10
-        ],
-        [
-          10,
-          10
-        ],
-        [
-          8,
-          15
-        ]
-      ]
-    },
-    {
-      "n": "SPORE_MUSHROOM_SALAD",
-      "t": "salad",
-      "bonus": 25,
-      "cnt": 33,
-      "ings": [
-        [
-          15,
-          17
-        ],
-        [
-          6,
-          8
-        ],
-        [
-          8,
-          8
-        ]
-      ]
-    },
-    {
-      "n": "WATER_VEIL_TOFU_SALAD",
-      "t": "salad",
-      "bonus": 25,
-      "cnt": 24,
-      "ings": [
-        [
-          2,
-          15
-        ],
-        [
-          6,
-          9
-        ]
-      ]
-    },
-    {
-      "n": "DAZZLING_APPLE_CHEESE_SALAD",
-      "t": "salad",
-      "bonus": 20.51,
-      "cnt": 23,
-      "ings": [
-        [
-          0,
-          15
+          13,
+          16
         ],
         [
           1,
-          5
+          14
         ],
         [
-          8,
-          3
+          3,
+          12
         ]
       ]
     },
     {
-      "n": "MOOMOO_CAPRESE_SALAD",
-      "t": "salad",
-      "bonus": 20.51,
-      "cnt": 23,
+      "n": "MOLD_BREAKER_CORN_TIRAMISU",
+      "t": "dessert",
+      "bonus": 35,
+      "cnt": 40,
       "ings": [
+        [
+          13,
+          14
+        ],
+        [
+          11,
+          14
+        ],
         [
           1,
           12
-        ],
-        [
-          6,
-          6
-        ],
-        [
-          8,
-          5
         ]
       ]
     },
     {
-      "n": "SUPERPOWER_EXTREME_SALAD",
-      "t": "salad",
-      "bonus": 20.51,
-      "cnt": 23,
+      "n": "JIGGLYPUFFS_FRUITY_FLAN",
+      "t": "dessert",
+      "bonus": 35,
+      "cnt": 55,
       "ings": [
         [
-          4,
-          9
-        ],
-        [
-          5,
-          6
+          3,
+          20
         ],
         [
           7,
-          5
+          15
         ],
-        [
-          9,
-          3
-        ]
-      ]
-    },
-    {
-      "n": "CONTRARY_CHOCOLATE_MEAT_SALAD",
-      "t": "salad",
-      "bonus": 20.51,
-      "cnt": 23,
-      "ings": [
-        [
-          12,
-          14
-        ],
-        [
-          4,
-          9
-        ]
-      ]
-    },
-    {
-      "n": "FURY_ATTACK_CORN_SALAD",
-      "t": "salad",
-      "bonus": 25,
-      "cnt": 17,
-      "ings": [
-        [
-          11,
-          9
-        ],
-        [
-          8,
-          8
-        ]
-      ]
-    },
-    {
-      "n": "SNOW_CLOAK_CAESAR_SALAD",
-      "t": "salad",
-      "bonus": 18.77,
-      "cnt": 16,
-      "ings": [
         [
           1,
           10
         ],
         [
-          4,
-          6
-        ]
-      ]
-    },
-    {
-      "n": "HEAT_WAVE_TOFU_SALAD",
-      "t": "salad",
-      "bonus": 18.77,
-      "cnt": 16,
-      "ings": [
-        [
-          2,
+          0,
           10
-        ],
-        [
-          10,
-          6
         ]
       ]
     },
     {
-      "n": "IMMUNITY_LEEK_SALAD",
-      "t": "salad",
-      "bonus": 18.77,
-      "cnt": 15,
-      "ings": [
-        [
-          16,
-          10
-        ],
-        [
-          5,
-          5
-        ]
-      ]
-    },
-    {
-      "n": "FANCY_APPLE_SALAD",
-      "t": "salad",
-      "bonus": 18.7,
-      "cnt": 8,
+      "n": "TEATIME_CORN_SCONES",
+      "t": "dessert",
+      "bonus": 48,
+      "cnt": 67,
       "ings": [
         [
           0,
-          8
+          20
+        ],
+        [
+          5,
+          20
+        ],
+        [
+          11,
+          18
+        ],
+        [
+          1,
+          9
         ]
       ]
     },
     {
-      "n": "BEAN_HAM_SALAD",
-      "t": "salad",
-      "bonus": 18.7,
-      "cnt": 8,
+      "n": "FLOWER_GIFT_MACARONS",
+      "t": "dessert",
+      "bonus": 48,
+      "cnt": 77,
       "ings": [
         [
-          4,
-          8
+          12,
+          25
+        ],
+        [
+          7,
+          25
+        ],
+        [
+          3,
+          17
+        ],
+        [
+          1,
+          10
         ]
       ]
     },
     {
-      "n": "SNOOZY_TOMATO_SALAD",
-      "t": "salad",
-      "bonus": 18.7,
-      "cnt": 8,
+      "n": "ZING_ZAP_SPICED_COLA",
+      "t": "dessert",
+      "bonus": 61,
+      "cnt": 87,
       "ings": [
+        [
+          0,
+          35
+        ],
+        [
+          5,
+          20
+        ],
+        [
+          16,
+          20
+        ],
+        [
+          13,
+          12
+        ]
+      ]
+    },
+    {
+      "n": "CLODSIRE_ECLAIR",
+      "t": "dessert",
+      "bonus": 61,
+      "cnt": 102,
+      "ings": [
+        [
+          12,
+          30
+        ],
+        [
+          1,
+          26
+        ],
+        [
+          13,
+          24
+        ],
+        [
+          3,
+          22
+        ]
+      ]
+    },
+    {
+      "n": "HONEY_GATHER_CHOCOLATE_WAFFLES",
+      "t": "dessert",
+      "bonus": 78,
+      "cnt": 115,
+      "ings": [
+        [
+          3,
+          38
+        ],
+        [
+          11,
+          28
+        ],
+        [
+          8,
+          28
+        ],
+        [
+          12,
+          21
+        ]
+      ]
+    },
+    {
+      "n": "SCARY_FACE_PANCAKES",
+      "t": "dessert",
+      "bonus": 78,
+      "cnt": 103,
+      "ings": [
+        [
+          17,
+          18
+        ],
+        [
+          7,
+          24
+        ],
+        [
+          3,
+          32
+        ],
         [
           6,
-          8
+          29
+        ]
+      ]
+    },
+    {
+      "n": "LEAF_TORNADO_SMOOTHIE",
+      "t": "dessert",
+      "bonus": 35,
+      "cnt": 48,
+      "ings": [
+        [
+          14,
+          18
+        ],
+        [
+          6,
+          16
+        ],
+        [
+          1,
+          14
         ]
       ]
     }
@@ -12797,9 +12797,6 @@
         1800,
         2500
       ]
-    },
-    "Dream Shard Magnet S Range": {
-      "max": 8
     },
     "Aura Sphere (Dream Shard Magnet S)": {
       "max": 8,
@@ -13693,84 +13690,84 @@
       "Type Boost S": "屬性加速S"
     },
     "recipes": {
-      "OVERGROW_AVOCADO_GRATIN": "茂盛焗烤酪梨",
-      "BOUNCE_CURRY_UDON": "彈跳咖哩烏龍麵",
-      "CUT_SUKIYAKI_CURRY": "居合斬壽喜燒咖哩",
-      "HIDDEN_POWER_PERK_UP_STEW": "覺醒力量濃湯",
-      "INFERNO_CORN_KEEMA_CURRY": "煉獄玉米乾咖哩",
-      "ROLE_PLAY_PUMPKABOO_STEW": "扮演南瓜精濃湯",
-      "GREENGRASS_CURRY_BUN": "萌綠咖哩麵包",
-      "DREAM_EATER_BUTTER_CURRY": "絕對睡眠奶油咖哩",
-      "NINJA_CURRY": "忍者咖哩",
-      "EGG_BOMB_CURRY": "親子愛咖哩",
-      "DIZZY_PUNCH_SPICY_CURRY": "迷昏拳辣味咖哩",
-      "GRILLED_TAIL_CURRY": "炙燒尾肉咖哩",
-      "SPICY_LEEK_CURRY": "辣味蔥勁十足咖哩",
-      "LIMBER_CORN_STEW": "柔軟玉米濃湯",
-      "BULK_UP_BEAN_CURRY": "健美豆子咖哩",
-      "SPORE_MUSHROOM_CURRY": "蘑菇孢子咖哩",
-      "SOFT_POTATO_CHOWDER": "窩心白醬濃湯",
-      "HEARTY_CHEESEBURGER_CURRY": "吃飽飽起司肉排咖哩",
-      "MELTY_OMELETTE_CURRY": "入口即化蛋捲咖哩",
-      "DROUGHT_KATSU_CURRY": "日照炸肉排咖哩",
-      "SOLAR_POWER_TOMATO_CURRY": "太陽之力番茄咖哩",
       "FANCY_APPLE_CURRY": "特選蘋果咖哩",
       "SIMPLE_CHOWDER": "單純白醬濃湯",
       "MILD_HONEY_CURRY": "寶寶甜蜜咖哩",
       "BEANBURGER_CURRY": "豆製肉排咖哩",
-      "HONEY_GATHER_CHOCOLATE_WAFFLES": "採蜜巧克力格子鬆餅",
-      "SCARY_FACE_PANCAKES": "心跳加速鬼面鬆餅",
-      "CLODSIRE_ECLAIR": "土王閃電泡芙",
-      "ZING_ZAP_SPICED_COLA": "電光香料可樂",
-      "FLOWER_GIFT_MACARONS": "花之禮馬卡龍",
-      "TEATIME_CORN_SCONES": "茶會玉米司康",
-      "JIGGLYPUFFS_FRUITY_FLAN": "胖丁百匯布丁",
-      "LEAF_TORNADO_SMOOTHIE": "青草攪拌器冰沙",
-      "EARLY_BIRD_COFFEE_JELLY": "早起咖啡凍",
-      "MOLD_BREAKER_CORN_TIRAMISU": "破格玉米香提拉米蘇",
-      "EXPLOSION_POPCORN": "大爆炸爆米花",
+      "HEARTY_CHEESEBURGER_CURRY": "吃飽飽起司肉排咖哩",
+      "DROUGHT_KATSU_CURRY": "日照炸肉排咖哩",
+      "SOLAR_POWER_TOMATO_CURRY": "太陽之力番茄咖哩",
+      "MELTY_OMELETTE_CURRY": "入口即化蛋捲咖哩",
+      "SOFT_POTATO_CHOWDER": "窩心白醬濃湯",
+      "BULK_UP_BEAN_CURRY": "健美豆子咖哩",
+      "SPORE_MUSHROOM_CURRY": "蘑菇孢子咖哩",
+      "EGG_BOMB_CURRY": "親子愛咖哩",
+      "LIMBER_CORN_STEW": "柔軟玉米濃湯",
+      "DIZZY_PUNCH_SPICY_CURRY": "迷昏拳辣味咖哩",
+      "SPICY_LEEK_CURRY": "辣味蔥勁十足咖哩",
+      "NINJA_CURRY": "忍者咖哩",
+      "GRILLED_TAIL_CURRY": "炙燒尾肉咖哩",
+      "DREAM_EATER_BUTTER_CURRY": "絕對睡眠奶油咖哩",
+      "INFERNO_CORN_KEEMA_CURRY": "煉獄玉米乾咖哩",
+      "HIDDEN_POWER_PERK_UP_STEW": "覺醒力量濃湯",
+      "CUT_SUKIYAKI_CURRY": "居合斬壽喜燒咖哩",
+      "ROLE_PLAY_PUMPKABOO_STEW": "扮演南瓜精濃湯",
+      "OVERGROW_AVOCADO_GRATIN": "茂盛焗烤酪梨",
+      "GREENGRASS_CURRY_BUN": "萌綠咖哩麵包",
+      "BOUNCE_CURRY_UDON": "彈跳咖哩烏龍麵",
+      "FANCY_APPLE_SALAD": "特選蘋果沙拉",
+      "BEAN_HAM_SALAD": "豆製火腿沙拉",
+      "SNOOZY_TOMATO_SALAD": "好眠番茄沙拉",
+      "SNOW_CLOAK_CAESAR_SALAD": "撥雪凱撒沙拉",
+      "WATER_VEIL_TOFU_SALAD": "濕潤豆腐沙拉",
+      "HEAT_WAVE_TOFU_SALAD": "熱風豆腐沙拉",
+      "FURY_ATTACK_CORN_SALAD": "亂擊玉米沙拉",
+      "DAZZLING_APPLE_CHEESE_SALAD": "迷人蘋果起司沙拉",
+      "MOOMOO_CAPRESE_SALAD": "哞哞起司番茄沙拉",
+      "IMMUNITY_LEEK_SALAD": "免疫蔥花沙拉",
+      "SUPERPOWER_EXTREME_SALAD": "蠻力豪邁沙拉",
+      "CONTRARY_CHOCOLATE_MEAT_SALAD": "心情不定肉沙拉淋巧克力醬",
+      "GLUTTONY_POTATO_SALAD": "貪吃鬼洋芋沙拉",
+      "OVERHEAT_GINGER_SALAD": "過熱沙拉",
+      "SPORE_MUSHROOM_SALAD": "蘑菇孢子沙拉",
+      "CALM_MIND_FRUIT_SALAD": "冥想香甜沙拉",
+      "SLOWPOKE_TAIL_PEPPER_SALAD": "呆呆獸尾巴的胡椒沙拉",
+      "CROSS_CHOP_SALAD": "十字切碎丁沙拉",
+      "GREENGRASS_SALAD": "萌綠沙拉",
+      "NINJA_SALAD": "忍者沙拉",
+      "PETAL_BLIZZARD_LAYERED_SALAD": "落英繽紛含羞草蛋沙拉",
+      "APPLE_ACID_YOGURT_DRESSED_SALAD": "蘋果酸優格沙拉",
+      "DEFIANT_COFFEE_DRESSED_SALAD": "不服輸咖啡沙拉",
+      "LUSCIOUS_AVOCADO_SALAD": "碎裂酪梨沙拉",
+      "BULLDOZE_GUACAMOLE_AND_CHIPS": "重踏酪梨醬脆片",
+      "SCALD_CHUNKY_SALAD": "大塊滿滿熱水沙拉",
+      "WARM_MOOMOO_MILK": "哞哞熱鮮奶",
+      "FANCY_APPLE_JUICE": "特選蘋果汁",
+      "CRAFT_SODA_POP": "手製勁爽汽水",
+      "LUCKY_CHANT_APPLE_PIE": "祈願蘋果派",
+      "FLUFFY_SWEET_POTATOES": "熟成甜薯燒",
+      "EMBER_GINGER_TEA": "火花薑茶",
+      "CLOUD_NINE_SOY_CAKE": "輕裝豆香蛋糕",
+      "STALWART_VEGETABLE_JUICE": "我行我素蔬菜汁",
+      "BIG_MALASADA": "大馬拉薩達",
+      "HUSTLE_PROTEIN_SMOOTHIE": "活力蛋白飲",
       "HUGE_POWER_SOY_DONUTS": "大力士豆香甜甜圈",
+      "SWEET_SCENT_CHOCOLATE_CAKE": "甜甜香氣巧克力蛋糕",
+      "PETAL_DANCE_CHOCOLATE_TART": "花瓣舞巧克力塔",
       "LOVELY_KISS_SMOOTHIE": "惡魔之吻水果牛奶",
       "STEADFAST_GINGER_COOKIES": "不屈薑餅",
       "NEROLIS_RESTORATIVE_TEA": "橙夢的排毒茶",
-      "SWEET_SCENT_CHOCOLATE_CAKE": "甜甜香氣巧克力蛋糕",
-      "BIG_MALASADA": "大馬拉薩達",
-      "HUSTLE_PROTEIN_SMOOTHIE": "活力蛋白飲",
-      "PETAL_DANCE_CHOCOLATE_TART": "花瓣舞巧克力塔",
-      "LUCKY_CHANT_APPLE_PIE": "祈願蘋果派",
-      "EMBER_GINGER_TEA": "火花薑茶",
-      "STALWART_VEGETABLE_JUICE": "我行我素蔬菜汁",
-      "CLOUD_NINE_SOY_CAKE": "輕裝豆香蛋糕",
-      "FLUFFY_SWEET_POTATOES": "熟成甜薯燒",
-      "CRAFT_SODA_POP": "手製勁爽汽水",
-      "FANCY_APPLE_JUICE": "特選蘋果汁",
-      "WARM_MOOMOO_MILK": "哞哞熱鮮奶",
-      "BULLDOZE_GUACAMOLE_AND_CHIPS": "重踏酪梨醬脆片",
-      "APPLE_ACID_YOGURT_DRESSED_SALAD": "蘋果酸優格沙拉",
-      "DEFIANT_COFFEE_DRESSED_SALAD": "不服輸咖啡沙拉",
-      "SCALD_CHUNKY_SALAD": "大塊滿滿熱水沙拉",
-      "PETAL_BLIZZARD_LAYERED_SALAD": "落英繽紛含羞草蛋沙拉",
-      "GREENGRASS_SALAD": "萌綠沙拉",
-      "NINJA_SALAD": "忍者沙拉",
-      "CROSS_CHOP_SALAD": "十字切碎丁沙拉",
-      "CALM_MIND_FRUIT_SALAD": "冥想香甜沙拉",
-      "LUSCIOUS_AVOCADO_SALAD": "碎裂酪梨沙拉",
-      "GLUTTONY_POTATO_SALAD": "貪吃鬼洋芋沙拉",
-      "OVERHEAT_GINGER_SALAD": "過熱沙拉",
-      "SLOWPOKE_TAIL_PEPPER_SALAD": "呆呆獸尾巴的胡椒沙拉",
-      "SPORE_MUSHROOM_SALAD": "蘑菇孢子沙拉",
-      "WATER_VEIL_TOFU_SALAD": "濕潤豆腐沙拉",
-      "DAZZLING_APPLE_CHEESE_SALAD": "迷人蘋果起司沙拉",
-      "MOOMOO_CAPRESE_SALAD": "哞哞起司番茄沙拉",
-      "SUPERPOWER_EXTREME_SALAD": "蠻力豪邁沙拉",
-      "CONTRARY_CHOCOLATE_MEAT_SALAD": "心情不定肉沙拉淋巧克力醬",
-      "FURY_ATTACK_CORN_SALAD": "亂擊玉米沙拉",
-      "SNOW_CLOAK_CAESAR_SALAD": "撥雪凱撒沙拉",
-      "HEAT_WAVE_TOFU_SALAD": "熱風豆腐沙拉",
-      "IMMUNITY_LEEK_SALAD": "免疫蔥花沙拉",
-      "FANCY_APPLE_SALAD": "特選蘋果沙拉",
-      "BEAN_HAM_SALAD": "豆製火腿沙拉",
-      "SNOOZY_TOMATO_SALAD": "好眠番茄沙拉"
+      "EXPLOSION_POPCORN": "大爆炸爆米花",
+      "EARLY_BIRD_COFFEE_JELLY": "早起咖啡凍",
+      "MOLD_BREAKER_CORN_TIRAMISU": "破格玉米香提拉米蘇",
+      "JIGGLYPUFFS_FRUITY_FLAN": "胖丁百匯布丁",
+      "TEATIME_CORN_SCONES": "茶會玉米司康",
+      "FLOWER_GIFT_MACARONS": "花之禮馬卡龍",
+      "ZING_ZAP_SPICED_COLA": "電光香料可樂",
+      "CLODSIRE_ECLAIR": "土王閃電泡芙",
+      "HONEY_GATHER_CHOCOLATE_WAFFLES": "採蜜巧克力格子鬆餅",
+      "SCARY_FACE_PANCAKES": "心跳加速鬼面鬆餅",
+      "LEAF_TORNADO_SMOOTHIE": "青草攪拌器冰沙"
     },
     "pk": {
       "BULBASAUR": "妙蛙種子",
@@ -14021,16 +14018,6 @@
       "CLODSIRE": "土王"
     }
   },
-  "meta": {
-    "schema": 4,
-    "src": "nerolis-lab/nerolis-lab",
-    "commit": "7814857",
-    "commitDate": "2026-08-30",
-    "builtAt": "2026-09-07",
-    "zhSrc": "RaenonX i18n + 52poke zh-hant",
-    "typesSrc": "tools/types.txt（本專案維護 —— 上游的寶可夢資料沒有屬性欄位）",
-    "msExtraSrc": "tools/skills-extra.json（本專案維護 —— 上游快照沒有這些表）"
-  },
   "types": {
     "dark": [
       "UMBREON",
@@ -14157,5 +14144,15 @@
         ]
       ]
     }
+  },
+  "meta": {
+    "schema": 4,
+    "src": "nerolis-lab/nerolis-lab",
+    "commit": "70724a2",
+    "commitDate": "2026-09-09",
+    "builtAt": "2026-09-10",
+    "zhSrc": "RaenonX i18n + 52poke zh-hant",
+    "typesSrc": "tools/types.txt（本專案維護 —— 上游的寶可夢資料沒有屬性欄位）",
+    "msExtraSrc": "tools/skills-extra.json（本專案維護 —— 上游快照沒有這些表）"
   }
 }
