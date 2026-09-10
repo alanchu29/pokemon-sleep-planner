@@ -242,6 +242,12 @@ td.n{font-family:var(--mono);font-variant-numeric:tabular-nums}
 /* 選了食材篩選時，欄位有但還沒解鎖的那幾隻產量是 0 —— 變淡但照樣顯示，
    和摺疊列的未解鎖食材格同一個處理方式（藏起來反而看不出為什麼排在最後）。 */
 .mon-power.zero{opacity:.5}
+/* 食譜頁：沒解鎖的那幾列**照樣顯示，只是變淡** —— 和箱子裡未解鎖的副技能／食材格
+   同一個處理方式。藏起來就看不出「為什麼它沒被算」，顯示成正常數字又是說謊。 */
+.rlvtable tr.rlv-off{opacity:.45}
+.rlvtable tr.rlv-off:hover{opacity:.75}
+.rlv-tog{white-space:nowrap;min-width:76px}
+.rlv-tog.on{border-color:var(--pos);color:var(--pos);font-weight:600}
 /* 「投資」那兩個數字（練滿／技能成長）緊跟在當前產能後面。當前產能回答「現在有
    多好」，這兩個回答「糖果該餵給誰」—— 擺在一起才看得出它們是不同的問題。
    邊框比產能弱一階：它們是**推算值**（背景算的、貪婪搜尋出來的參考線）。 */

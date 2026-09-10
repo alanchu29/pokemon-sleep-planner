@@ -2657,6 +2657,151 @@ console.log('\n[11m] 引擎：主技能「回自己活力」不可以攤給全�
      r.soloSelf > 0 && r.soloHelps > 0, `自回 ${r.soloSelf.toFixed(1)}／日，幫忙 ${r.soloHelps.toFixed(1)} 次/日`);
 }
 
+/* 「為什麼選這一隻」只放得下三句，所以**挑哪三句**本身就是一個會說謊的地方。
+   規則：一句話在卡片上「還有沒有別的地方看得到」——看不到的優先。
+   實際踩過：純補師的卡片留下「食材 佔這隊食材的 9%」，而「每日補活力 每隻 90」
+   （牠入選的唯一理由，實測值 +18.9%）排在第 4 被砍掉。 */
+console.log('\n[11n] 結果卡：三句話要挑對，代價不准被擠掉');
+{
+  const r = await page.evaluate(() => {
+    const mk = (n, ss, sk) => ({sp:n, level:60, nature:'Bashful',
+      ss:[...ss, ...Array(5-ss.length).fill(null)],
+      ingSet:[0,0,0], skillLv:sk, ribbon:4, pin:false, ex:false, nick:''});
+    /* 胖可丁＝活力全體療癒S（補師）、達克萊伊＝夢魘（有代價）。
+       兩隻都刻意帶「幫忙加成」，讓靜態標籤把三格塞滿 —— 舊排序下
+       補活力與代價都會被擠掉，這一節就是要擋住那件事。 */
+    deserialize({roster: [
+      mk('WIGGLYTUFF', ['Helping Bonus','Skill Trigger M','Skill Trigger S'], 6),
+      mk('DARKRAI',    ['Helping Bonus','Skill Trigger M','Skill Trigger S'], 6),
+      mk('RAICHU',     ['Helping Bonus','Helping Speed M','Skill Trigger M'], 4),
+      mk('VENUSAUR',   ['Helping Bonus','Helping Speed M','Skill Trigger M'], 4),
+      mk('GENGAR',     ['Helping Bonus','Helping Speed M','Skill Trigger M'], 4),
+    ]});
+    // 讓每一隻都吃到「產本週加成樹果」那個靜態標籤，把三格塞得更滿
+    wk.fav = new Set(roster.map(m => D.dex[m.sp].b));
+    buildPool(wk);
+    roster.forEach(m => { m._bs = baseStats(m, wk); });
+    const r0 = scoreTeam([0,1,2,3,4], roster, wk, new Map());
+    const res = finalizeTeams([r0], roster, wk, 1)[0];
+    const whys = [0,1,2,3,4].map(k => pickReason(k, res));
+    const at = n => res.idxs.findIndex(i => D.dex[roster[i].sp].n === n);
+    return {whys,
+      wig: whys[at('WIGGLYTUFF')], dark: whys[at('DARKRAI')],
+      plain: whys[at('RAICHU')],
+      giving: res.outs.map(o => +o.energyGiven.toFixed(1)),
+      drain: res.outs.map(o => +o.energyDrain.toFixed(1))};
+  });
+  /* 補師的整張卡片上，只有這一句說得出「是誰供的活力」—— 底下那排 pill 只有整隊合計。 */
+  ok('補師的「每日補活力」不准被靜態標籤擠掉',
+     /每日補活力/.test(r.wig), r.wig);
+  ok('而且要標「每隻」（和 pill 同單位）', /每隻/.test(r.wig), r.wig);
+  /* 只講好處就是選擇性呈現 —— 代價不佔那三格，另外接在後面。 */
+  ok('夢魘的「代價」不准被擠掉', /代價/.test(r.dark) && /扣非惡屬性隊友活力/.test(r.dark), r.dark);
+  ok('沒有隊伍效果的那幾隻照樣講得出自己的主要產出',
+     /佔這隊.{1,3}的 \d+%/.test(r.plain), r.plain);
+  /* 句數上限：三句（有代價時是兩句＋代價）。多了會把卡片撐開。 */
+  ok('每一句都不超過四段（三句，或兩句＋代價）',
+     r.whys.every(w => w.split('　·　').length <= 3), r.whys.map(w=>w.split('　·　').length).join(','));
+  ok('補師確實有在發活力、夢魘確實有在扣',
+     r.giving.some(v => v > 0) && r.drain.some(v => v < 0),
+     `發 ${r.giving.join(',')} / 扣 ${r.drain.join(',')}`);
+}
+
+/* 食譜要「解鎖」才煮得出來（使用者 2026-09-10）。
+   **單一真實來源：`wk.recipeLevels[name]` 的有無就是解鎖狀態**，沒有第二份停用清單。
+   這是候選過濾，所以陷阱 4 的三條配套都要測：排除的道數看得見、一道都沒有時要出聲、
+   「指定食譜」的選單不能列出煮不出來的。 */
+console.log('\n[11p] 食譜等級：沒解鎖的完全不列入推演');
+{
+  const r = await page.evaluate(() => {
+    const names = D.recipes.slice(0, 4).map(x => x.n);
+    wk.recipeLevels = {}; wk.recipeScope = 'all'; wk.recipeLv = 25;
+    // ① 一道都沒解鎖：池子必須是空的，而且不能炸
+    buildPool(wk);
+    const none = {pool: POOL.length, on: recipesOn(wk)};
+    // ② 設了等級的才進池子
+    wk.recipeLevels = {[names[0]]: 30, [names[1]]: 10};
+    buildPool(wk);
+    const some = {pool: POOL.length, names: POOL.map(c => c.r.n).sort(),
+                  lv: POOL.map(c => [c.r.n, c.lv]).sort()};
+    // ③ 等級是 0／負數／非數字都不算解鎖（舊資料可能有髒值）
+    wk.recipeLevels = {[names[0]]: 0, [names[1]]: -3, [names[2]]: '20', [names[3]]: null};
+    buildPool(wk);
+    const dirty = {pool: POOL.length, on: recipesOn(wk)};
+
+    // ④ UI：解鎖鈕就是在寫 recipeLevels，沒有第二份狀態
+    wk.recipeLevels = {}; save();
+    showView('recipes'); $('rlvType').value = 'all'; $('rlvSearch').value = '';
+    renderRecipeLevels();
+    const rowOf = n => $('rlvBody').querySelector(`[data-r="${n}"]`);
+    const togOf = n => rowOf(n).querySelector('[data-tog]');
+    const offRow = {cls: rowOf(names[0]).className,
+                    btn: togOf(names[0]).textContent.trim(),
+                    inputDisabled: rowOf(names[0]).querySelector('[data-rlv]').disabled};
+    const noneWarn = $('rlvNone').hidden === false;
+    const countTxt = $('rlvCount').textContent;
+    togOf(names[0]).click();                       // 解鎖 → 填入預設等級
+    const afterOn = {lv: wk.recipeLevels[names[0]],
+                     btn: togOf(names[0]).textContent.trim(),
+                     cls: rowOf(names[0]).className,
+                     warnHidden: $('rlvNone').hidden,
+                     count: $('rlvCount').textContent};
+    togOf(names[0]).click();                       // 再點一次 → 鎖上，等級一起清掉
+    const afterOff = {has: names[0] in wk.recipeLevels, on: recipesOn(wk)};
+
+    // ⑤ 「指定食譜」的選單只列已解鎖的
+    wk.recipeLevels = {}; wk.dishType = D.recipes[0].t; fillRecipes();
+    const emptyPicker = [...$('recipe').options].map(o => o.value);
+    const curry = D.recipes.filter(x => x.t === wk.dishType).slice(0, 2).map(x => x.n);
+    wk.recipeLevels = {[curry[0]]: 20, [curry[1]]: 20}; fillRecipes();
+    const picker = [...$('recipe').options].map(o => o.value).sort();
+
+    wk.recipeLevels = {}; save(); showView('plan');
+    return {none, some, dirty, offRow, noneWarn, countTxt, afterOn, afterOff,
+            emptyPicker, picker, want: curry.slice().sort(), n0: names[0],
+            total: D.recipes.length};
+  });
+  ok('一道都沒解鎖 → 池子是空的（不是退回預設等級全開）',
+     r.none.pool === 0 && r.none.on === 0, JSON.stringify(r.none));
+  ok('有設等級的才進池子，而且等級就是設的那個',
+     r.some.pool === 2 && r.some.lv.every(([, v]) => v === 30 || v === 10),
+     JSON.stringify(r.some));
+  /* 舊資料可能有 0／負數／字串 —— 那些都不是「已解鎖」，不能靜靜地當成 Lv1。 */
+  ok('0／負數／字串／null 都不算解鎖', r.dirty.pool === 0 && r.dirty.on === 0,
+     JSON.stringify(r.dirty));
+  /* 藏起來就看不出「為什麼它沒被算」，顯示成正常數字又是說謊 —— 所以變淡但照樣列。 */
+  ok('沒解鎖的那一列變淡、按鈕寫「鎖上」、等級欄不能填',
+     /rlv-off/.test(r.offRow.cls) && /鎖上/.test(r.offRow.btn) && r.offRow.inputDisabled === true,
+     JSON.stringify(r.offRow));
+  /* 一道都沒解鎖 ＝ 料理必然 0 分。那是懸崖，不可以靜靜地發生。 */
+  ok('一道都沒解鎖時要跳警告', r.noneWarn === true, String(r.noneWarn));
+  ok('解鎖道數要寫出來（N / 全部）',
+     new RegExp(`已解鎖 0 / ${r.total}`).test(r.countTxt), r.countTxt);
+  ok('按「解鎖」= 填入預設等級，按鈕與列同時變狀態',
+     r.afterOn.lv === 25 && /已解鎖/.test(r.afterOn.btn) && !/rlv-off/.test(r.afterOn.cls) &&
+     r.afterOn.warnHidden === true && /已解鎖 1 /.test(r.afterOn.count),
+     JSON.stringify(r.afterOn));
+  /* 等級的有無就是解鎖狀態 —— 鎖上必須把 key 刪掉，留著就是第二份狀態。 */
+  ok('再按一次 = 鎖上，等級一起清掉（沒有第二份狀態）',
+     r.afterOff.has === false && r.afterOff.on === 0, JSON.stringify(r.afterOff));
+  /* 選得到卻煮不出來就是自相矛盾。 */
+  ok('「指定食譜」的選單只列已解鎖的',
+     r.picker.join(',') === r.want.join(','), `${r.picker.join(',')} vs ${r.want.join(',')}`);
+  ok('一道都沒解鎖時選單要說出來，而不是列一堆煮不出來的',
+     r.emptyPicker.length === 1 && r.emptyPicker[0] === '', JSON.stringify(r.emptyPicker));
+  /* 改成「沒填＝沒解鎖」之後，一個字串髒值的後果從「等級不準」變成「那道菜整個
+     不見」—— 所以入口要正規化。舊 JSON／Sheet 都可能帶字串進來。 */
+  const rv = await page.evaluate(() => {
+    const n = D.recipes[0].n, m = D.recipes[1].n, z = D.recipes[2].n;
+    deserialize({wk: {recipeLevels: {[n]: '35', [m]: 0, [z]: 'abc'}}});
+    const got = {...wk.recipeLevels};
+    wk.recipeLevels = {}; save();
+    return {got, keys: Object.keys(got), n};
+  });
+  ok('反序列化把數字字串救回來，0／非數字則丟掉（不然那道菜會靜靜消失）',
+     rv.keys.length === 1 && rv.got[rv.n] === 35, JSON.stringify(rv.got));
+}
+
 console.log('\n[12] 快取偏移：schema 不符必須明確擋下');
 {
   ok('資料帶著 schema 版本', await page.evaluate(() => typeof D.meta.schema === 'number'));

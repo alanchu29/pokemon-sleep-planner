@@ -14,7 +14,7 @@
      這裡、下面載入器的 ASSET_V、以及 src/app.js 的 APP_V。
      光靠 ?v= 只是降低機率，APP_V 的斷言才會真的擋下過期的 app.js。
      tests/smoke.mjs 第 11 節會斷言三處一致。 -->
-<link rel="stylesheet" href="./src/app.css?v=20260910a">
+<link rel="stylesheet" href="./src/app.css?v=20260910b">
 </head>
 <body>
 <div class="wrap">
@@ -97,7 +97,7 @@
         <select id="recipe"></select>
         <span class="hint" id="recipeIngs"></span>
       </label>
-      <label class="f">預設食譜等級<span class="muted" style="font-weight:400" id="rlvCount"></span>
+      <label class="f" title="按下食譜頁的「解鎖」時，等級先填這個值（之後可以一道一道改）。&#10;沒解鎖的食譜煮不出來，完全不列入推演。">新解鎖時的等級<span class="muted" style="font-weight:400" id="rlvCount"></span>
         <input type="number" id="recipeLv" min="1" max="70" step="1" value="20">
       </label>
     </div>
@@ -393,13 +393,16 @@
       <label class="f">排序
         <select id="rlvSort"><option value="value">單道能量（高→低）</option><option value="lv">等級（高→低）</option><option value="cnt">食材數（少→多）</option><option value="name">名稱</option></select>
       </label>
-      <button class="btn sm" id="rlvClear" type="button">清除全部個別設定</button>
+      <button class="btn sm" id="rlvAllOn" type="button" title="把目前篩選看得到的那幾道全部解鎖（已經有等級的不會被蓋掉）">全部解鎖</button>
+      <button class="btn sm" id="rlvAllOff" type="button" title="把目前篩選看得到的那幾道全部標成「還沒解鎖」—— 會清掉它們的等級，所以會再問一次">全部鎖上</button>
     </div>
-    <div class="notice" style="margin-bottom:12px">留空的食譜會套用「本週條件」裡的<b>預設食譜等級</b>。只需要填你真的煮過的那幾道 —— 其他留空就好。</div>
+    <div class="notice" style="margin-bottom:12px"><b>有填等級 ＝ 已解鎖。</b>沒解鎖的食譜在遊戲裡煮不出來，所以<b>完全不列入推演</b> —— 不會被選成主食譜，也不會拿去填鍋子的空位。<br>把你<b>已經解鎖</b>的那幾道按「解鎖」並填上等級就好；其餘維持「鎖上」。</div>
+    <!-- 一道都沒解鎖 ＝ 料理分數必然是 0。那是個懸崖，不能靜靜地發生。 -->
+    <div class="notice warn" id="rlvNone" style="margin-bottom:12px" hidden><b>目前一道食譜都沒有解鎖</b>，所以推演的<b>料理分數會是 0</b>、21 餐全部空著，推薦也會偏向樹果型與技能型。把你會煮的那幾道解鎖，或先按「全部解鎖」再逐一調整。</div>
     <!-- 這一頁要填的東西最多，所以一定要講清楚存在哪裡。內容由 renderStorageNote() 填。 -->
     <div class="notice" id="rlvWhere" style="margin-bottom:12px"></div>
     <div class="scroll"><table class="rlvtable"><thead><tr>
-      <th>食譜</th><th>類型</th><th style="text-align:right">食材數</th><th style="text-align:center">等級</th><th style="text-align:right">倍率</th><th style="text-align:right">單道能量</th>
+      <th>食譜</th><th>類型</th><th style="text-align:right">食材數</th><th style="text-align:center">解鎖</th><th style="text-align:center">等級</th><th style="text-align:right">倍率</th><th style="text-align:right">單道能量</th>
     </tr></thead><tbody id="rlvBody"></tbody></table></div>
   </div></div>
 </section>
@@ -506,7 +509,7 @@ try {
      也放到 window 上：app.js 有一份自己的 APP_V，兩者不符就整頁擋下來。
      理由和 game.json 的 SCHEMA 一樣 —— 過期的 app.js 會靜靜地畫出舊版 UI，
      而使用者只會覺得「你根本沒改」，完全不知道是快取。 */
-  const ASSET_V = '20260910a';
+  const ASSET_V = '20260910b';
   window.ASSET_V = ASSET_V;
   for (const src of ['./src/engine.js', './src/import.js', './src/app.js']) {
     await new Promise((ok, bad) => {

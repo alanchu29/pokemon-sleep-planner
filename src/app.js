@@ -57,7 +57,7 @@ const SCHEMA = 4;   // 4: 新增 msExtra{}（上游沒有的主技能數值表�
    「新的 index.html ＋ 舊的 app.js」—— 畫面畫出舊版 UI，而使用者只會覺得
    「你根本沒改」，完全不知道是快取。有了這個斷言，過期的 app.js 會直接被擋下來
    並要求強制重新整理。tests/smoke.mjs 第 11 節會斷言三處一致。 */
-const APP_V = '20260910a';
+const APP_V = '20260910b';
 
 /** 致命錯誤：整頁換成一段說明。這種狀況下繼續跑只會產生錯的數字。 */
 function fatal(html){
@@ -163,9 +163,26 @@ function deserialize(o, opts){
   }
   if (o.wk && !(opts && opts.append)){
     const f = o.wk.fav||[];
-    wk = {...wk, ...o.wk, fav:new Set(f), recipeLevels:o.wk.recipeLevels||{}};
+    wk = {...wk, ...o.wk, fav:new Set(f), recipeLevels:reviveRecipeLevels(o.wk.recipeLevels)};
   }
   return {badSp};
+}
+/** 還原食譜等級。**等級的有無就是解鎖狀態**（見 engine 的 `recipeOn`），所以這裡
+ *  的正規化不只是整潔問題 —— 一個 `"20"` 字串會讓那道食譜**靜靜地從推演裡消失**。
+ *
+ *  舊語意下沒填的會退回 `wk.recipeLv`，髒值頂多讓等級不準；改成「沒填 ＝ 沒解鎖」
+ *  之後，同一個髒值的後果變成「那道菜整個不見」。**改動讓既有失效模式變嚴重時，
+ *  就要在入口補一道正規化。**
+ *
+ *  認得的：數字、以及看得出是數字的字串（Sheet／舊 JSON 都可能出現）。
+ *  其餘（0、負數、null、NaN）一律當成沒解鎖 —— 那本來就是它們的意思。 */
+function reviveRecipeLevels(src){
+  const out = {};
+  for (const [k, v] of Object.entries(src || {})){
+    const n = typeof v === 'number' ? v : (typeof v === 'string' && v.trim() !== '' ? Number(v) : NaN);
+    if (Number.isFinite(n) && n >= 1) out[k] = Math.min(70, Math.max(1, Math.round(n)));
+  }
+  return out;
 }
 /** 還原 `sp`。`serialize()` 寫的是**內部名**（`VENUSAUR`），這是唯一穩定的形式。
  *
@@ -549,14 +566,17 @@ function buildWeekly(){
    最長的食譜（絕對睡眠奶油咖哩）連食材清單要 555px，而這一欄就算 span2 也只有
    約 320px，塞進 option 會被裁掉，而被裁掉的資訊等於沒有。 */
 function fillRecipes(){
-  const list = D.recipes.filter(r=>r.t===wk.dishType).sort((a,b)=>a.cnt-b.cnt);
-  $('recipe').innerHTML = list.map(r=>
-    `<option value="${r.n}">${recipeZh(r.n)}（${r.cnt} 材）</option>`).join('');
+  /* **只列已解鎖的。** 選得到卻煮不出來就是自相矛盾 —— 推演會把它排除，畫面上
+     卻還寫著「指定食譜：某某」，那是最糟的一種文案說謊。 */
+  const list = D.recipes.filter(r=>r.t===wk.dishType && recipeOn(r, wk)).sort((a,b)=>a.cnt-b.cnt);
+  $('recipe').innerHTML = list.length
+    ? list.map(r=>`<option value="${r.n}">${recipeZh(r.n)}（${r.cnt} 材）</option>`).join('')
+    : `<option value="">（這個類型還沒有解鎖任何食譜）</option>`;
   if (!wk.recipeName || !list.some(r=>r.n===wk.recipeName)){
     const pick = list.find(r=>r.cnt>=21) || list[list.length-1];
-    wk.recipeName = pick && pick.n;
+    wk.recipeName = pick ? pick.n : null;
   }
-  $('recipe').value = wk.recipeName;
+  $('recipe').value = wk.recipeName || '';
   syncRecipeIngs();
 }
 function syncRecipeIngs(){
@@ -573,8 +593,7 @@ function syncWeeklyUI(){
   $('dishType').value = wk.dishType; $('recipeLv').value = wk.recipeLv;
   $('recipePick').value = wk.recipePick; $('recipeScope').value = wk.recipeScope;
   $('strictBerry').checked = wk.strictBerry !== false;
-  const nSet = Object.keys(wk.recipeLevels||{}).length;
-  $('rlvCount').textContent = nSet ? `（${nSet} 道已個別設定）` : '';
+  syncRecipeCount();
   const auto = wk.recipePick === 'auto';
   $('recipe').disabled = auto;
   $('recipe').style.opacity = auto ? .5 : 1;
@@ -2030,7 +2049,10 @@ async function run(){
   }
   lastResults = res.best; shownAlt = 0;
   const cut = res.excluded ? res.excluded.length : 0;
+  /* **煮得出來的只有幾道，一定要寫在這裡。** 沒解鎖的食譜整個不進池子，那是候選
+     過濾 —— 陷阱 4：靜靜地少算候選就是「文案說謊」那一類的 bug。 */
   $('comboCount').textContent = `${res.count.toLocaleString()} 種組合 · ${Math.round(performance.now()-t0)}ms`
+    + ` · 食譜 ${recipesOn(wk)}/${D.recipes.length} 道已解鎖`
     + (cut ? ` · 已排除 ${cut} 隻樹果不符的樹果型` : '')
     + (nWorkers ? ` · ${nWorkers} 執行緒` : ' · 主執行緒');
   // 排除名單要看得到 —— 靜靜地少算候選是這個 repo 最不想要的行為
@@ -2068,18 +2090,35 @@ function pickReason(k, r){
     ['主技能', o.skillStrength, tot(x => x.skillStrength), v => `主技能能量 ${fmt(v * 7 * A)}／週`],
     ['食材',   ingOf(o),        tot(ingOf),                v => `食材 ${fmt(v * 7)}／週（未經料理加成）`],
   ].filter(x => x[1] > 0);
-  const bits = [];
+  /* 四組，順序就是**優先度** —— 因為只放得下三句（見底下的 slice）。
+     排序的準則不是「哪一句好聽」，而是**「這一句在卡片上還有沒有別的地方看得到」**：
+
+     | 組 | 內容 | 別處看得到嗎 |
+     |---|---|---|
+     | `head` | 主要產出佔隊上幾成 | 卡片右邊就是那些數字，這句只是把它定位 |
+     | `team` | 牠**對隊友**做了什麼，而且有數字 | **沒有** —— 底下那排 pill 只給整隊合計，看不出是誰供的 |
+     | `own`  | 牠自己的其他量化貢獻 | 部分（食材列） |
+     | `flag` | 靜態標籤 | pill 或名字旁的 tag 也看得到 |
+
+     **踩過（2026-09-10，使用者反映「這個推演結果有點詭異」）：** 以前是一條固定順序
+     推進同一個陣列再 `slice(0,3)`。於是純補師（胖可丁，活力全體療癒S）的卡片上留下的是
+     「食材 17k／週　佔這隊食材的 9%」，而「每日補活力 每隻 90」排在第 4 被砍掉 ——
+     **那是牠入選的唯一理由**：實測同一個位置換成非補師，隊伍週能量從 1,097,922 掉到
+     923,140（−18.9%），另外四隻的活力從 100% 全部掉到 0%。畫面因此在解釋一個
+     無關緊要的數字，然後把真正的理由藏起來。 */
+  const head = [], team = [], own = [], flag = [];
+  let cost = null;
   if (parts.length){
     const main = parts.slice().sort((a, b) => (b[1] / (b[2] || 1)) - (a[1] / (a[2] || 1)))[0];
-    bits.push(`${main[3](main[1])}　<b>佔這隊${main[0]}的 ${Math.round(main[1] / (main[2] || 1) * 100)}%</b>`);
+    head.push(`${main[3](main[1])}　<b>佔這隊${main[0]}的 ${Math.round(main[1] / (main[2] || 1) * 100)}%</b>`);
   }
   /* 瓶頸食材是「為什麼非牠不可」最強的理由 —— 換掉牠，主食譜就少煮好幾次。 */
   if (r.bottleneck != null && o.ing[r.bottleneck] * 7 > 1)
-    bits.push(`供應瓶頸食材 <b>${iz(ING_NAME[r.bottleneck])}</b> ${f1(o.ing[r.bottleneck] * 7)}／週`);
-  if (wk.fav.has(p.b)) bits.push(`產本週加成樹果（能量 ×2）`);
-  if (bs.hasHB) bits.push(`帶「幫忙加成」：全隊幫手間隔 −5%`);
-  if (bs.hasERB) bits.push(`帶「活力回復提升」：睡眠回復 +14%`);
-  if (/^Helper Boost/.test(p.ms)) bits.push(`幫手加速：發動時讓全隊各多幫忙一次`);
+    own.push(`供應瓶頸食材 <b>${iz(ING_NAME[r.bottleneck])}</b> ${f1(o.ing[r.bottleneck] * 7)}／週`);
+  if (wk.fav.has(p.b)) flag.push(`產本週加成樹果（能量 ×2）`);
+  if (bs.hasHB) flag.push(`帶「幫忙加成」：全隊幫手間隔 −5%`);
+  if (bs.hasERB) flag.push(`帶「活力回復提升」：睡眠回復 +14%`);
+  if (/^Helper Boost/.test(p.ms)) flag.push(`幫手加速：發動時讓全隊各多幫忙一次`);
   /* **單位要標出來。** `energyGiven` / `helpsGiven` 是「這隻一天發出去的總量」
      ＝ 每位成員拿到的量 × 5；而下方那排 pill 顯示的 `ctx.supportEnergy` /
      `ctx.extraHelps` 是 `/5` 之後的**每人平均**。同一個畫面上兩個差 5 倍的數字，
@@ -2088,14 +2127,17 @@ function pickReason(k, r){
      而且價值已經反映在牠自己的幫忙次數上（見 engine 的定點迭代）。以前這兩份被
      加在一起再 ÷5 攤給全隊，等於持有者少拿 4/5、隊友白拿。 */
   if (o.energySelfGiven > 0)
-    bits.push(`<span title="這隻的主技能每天回給**牠自己**的活力（活力填充S／月光）。&#10;活力越高幫忙間隔越短，所以這一份的價值已經算在上面的幫忙次數裡了。&#10;隊友拿不到 —— 那是另一條「每日補活力」。">每日自回活力 <b>${f1(o.energySelfGiven)}</b></span>`);
+    own.push(`<span title="這隻的主技能每天回給**牠自己**的活力（活力填充S／月光）。&#10;活力越高幫忙間隔越短，所以這一份的價值已經算在上面的幫忙次數裡了。&#10;隊友拿不到 —— 那是另一條「每日補活力」。">每日自回活力 <b>${f1(o.energySelfGiven)}</b></span>`);
   if (o.energyGiven > 0)
-    bits.push(`<span title="這隻的主技能每天補給隊上**每一位成員**的活力。&#10;整隊 5 隻收到的合計是 ${f1(o.energyGiven)}／日。&#10;下面那排 pill 的「技能補活力 每隻」是隊上所有補師加起來的每人總量。&#10;活力越高幫忙間隔越短，所以補師的價值是透過隊友的產出體現的。">每日補活力 <b>每隻 ${f1(o.energyGiven/5)}</b></span>`);
+    team.push(`<span title="這隻的主技能每天補給隊上**每一位成員**的活力。&#10;整隊 5 隻收到的合計是 ${f1(o.energyGiven)}／日。&#10;下面那排 pill 的「技能補活力 每隻」是隊上所有補師加起來的每人總量。&#10;活力越高幫忙間隔越短，所以補師的價值是透過隊友的產出體現的。">每日補活力 <b>每隻 ${f1(o.energyGiven/5)}</b></span>`);
   if (o.helpsGiven > 0.2)
-    bits.push(`<span title="這隻的主技能每天讓**每一位成員**多完成的幫忙次數。&#10;整隊 5 隻合計是 ${f1(o.helpsGiven)} 次／日。&#10;下面那排 pill 的「額外幫忙 每隻」是隊上所有來源加起來的每人總量。">每日多幫忙 <b>每隻 ${f1(o.helpsGiven/5)} 次</b></span>`);
+    team.push(`<span title="這隻的主技能每天讓**每一位成員**多完成的幫忙次數。&#10;整隊 5 隻合計是 ${f1(o.helpsGiven)} 次／日。&#10;下面那排 pill 的「額外幫忙 每隻」是隊上所有來源加起來的每人總量。">每日多幫忙 <b>每隻 ${f1(o.helpsGiven/5)} 次</b></span>`);
   /* 代價也要寫出來 —— 只講好處就是選擇性呈現。夢魘的扣活力打的是非惡屬性隊友。 */
-  if (o.energyDrain < 0) bits.push(`<span style="color:var(--neg)">代價：每日扣非惡屬性隊友活力 ${f1(-o.energyDrain)}</span>`);
-  return bits.slice(0, 3).join('　·　');
+  if (o.energyDrain < 0) cost = `<span style="color:var(--neg)">代價：每日扣非惡屬性隊友活力 ${f1(-o.energyDrain)}</span>`;
+  /* **代價永遠不能被砍掉** —— 只講好處就是選擇性呈現（見這一節的規則）。
+     所以它不去搶那三格，而是另外接在後面，前面只留兩句。 */
+  const shown = [...head, ...team, ...own, ...flag].slice(0, cost ? 2 : 3);
+  return (cost ? [...shown, cost] : shown).join('　·　');
 }
 function memberCard(rank, i, r, o){
   const m = roster[i], p = D.dex[m.sp], bs = m._bs;
@@ -2753,7 +2795,7 @@ function renderRecipeLevels(){
     if (!q) return true;
     const hay = (recipeZh(r.n) + ' ' + r.n + ' ' + r.ings.map(([i])=>iz(ING_NAME[i])).join(' ')).toLowerCase();
     return hay.includes(q);
-  }).map(r=>({r, lv: rlvl(r, wk), set: typeof (wk.recipeLevels||{})[r.n] === 'number',
+  }).map(r=>({r, lv: rlvl(r, wk), on: recipeOn(r, wk),
               val: recipeValue(r, rlvl(r, wk))}));
   const cmp = {value:(a,b)=>b.val-a.val, lv:(a,b)=>b.lv-a.lv, cnt:(a,b)=>a.r.cnt-b.r.cnt,
                name:(a,b)=>recipeZh(a.r.n).localeCompare(recipeZh(b.r.n),'zh-Hant')}[sort];
@@ -2761,31 +2803,79 @@ function renderRecipeLevels(){
   const TYPE_ZH = {curry:'咖哩／濃湯', salad:'沙拉', dessert:'甜點／飲品'};
   $('rlvBody').innerHTML = list.map(x=>{
     const mul = D.rlb[x.lv] || 1;
-    return `<tr data-r="${x.r.n}">
+    return `<tr data-r="${x.r.n}"${x.on ? '' : ' class="rlv-off"'}>
       <td><b>${recipeZh(x.r.n)}</b><div class="muted" style="font-size:11.5px">${x.r.ings.map(([i,a])=>iz(ING_NAME[i])+'×'+a).join('・')}</div></td>
       <td class="muted" style="font-size:12px">${TYPE_ZH[x.r.t]}</td>
       <td class="n" style="text-align:right">${x.r.cnt}</td>
-      <td style="text-align:center"><input type="number" min="1" max="70" step="1" data-rlv="${x.r.n}" value="${x.set ? x.lv : ''}" placeholder="${wk.recipeLv}"></td>
-      <td class="n" style="text-align:right;color:${mul>=2?'var(--pos)':mul>=1.4?'var(--ing)':'var(--muted)'}">×${mul.toFixed(2)}</td>
-      <td class="n" style="text-align:right">${fmt(x.val)}</td>
+      <td style="text-align:center"><button type="button" class="btn sm ghost rlv-tog${x.on?' on':''}" data-tog="${x.r.n}"
+        title="${x.on ? '已解鎖 —— 點一下改成「還沒解鎖」，它就不會進推演，等級也會清掉'
+                      : `還沒解鎖 —— 點一下解鎖（等級先填 ${wk.recipeLv}，之後可以改）。&#10;沒解鎖的食譜煮不出來，所以完全不列入推演。`}">${x.on?'✓ 已解鎖':'鎖上'}</button></td>
+      <td style="text-align:center"><input type="number" min="1" max="70" step="1" data-rlv="${x.r.n}"
+        value="${x.on ? x.lv : ''}" placeholder="—"${x.on ? '' : ' disabled'}></td>
+      <td class="n" style="text-align:right;color:${!x.on?'var(--muted)':mul>=2?'var(--pos)':mul>=1.4?'var(--ing)':'var(--muted)'}">${x.on?`×${mul.toFixed(2)}`:'—'}</td>
+      <td class="n" style="text-align:right">${x.on?fmt(x.val):'—'}</td>
     </tr>`;
-  }).join('') || `<tr><td colspan="6" class="muted" style="padding:22px;text-align:center">沒有符合的食譜</td></tr>`;
-  const n = Object.keys(wk.recipeLevels||{}).length;
-  $('rlvCount').textContent = n ? `（${n} 道已個別設定）` : '';
+  }).join('') || `<tr><td colspan="7" class="muted" style="padding:22px;text-align:center">沒有符合的食譜</td></tr>`;
+  syncRecipeCount();
+}
+/** 「已解鎖 N / 78」有好幾個地方要用，所以只寫一份 —— 和 `PATHS`／`SYNCED_WHAT`
+ *  同一個道理：同一件事有兩個來源，就一定會有一個在說謊。 */
+function syncRecipeCount(){
+  const on = recipesOn(wk), total = D.recipes.length;
+  const txt = `（已解鎖 ${on} / ${total} 道）`;
+  if ($('rlvCount')) $('rlvCount').textContent = txt;
+  /* **一道都沒解鎖是個懸崖，一定要講出來。** 靜靜地把料理算成 0，使用者只會
+     覺得推演壞了 —— 這就是陷阱 4 的「排除名單要顯示出來」。 */
+  if ($('rlvNone')) $('rlvNone').hidden = on > 0;
 }
 $('rlvBody').addEventListener('change', e=>{
   const k = e.target.dataset.rlv; if (!k) return;
   wk.recipeLevels = wk.recipeLevels || {};
   const v = e.target.value.trim();
+  /* 清空 ＝ 鎖上。**等級的有無就是解鎖狀態**，不另外存一份（見 engine 的 recipeOn）。 */
   if (v === '') delete wk.recipeLevels[k];
   else wk.recipeLevels[k] = Math.max(1, Math.min(70, Math.round(Number(v)) || 1));
   save(); renderRecipeLevels();
 });
+/* 解鎖／鎖上。解鎖時先填「本週條件」的預設等級當起點，使用者再改成實際的。 */
+$('rlvBody').addEventListener('click', e=>{
+  const b = e.target.closest('[data-tog]'); if (!b) return;
+  const k = b.dataset.tog;
+  wk.recipeLevels = wk.recipeLevels || {};
+  if (recipeOn({n:k}, wk)) delete wk.recipeLevels[k];
+  else wk.recipeLevels[k] = Math.max(1, Math.min(70, Math.round(Number(wk.recipeLv)) || 1));
+  save(); renderRecipeLevels();
+});
 for (const id of ['rlvType','rlvSearch','rlvSort']) $(id).addEventListener('input', renderRecipeLevels);
-$('rlvClear').addEventListener('click', ()=>{
-  if (!Object.keys(wk.recipeLevels||{}).length) return;
-  if (!window.confirm('清除所有個別設定的食譜等級？全部會改回套用預設等級。')) return;
-  wk.recipeLevels = {}; save(); renderRecipeLevels();
+/* 批次只作用在**目前篩選看得到的那幾道** —— 和箱子的「展開／收起全部」同一條規則。
+   78 道一道一道點太痛，但「全部」在有篩選時會是個驚喜。 */
+function rlvVisible(){
+  const type = $('rlvType').value, q = $('rlvSearch').value.trim().toLowerCase();
+  return D.recipes.filter(r=>{
+    if (type !== 'all' && r.t !== type) return false;
+    if (!q) return true;
+    const hay = (recipeZh(r.n) + ' ' + r.n + ' ' + r.ings.map(([i])=>iz(ING_NAME[i])).join(' ')).toLowerCase();
+    return hay.includes(q);
+  });
+}
+$('rlvAllOn').addEventListener('click', ()=>{
+  const list = rlvVisible(), lv = Math.max(1, Math.min(70, Math.round(Number(wk.recipeLv)) || 1));
+  wk.recipeLevels = wk.recipeLevels || {};
+  /* 已經有等級的不要蓋掉 —— 那是使用者一道一道填的，批次操作不該把它抹平。 */
+  let n = 0;
+  for (const r of list) if (!recipeOn(r, wk)){ wk.recipeLevels[r.n] = lv; n++; }
+  save(); renderRecipeLevels();
+  setStatus(n ? `解鎖了 ${n} 道（等級先填 ${lv}，記得改成實際的）` : '看得到的這些本來就全部解鎖了');
+});
+$('rlvAllOff').addEventListener('click', ()=>{
+  const list = rlvVisible().filter(r=>recipeOn(r, wk));
+  if (!list.length){ setStatus('看得到的這些本來就全部是鎖上的'); return; }
+  /* 鎖上會把等級一起清掉，而等級是一道一道填的 —— 沒有 undo，所以要問，
+     而且要寫出是幾道（和刪除寶可夢同一條規則）。 */
+  if (!window.confirm(`把這 ${list.length} 道標成「還沒解鎖」？它們填過的等級會一起清掉，沒有復原。`)) return;
+  for (const r of list) delete wk.recipeLevels[r.n];
+  save(); renderRecipeLevels();
+  setStatus(`鎖上了 ${list.length} 道`);
 });
 
 /* ================= DATA VERSION ================= */
