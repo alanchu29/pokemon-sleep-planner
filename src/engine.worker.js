@@ -3,10 +3,10 @@
    所以不會有「兩份引擎走鐘」的問題。
 
    協定：
-     主 → worker  { type:'init', data }                     先塞資料再 importScripts
+     主 → worker  { type:'init', data, v }                  先塞資料再 importScripts
      主 → worker  { type:'shard', roster, wk, shard, finalists }
      （回傳的候選是精簡的 {idxs, score}；主執行緒用 engine.js 的 rehydrate() 還原）
-     worker → 主  { type:'ready' }
+     worker → 主  { type:'ready', v }                       v = 這個 worker 實際載到的 ENGINE_V
      worker → 主  { type:'progress', done, total }          done 是「這個分片」的進度
      worker → 主  { type:'shard', cands, count, excluded, total, ms }
      worker → 主  { type:'error', message }
@@ -27,9 +27,14 @@ self.onmessage = (e) => {
   try {
     if (msg.type === 'init') {
       self.GAMEDATA = msg.data;
-      importScripts('./engine.js');   // 相對於這個 worker 檔的 URL
+      /* `?v=` 一定要跟著帶進來 —— Worker 與 importScripts 走的是**另一條**快取路徑，
+         主執行緒的 `<script src="./src/engine.js?v=…">` 擋不到它。少了這一段，
+         部署之後有一段窗口 worker 會用舊引擎列舉評分、主執行緒用新引擎 rehydrate
+         與跑決賽，兩套公式算出來的分數對不起來，而且**不會有任何錯誤訊息**。
+         回報 ENGINE_V 讓主執行緒可以真的斷言（`?v=` 只降低機率，斷言才擋得住）。 */
+      importScripts('./engine.js' + (msg.v ? '?v=' + encodeURIComponent(msg.v) : ''));
       ready = true;
-      self.postMessage({ type: 'ready' });
+      self.postMessage({ type: 'ready', v: (typeof ENGINE_V === 'string' ? ENGINE_V : null) });
       return;
     }
     if (msg.type === 'shard') {

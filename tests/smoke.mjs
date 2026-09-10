@@ -114,9 +114,18 @@ await page.waitForTimeout(2500);
 }
 
 /* run() 是非同步的（推演跑在 Worker 裡），所以絕對不要用 waitForTimeout 等結果 ——
-   在慢一點的 CI 機器上會 flaky。統一先清掉 lastResults 再等它被填回來。 */
+   在慢一點的 CI 機器上會 flaky。統一先清掉 lastResults 再等它被填回來。
+
+   **一定要先解鎖食譜。** 產品規則是「沒填等級 ＝ 沒解鎖 ＝ 完全不進池子」
+   （engine 的 `recipeOn`），而 `wk.recipeLevels` 的預設值是空的 —— 所以不補這一段，
+   `run()` 會直接拒跑，`waitForFunction` 就會在每一節 timeout。實際踩過：
+   `recipeOn` 那次改動之後整套測試從第 2 節就掛住。
+   只補**沒填過的**，第 3 節的單調性測試才還能自己指定等級。
+   「沒解鎖會怎樣」由第 2e 與 11p 節各自涵蓋，不走這條。 */
+const UNLOCK_ALL = `wk.recipeLevels = wk.recipeLevels || {};
+  D.recipes.forEach(r => { if (!(r.n in wk.recipeLevels)) wk.recipeLevels[r.n] = 20; });`;
 const doRun = async (setup = '') => {
-  await page.evaluate(`(async () => { ${setup}; lastResults = null; await run(); })()`);
+  await page.evaluate(`(async () => { ${setup}; ${UNLOCK_ALL} lastResults = null; await run(); })()`);
   await page.waitForFunction(() => lastResults && lastResults.length, null, { timeout: 60000 });
 };
 
@@ -143,37 +152,47 @@ console.log('\n[2d] 收取區間：白天也要分段（遊戲不會自動收取
      以前只有夜間套這兩個上限，白天完全不套 —— 而那個偏差**只打在技能觸發率高的
      身上**（哥達鴨 20.4% 是全 dex 第 2），會系統性地把牠們推進推薦名單。 */
   const r = await page.evaluate(() => {
-    const mk = (n, nat, ss, sk) => ({sp:n, level:60, nature:nat||'Bashful',
+    /* `sp` 是 **dex 索引**，不是物種名 —— 直接丟名字進去的話 `D.dex['GOLDUCK']`
+       是 undefined，`baseStats` 讀 `.cs` 就 throw。這一節因此從來沒真的跑過。
+       其他節是走 `deserialize()`（那裡的 `reviveSp` 會把名字轉成索引）才沒事。 */
+    const mk = (n, nat, ss, sk) => ({sp: D.dex.findIndex(x => x.n === n), level:60, nature:nat||'Bashful',
       ss:[...(ss||[]), ...Array(5-(ss||[]).length).fill(null)],
       ingSet:[0,0,0], skillLv:sk||6, ribbon:0, pin:false, ex:false, nick:''});
-    // 哥達鴨：技能率 12.5%（全 dex 第 2）+ 技能率M + 溫順 → 20.4%
+    // 哥達鴨：技能率 12.5%（全 dex 第 2）+ 技能率M + 溫順
     const hi = mk('GOLDUCK', 'Gentle', ['Skill Trigger M'], 6);
     // 達克萊伊：技能率 2.3%（很低）
     const lo = mk('DARKRAI', 'Bashful', ['Skill Trigger M'], 6);
     const base = {fav:new Set(), camp:false, sleepH:8.5, areaBonus:0, pot:57, recipeLv:20,
                   recipePick:'auto', recipeScope:'all', recipeLevels:{}, dishType:'curry'};
     const CTX = {nHB:0,nERB:0,supportEnergy:0,extraHelps:0,darkDrain:0,hbRows:null,
-      hasPlus:false,hasMinus:false,hasLatias:false,hasLatios:false,nDragon:1};
+      hasPlus:false,hasMinus:false,hasLatias:false,hasLatios:false,nDragon:1,mateBerryPow:0};
     const procsAt = (m, ch) => {
       const wk = {...base, collectH: ch};
       const bs = baseStats(m, wk);
       return simulate(bs, m, wk, CTX).procs;
     };
     return {
-      hiInf: procsAt(hi, 0), hi3: procsAt(hi, 3), hi6: procsAt(hi, 6),
-      loInf: procsAt(lo, 0), lo3: procsAt(lo, 3),
+      hiInf: procsAt(hi, 0), hi6: procsAt(hi, 6), hi10: procsAt(hi, 10),
+      loInf: procsAt(lo, 0), lo6: procsAt(lo, 6),
+      hiEff: baseStats(hi, base).effSkill, loEff: baseStats(lo, base).effSkill,
       scoreWk: typeof SCORE_WK === 'object' ? SCORE_WK.collectH : null,
       def: typeof DEFAULT_COLLECT_H === 'number' ? DEFAULT_COLLECT_H : null,
       wkHas: wk.collectH,
     };
   });
-  ok('沒設 collectH 時走「隨時收」的舊行為（不設上限）', r.hiInf > r.hi3,
-     `∞=${r.hiInf.toFixed(2)} 3h=${r.hi3.toFixed(2)}`);
-  ok('收得越不勤，主技能拿得越少', r.hi3 > r.hi6, `3h=${r.hi3.toFixed(2)} 6h=${r.hi6.toFixed(2)}`);
+  /* ⚠ 間隔要選得夠長才碰得到「每段最多 2 次」那個天花板。
+     這隻在 Lv60、單獨一隻（沒有幫忙加成、沒有露營券）時白天只幫忙約 32 次、
+     effSkill ≈ 0.20 —— 每 4 小時一段也只有 1.7 次發動，**還沒到 cap**，
+     所以 0/1/2/3/4h 算出來完全一樣。以前這裡用 3h 比，等於什麼都沒測到
+     （而且是照 CLAUDE.md 一組更樂觀的舊數字寫的）。 */
+  ok('沒設 collectH 時走「隨時收」的舊行為（不設上限）', r.hiInf > r.hi6,
+     `∞=${r.hiInf.toFixed(2)} 6h=${r.hi6.toFixed(2)} effSkill=${r.hiEff.toFixed(3)}`);
+  ok('收得越不勤，主技能拿得越少', r.hi6 > r.hi10, `6h=${r.hi6.toFixed(2)} 10h=${r.hi10.toFixed(2)}`);
   // 這是這一節的重點：偏差只打在高觸發率的身上
-  const hiLoss = 1 - r.hi3 / r.hiInf, loLoss = 1 - r.lo3 / r.loInf;
+  const hiLoss = 1 - r.hi6 / r.hiInf, loLoss = 1 - r.lo6 / r.loInf;
   ok('技能觸發率高的折損明顯大於低的', hiLoss > loLoss + 0.1,
-     `哥達鴨 -${(hiLoss*100).toFixed(0)}% vs 達克萊伊 -${(loLoss*100).toFixed(0)}%`);
+     `哥達鴨 ${(r.hiEff*100).toFixed(1)}% → -${(hiLoss*100).toFixed(0)}%`
+     + ` vs 達克萊伊 ${(r.loEff*100).toFixed(1)}% → -${(loLoss*100).toFixed(0)}%`);
   /* 個體產能的基準一定要有 collectH，否則寶可夢箱裡技能率高的會像推演以前那樣被高估 */
   ok('SCORE_WK 有固定的 collectH', r.scoreWk === r.def && r.def > 0, `${r.scoreWk} / ${r.def}`);
   ok('wk 預設有 collectH', r.wkHas > 0, String(r.wkHas));
@@ -263,6 +282,18 @@ console.log('\n[2b] 料理分數：搜尋目標與決賽目標不能脫鉤');
   });
   ok('指定食譜模式也是下界', man.ratio <= 1.0001,
      `dishS=${Math.round(man.dishS)} real=${Math.round(man.real)} ratio=${man.ratio.toFixed(4)}`);
+
+  /* 決賽會把「主食譜」換成 21 餐排程裡實際最值錢的那一道（`b.recipe = top.r`），
+     所以 `bottleneck`（在搜尋階段對**另一道**算出來的）一定要跟著重算。
+     不重算的話，結果卡的「瓶頸食材」與 `pickReason` 的「供應瓶頸食材 X」會指到
+     一味新食譜根本不用的食材 —— 而它在上面那張「主食譜食材缺口」長條圖裡找不到。 */
+  await doRun();
+  const bn = await page.evaluate(() => lastResults.map(b => ({
+    rec: b.recipe.n, bn: b.bottleneck,
+    inRecipe: b.recipe.ings.some(([i]) => i === b.bottleneck),
+  })));
+  ok('決賽換掉主食譜之後，瓶頸食材一定還在那道食譜的食材表裡',
+     bn.every(x => x.inRecipe), JSON.stringify(bn.filter(x => !x.inRecipe).slice(0, 2)));
 }
 
 console.log('\n[2c] 結果卡：為什麼選這一隻 · 術語要看得懂');
@@ -320,12 +351,13 @@ console.log('\n[3] 單調性 — 調高食譜等級絕不能讓總分變低');
   for (let t = 0; t < 6; t++) {
     const lv = {};
     for (let j = 0; j < 6; j++) lv[names[Math.floor(rnd() * names.length)]] = 30 + Math.floor(rnd() * 40);
-    await doRun(`wk.recipeLevels = ${JSON.stringify(lv)}`);
+    await doRun(`${UNLOCK_ALL} Object.assign(wk.recipeLevels, ${JSON.stringify(lv)})`);
     const got = await page.evaluate(() => lastResults[0].total);
     if (got < base - 1) { bad++; worst = Math.max(worst, base - got); }
   }
   ok(`6 組隨機等級都不下降（基準 ${Math.round(base)}）`, bad === 0, bad ? `${bad} 組下降，最多 -${Math.round(worst)}` : '');
-  await page.evaluate(() => { wk.recipeLevels = {}; });
+  /* 不要鎖回去：後面好幾節直接拿全域 wk 去 buildPool()，池子空的話那些斷言會失去意義。 */
+  await page.evaluate(() => { D.recipes.forEach(r => { wk.recipeLevels[r.n] = 20; }); });
 }
 
 console.log('\n[4] 窮舉不變量 — 結果只能取決於箱子內容，不能取決於順序');
@@ -344,7 +376,9 @@ console.log('\n[4] 窮舉不變量 — 結果只能取決於箱子內容，不�
     const FAV = ['ORAN','PAMTRE','PECHA'];
     const mkWk = (strictBerry) => ({ island:'greengrass', fav:new Set(FAV), areaBonus:15,
       pot:57, sleepH:8.5, camp:0, mode:'total', dishType:'curry', recipeName:null, recipeLv:20,
-      recipePick:'auto', recipeScope:'all', recipeLevels:{}, strictBerry });
+      recipePick:'auto', recipeScope:'all', strictBerry,
+      // 沒填等級 = 沒解鎖 = 不進池子，所以這裡要自己解鎖（見 doRun 的 UNLOCK_ALL）
+      recipeLevels: Object.fromEntries(D.recipes.map(r => [r.n, 20])) });
     const shuffle = (arr, seed) => {
       const a = arr.slice(); let s = seed;
       const rnd = () => (s = (s * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff;
@@ -463,18 +497,26 @@ console.log('\n[5b] 正電／負電：互為條件的搭配加成');
       ss:[null,null,null,null,null], ingSet:[0,0,0], skillLv:6, ribbon:0, pin:false, ex:false});
     const other = D.dex.filter(x => !/^(Plus|Minus) \(/.test(x.ms || '')).slice(0, 4).map(x => x.n);
     wk.recipe = D.recipes[0]; wk.recipeScope = 'all'; buildPool(wk);
-    const go = names => { roster = names.map(mk); roster.forEach(m => (m._bs = baseStats(m, wk)));
-      const ctx = teamContext([0,1,2,3,4], roster, wk, new Map());
-      return {ctx, out: i => memberOutput(roster[i], wk, ctx)}; };
+    /* ⚠ `go()` 會覆寫**全域** `roster`，所以絕對不能回傳一個之後才呼叫的
+       `out: i => memberOutput(roster[i], …)` —— 那個 closure 讀的是「最後一次」
+       的 roster。以前就是這樣寫的，於是三組比較全都在量同一隻寶可夢，
+       「負電配對 vs 單獨」兩邊都是 0，看起來像引擎壞了（引擎沒壞）。
+       改成當場就把數字算出來。 */
     const ingSum = o => o.ing.reduce((a, b) => a + b, 0);
-    const paired = go([plus.n, minus.n, ...other.slice(0, 3)]);
-    const soloP  = go([plus.n,  ...other]);
-    const soloM  = go([minus.n, ...other]);
+    const go = (names, i) => {
+      roster = names.map(mk); roster.forEach(m => (m._bs = baseStats(m, wk)));
+      const ctx = teamContext([0,1,2,3,4], roster, wk, new Map());
+      const o = memberOutput(roster[i], wk, ctx);
+      return {ing: ingSum(o), energyGiven: o.energyGiven, key: ctxKey(ctx)};
+    };
+    const paired = [plus.n, minus.n, ...other.slice(0, 3)];
+    const plusPaired = go(paired, 0), plusSolo = go([plus.n, ...other], 0);
+    const minusPaired = go(paired, 1), minusSolo = go([minus.n, ...other], 0);
     return {
-      plusPaired: ingSum(paired.out(0)), plusSolo: ingSum(soloP.out(0)),
-      minusPaired: paired.out(1).energyGiven, minusSolo: soloM.out(0).energyGiven,
+      plusPaired: plusPaired.ing, plusSolo: plusSolo.ing,
+      minusPaired: minusPaired.energyGiven, minusSolo: minusSolo.energyGiven,
       // 新的 team-level 效果一定要進 ctxKey，否則會拿到別種組成算出來的結果
-      keyDiff: ctxKey(paired.ctx) !== ctxKey(soloP.ctx),
+      keyDiff: plusPaired.key !== plusSolo.key,
     };
   });
   ok('正電：隊上有負電時食材更多（以前是無條件加一半）',
@@ -605,8 +647,12 @@ console.log('\n[6b] 夢魘：惡屬性以外的隊友會被扣活力');
     roster = ['DARKRAI', ...plainMates].map(mk);
     roster.forEach(m => (m._bs = baseStats(m, wk)));
     const c = teamContext([0,1,2,3,4], roster, wk, new Map());
+    /* ⚠ 不能比 `wakeEnergy`：沒有補師又睡 8.5 小時的話，五隻**每天都會歸零**
+       （見 CLAUDE.md 6g —— 那是對的，不是 bug），於是 `w.e < wake[0].e` 恆為 false，
+       這條斷言等於永遠紅著。改比 `fastShare`（一天有多少比例待在最快的活力檔位）——
+       那才是扣活力真正打到的東西，而且不會被 0 的地板蓋掉。 */
     const wake = [0,1,2,3,4].map(i => ({dark: roster[i]._bs.dark,
-      e: Math.round(memberOutput(roster[i], wk, c).sim.wakeEnergy)}));
+      e: memberOutput(roster[i], wk, c).sim.fastShare}));
     return {
       dk: !!dk, darkList: [...DARK], schema: D.meta.schema,
       allInDex: [...DARK].every(n => D.dex.some(x => x.n === n)),
@@ -617,6 +663,7 @@ console.log('\n[6b] 夢魘：惡屬性以外的隊友會被扣活力');
       allDarkDrop: allDark.t / allDarkOff.t - 1,
       noDkSame: noDk.t === noDkOff.t,
       selfExempt: wake[0].dark && wake.slice(1).every(w => !w.dark && w.e < wake[0].e),
+      wake: wake.map(w => ({dark: w.dark, fast: +w.e.toFixed(3)})),
     };
   });
   ok('惡屬性清單在資料裡，而且每個名字都對得上 dex',
@@ -633,8 +680,8 @@ console.log('\n[6b] 夢魘：惡屬性以外的隊友會被扣活力');
   ok('全隊惡屬性 → 完全不扣', Math.abs(r.allDarkDrop) < 1e-9,
      (r.allDarkDrop * 100).toFixed(4) + '%');
   ok('沒有達克萊伊的隊伍完全不受影響', r.noDkSame, String(r.noDkSame));
-  ok('免疫是逐一判斷的：牠自己起床活力最高，非惡屬性隊友都被扣低',
-     r.selfExempt, String(r.selfExempt));
+  ok('免疫是逐一判斷的：達克萊伊自己不吃扣活力，非惡屬性隊友都被扣',
+     r.selfExempt, JSON.stringify(r.wake));
 }
 console.log('\n[6] 揮指類技能不再算 0');
 {
@@ -952,13 +999,27 @@ console.log('\n[11] 文案一致性 — 不能提到不存在的檔案或指令'
      missingCmds.length === 0, missingCmds.join(', '));
 
   /* 反向檢查：文案裡不該再出現沒過 PATHS 的硬寫路徑。
-     這是真正抓到過 bug 的那一條 —— 拆檔後 UI 還在說「替換 index.html 裡的 gamedata」。 */
+     這是真正抓到過 bug 的那一條 —— 拆檔後 UI 還在說「替換 index.html 裡的 gamedata」。
+
+     ⚠ **掃描範圍以前只有 5 個 id，那是個大破口。** 實際踩過（2026-09-10）：
+     `tools/dark.txt` 這個根本不存在的檔名（真的是 `tools/types.txt`）同時出現在
+     「已知簡化」那一大段、主技能的 caveat tooltip、以及箱子裡「惡」標籤的 tooltip ——
+     三處全在舊掃描的盲區，而且副檔名 `.txt` 也不在比對清單裡。
+     現在掃**整個 .wrap**（含所有 title／placeholder 屬性），副檔名也補齊。 */
   const copy = await page.evaluate(() => {
-    const ids = ['refreshNote', 'verBuild', 'boxEmpty', 'saveStatus', 'syncStatus'];
-    return ids.map(i => ($(i) ? $(i).innerHTML : '')).join(' \n ');
+    // HTML 註解是給改程式的人看的，不是使用者文案 —— 先剝掉，否則會誤報
+    const parts = [document.querySelector('.wrap').innerHTML.replace(/<!--[\s\S]*?-->/g, ' ')];
+    // title / placeholder 是文案的一部分，而且正是那三處錯誤的所在地
+    for (const el of document.querySelectorAll('[title],[placeholder]'))
+      parts.push(el.getAttribute('title') || '', el.getAttribute('placeholder') || '');
+    /* 只在 DOM 裡的話會漏掉「還沒渲染出來的字串」（例如 MS_CAVEAT 只有那幾隻
+       寶可夢在箱子裡時才畫得出來），所以把它們也攤平進來。 */
+    parts.push(Object.values(MS_CAVEAT).map(c => c.why).join(' '));
+    parts.push(scoreNote(), storageWhere().html, RUN_ERR.nopool());
+    return parts.join(' \n ');
   });
   const known = new Set(Object.values(paths.files));
-  const hardcoded = [...copy.matchAll(/[\w./-]+\.(?:json|js|html|css|mjs)\b/g)]
+  const hardcoded = [...copy.matchAll(/[\w./-]+\.(?:json|js|html|css|mjs|txt|gs|md)\b/g)]
     .map(m => m[0].replace(/^\.\//, ''))
     .filter(p => !known.has(p));
   ok('文案裡沒有 PATHS 以外的硬寫路徑', hardcoded.length === 0, [...new Set(hardcoded)].join(', '));
@@ -1392,8 +1453,13 @@ console.log('\n[11f] 寶可夢箱：自訂暱稱');
     const p = D.dex[roster[0].sp];
     const card2 = document.createElement('div');
     roster[0]._bs = baseStats(roster[0], wk);
-    card2.innerHTML = memberCard(1, 0, null, {ing:new Float64Array(NING), berryStrength:0, skillStrength:0,
-      sim:{freqBase:1800, procs:1, productive:1, snack:0, fastHours:1, fastShare:1}});
+    /* memberCard 的第 3 個參數會被 pickReason 讀（`r.idxs` / `r.outs`），傳 null
+       就是 TypeError —— 這一節因此從來沒跑完過。給一個最小的單人結果物件。 */
+    const _o = {ing:new Float64Array(NING), berryStrength:0, skillStrength:0,
+      energyGiven:0, energySelfGiven:0, helpsGiven:0, energyDrain:0,
+      sim:{freqBase:1800, procs:1, productive:1, snack:0, fastHours:1, fastShare:1,
+           fillH:Infinity, skillH:Infinity}};
+    card2.innerHTML = memberCard(1, 0, {idxs:[0], outs:[_o], bottleneck:null}, _o);
     const mem = {nm: card2.querySelector('.nm').textContent,
       sci: !!card2.querySelector('.nm-sci'),
       tagCls: card2.querySelector('.tag').className};
@@ -1808,7 +1874,9 @@ console.log('\n[11g] 寶可夢箱：個體產能（三種專長各自的軸）')
       mk('BLASTOISE', 60, 'Sassy', ['Inventory Up M'], 3, 4),                        // 3 食材
       mk('PIKACHU', 5, 'Bashful', [], 1, 0),                                         // 4 樹果（很弱）
     ]});
-    showView('box'); clearBoxFilter(); monOpen.clear();
+    /* deserialize 只換 roster，不重畫 —— 先 renderBox() 再 showView，
+       否則 showView → idealFillAsync → applyBoxFilter 會讀到上一節留下的 data-i。 */
+    monOpen.clear(); renderBox(); showView('box'); clearBoxFilter();
     $('fltSort').value = 'added'; $('fltSort').dispatchEvent(new Event('change', {bubbles:true}));
     const fire = (id, ev) => $(id).dispatchEvent(new Event(ev, {bubbles:true}));
     const P = roster.map(m => monPowerCached(m));
@@ -1827,6 +1895,9 @@ console.log('\n[11g] 寶可夢箱：個體產能（三種專長各自的軸）')
     wk.fav = favWas; _powerCache.clear();
 
     /* 產能是純函式：不碰 POOL（不像前一版要 buildPool(參考條件) 再還原）。 */
+    /* 上一節的 JSON 匯入把整份 wk 換掉了（連同 recipeLevels），所以池子是空的 ——
+       而「算產能不會動到 POOL」這條要有東西可比才有意義（0 → 0 是假通過）。 */
+    D.recipes.forEach(r => { wk.recipeLevels[r.n] = 20; });
     wk.recipeScope = 'type'; wk.dishType = 'salad'; buildPool(wk);
     const poolBefore = POOL.length;
     roster.forEach(m => monPower(m));
@@ -1943,7 +2014,9 @@ console.log('\n[11h] 寶可夢箱：食材篩選（可複選）與選中食材�
       mk('VENUSAUR', 60, [0,0,0]), mk('VENUSAUR', 30, [0,0,0]),
       mk('RAICHU', 60, [0,0,0]), mk('GENGAR', 50, [0,0,2]),
     ]});
-    showView('box'); clearBoxFilter(); monOpen.clear();
+    /* deserialize 只換 roster，不重畫 —— 先 renderBox() 再 showView，
+       否則 showView → idealFillAsync → applyBoxFilter 會讀到上一節留下的 data-i。 */
+    monOpen.clear(); renderBox(); showView('box'); clearBoxFilter();
     const fire = (id, ev) => $(id).dispatchEvent(new Event(ev, {bubbles:true}));
     const vis = () => [...$('boxList').querySelectorAll('[data-i]')].filter(e => !e.hidden).map(e => +e.dataset.i);
     const tap = i => $('fltIng').querySelector(`[data-ing="${i}"]`).click();
@@ -2028,7 +2101,9 @@ console.log('\n[11i] 寶可夢箱：資質（理想個體 %）與雙向排序');
       mk('RAICHU', 60, 'Bashful', [], 1, 0),                                     // 1 同物種同等級，白板
       mk('VENUSAUR', 30, 'Quiet', ['Ingredient Finder M'], 3, 4),                // 2 別的專長、別的等級
     ]});
-    showView('box'); clearBoxFilter(); monOpen.clear();
+    /* deserialize 只換 roster，不重畫 —— 先 renderBox() 再 showView，
+       否則 showView → idealFillAsync → applyBoxFilter 會讀到上一節留下的 data-i。 */
+    monOpen.clear(); renderBox(); showView('box'); clearBoxFilter();
     $('fltSort').value = 'added'; $('fltSort').dispatchEvent(new Event('change', {bubbles:true}));
     const fire = (id, ev) => $(id).dispatchEvent(new Event(ev, {bubbles:true}));
     /* 背景填算是 setTimeout 排的，在同一個 evaluate 裡不會跑到 —— 這裡直接
@@ -2170,9 +2245,9 @@ console.log('\n[11j] 自組隊伍：手動指定 5 隻，計算基礎必須和�
     ingSet:[0,0,0], skillLv:6, ribbon:0, pin:false, ex:false, nick:''});
   const BOX = ['SALAMENCE','STEELIX','SWAMPERT','BLAZIKEN','CLEFABLE','KANGASKHAN',
                'VENUSAUR','AMPHAROS','ESPEON','GALLADE'];
-  await page.evaluate((names, mk) => {
+  await page.evaluate(({names, mk}) => {
     deserialize({roster: names.map(n => JSON.parse(mk.replace('__N__', n)))});
-  }, BOX, JSON.stringify(mkm('__N__')));
+  }, {names: BOX, mk: JSON.stringify(mkm('__N__'))});
   await doRun(`wk.recipeScope='all'; wk.recipePick='auto'; syncWeeklyUI()`);
 
   /* ---- 這一節的核心：自組隊伍與推演對**同一組 5 隻**必須算出相同的數字。
@@ -2330,18 +2405,22 @@ console.log('\n[11j] 自組隊伍：手動指定 5 隻，計算基礎必須和�
      idx.after[2] === idx.before[2] && idx.after[3] === idx.before[3] && idx.after[4] === idx.before[4],
      `${JSON.stringify(idx.before)} → ${JSON.stringify(idx.after)}`);
 
-  const reset = await page.evaluate((names, mk) => {
+  const reset = await page.evaluate(({names, mk}) => {
     teams = [newTeam(), newTeam()];
     teams[0].members = [0,1,2,3,4];
     teamShown = 1;
     deserialize({roster: names.map(n => JSON.parse(mk.replace('__N__', n)))});
     return {n: teams.length, m: teams[0].members, shown: teamShown};
-  }, BOX, JSON.stringify(mkm('__N__')));
+  }, {names: BOX, mk: JSON.stringify(mkm('__N__'))});
   ok('整批取代 roster 要清空自組隊伍', reset.n === 1 && reset.m.every(x => x === null),
      JSON.stringify(reset));
   ok('清空時 teamShown 也要歸零', reset.shown === 0);
 
-  /* ---- 從推演結果複製 ---- */
+  /* ---- 從推演結果複製 ----
+     上面那個 `deserialize()` 把整個 roster 換掉了，所以舊的推演結果也跟著作廢
+     （`dropResults()`：`lastResults[n].idxs` 存的是**當時**的位置）。要複製就得
+     先重新推演一次 —— 這正是「箱子改過了，推演結果已過期」那條規則。 */
+  await doRun();
   const copy = await page.evaluate(() => {
     teams = [newTeam()];
     teamFromResult(0);
@@ -2545,7 +2624,9 @@ console.log('\n[11L] 寶可夢箱：練滿／資質／技能成長是三個獨�
     /* 滿級**從資料查**，不要寫死 —— 妙蛙花的食材獲取S 上限是 7 而不是 6，
        硬寫 6 會讓「技能滿級」那一條靜靜地測不到它想測的東西。 */
     roster[1].skillLv = (D.ms[D.dex[roster[1].sp].ms] || {max: 6}).max;
-    showView('box'); clearBoxFilter(); monOpen.clear();
+    /* deserialize 只換 roster，不重畫 —— 先 renderBox() 再 showView，
+       否則 showView → idealFillAsync → applyBoxFilter 會讀到上一節留下的 data-i。 */
+    monOpen.clear(); renderBox(); showView('box'); clearBoxFilter();
     $('fltSort').value = 'added'; $('fltSort').dispatchEvent(new Event('change', {bubbles:true}));
     roster.forEach(m => idealOf(m, true));
     renderBox();
@@ -2895,12 +2976,12 @@ console.log('\n[11q] 收取間隔：每一隻多久滿包、整隊多久該上�
 
   /* ---- UI：成員卡回答「這一隻能撐多久」，pill 回答「那我到底該多久上去一次」。
      只給前者的話，使用者還得自己去把最小值找出來。 ---- */
-  await page.evaluate((names, mk) => {
+  await page.evaluate(({names, mk}) => {
     deserialize({roster: names.map(n => JSON.parse(mk.replace('__N__', n)))});
-  }, ['GOLDUCK','KANGASKHAN','VENUSAUR','AMPHAROS','ESPEON','RAICHU','GALLADE'],
-     JSON.stringify({sp:'__N__', level:55, nature:'Bashful',
+  }, {names: ['GOLDUCK','KANGASKHAN','VENUSAUR','AMPHAROS','ESPEON','RAICHU','GALLADE'],
+      mk: JSON.stringify({sp:'__N__', level:55, nature:'Bashful',
        ss:['Helping Speed M','Ingredient Finder M','Skill Trigger M',null,null],
-       ingSet:[0,0,0], skillLv:6, ribbon:0, pin:false, ex:false, nick:''}));
+       ingSet:[0,0,0], skillLv:6, ribbon:0, pin:false, ex:false, nick:''})});
   await doRun(`wk.collectH = 4; wk.recipeLevels = {}; D.recipes.forEach(r => wk.recipeLevels[r.n] = 20);
                wk.recipeScope = 'all'; wk.recipePick = 'auto'; syncWeeklyUI()`);
   const u = await page.evaluate(() => {
@@ -2947,6 +3028,176 @@ console.log('\n[11q] 收取間隔：每一隻多久滿包、整隊多久該上�
   await doRun(`wk.collectH = DEFAULT_COLLECT_H; syncWeeklyUI()`);
 }
 
+/* 一道食譜都沒解鎖是**全新使用者的預設狀態**（`wk.recipeLevels` 是空的），
+   所以它不是邊緣情況，是第一次打開這個工具的人一定會撞到的那一面牆。
+   以前撞上去只會看到「目前的料理類型／範圍下沒有任何食譜可比較」——
+   那句話會把人推去改「料理類型」和「考慮範圍」兩個下拉，怎麼改都一樣。 */
+console.log('\n[2e] 一道食譜都沒解鎖時，要說得出真正的原因');
+{
+  const r = await page.evaluate(async () => {
+    const mk = n => ({sp: D.dex.findIndex(x => x.n === n), level:55, nature:'Bashful',
+      ss:[null,null,null,null,null], ingSet:[0,0,0], skillLv:5, ribbon:0, pin:false, ex:false, nick:''});
+    deserialize({roster: ['VENUSAUR','GENGAR','BLASTOISE','VICTREEBEL','MAROWAK','DODRIO'].map(mk)});
+    wk.recipeLevels = {}; wk.recipeScope = 'all'; wk.recipePick = 'auto'; renderBox();
+    lastResults = null;
+    await run();
+    const plan = $('results').textContent;
+    // 自組隊伍也是同一面牆：五格都填滿了，卻算不出東西
+    teams = [newTeam()]; teams[0].members = [0,1,2,3,4]; teamShown = 0;
+    showView('team');
+    const card = $('teamList').textContent.replace(/\s+/g, ' ');
+    const detail = $('teamDetail').textContent.replace(/\s+/g, ' ');
+    showView('plan');
+    return {on: recipesOn(wk), pool: POOL.length, ran: !!lastResults, plan, card, detail};
+  });
+  ok('確實是「一道都沒解鎖」的狀態', r.on === 0 && r.pool === 0 && !r.ran,
+     `on=${r.on} pool=${r.pool}`);
+  ok('推演的錯誤訊息要指名「沒解鎖」，不是講料理類型／範圍',
+     /解鎖/.test(r.plan) && /食譜等級/.test(r.plan), r.plan.trim().slice(0, 90));
+  /* 「還差 0 隻」是實際出現過的畫面 —— 五格都填滿了還說你少人，那是文案說謊。 */
+  ok('自組隊伍不能說「還差 0 隻」', !/還差 ?0 ?隻/.test(r.card), r.card.slice(0, 80));
+  ok('自組隊伍也要指名「沒解鎖」，而不是「湊滿 5 隻才會算」',
+     /解鎖/.test(r.card + r.detail) && !/湊滿 5 隻才會算/.test(r.detail),
+     r.detail.slice(0, 90));
+}
+
+/* 推演結果存的是**跑那一刻**的 roster 索引。刪掉一隻會讓後面的索引整批前移，
+   整批取代更是換成完全不同的寶可夢 —— 和 `monOpen`、自組隊伍的 `members`
+   完全一樣的陷阱，只是這裡以前沒有人處理。
+
+   實際踩過：跑完推演 → 到箱子刪一隻 → 回推演分頁點「替代隊伍」任一列 →
+   `renderResults` 讀 `roster[i]` 讀到 undefined，整頁 TypeError。而索引剛好還在
+   範圍內的時候更糟：不會報錯，只是靜靜地顯示另一隻的名字與暱稱。 */
+console.log('\n[11r] 箱子改過之後，舊的推演結果不能留著（也不能靜靜消失）');
+{
+  await doRun(`
+    (() => { const mk = n => ({sp: D.dex.findIndex(x => x.n === n), level:55, nature:'Bashful',
+       ss:['Helping Speed M',null,null,null,null], ingSet:[0,0,0], skillLv:5, ribbon:3,
+       pin:false, ex:false, nick:''});
+      deserialize({roster: ['VENUSAUR','GENGAR','BLASTOISE','VICTREEBEL','MAROWAK','DODRIO','RAICHU'].map(mk)});
+      wk.recipeScope = 'all'; wk.recipePick = 'auto'; renderBox(); })()`);
+  const del = await page.evaluate(() => {
+    const had = lastResults.length;
+    showView('plan');
+    // 從箱子刪掉最後一隻（走真正的按鈕路徑，含 confirm）
+    const i = roster.length - 1;
+    const real = window.confirm; window.confirm = () => true;
+    $('boxList').querySelector('[data-i="' + i + '"] [data-act="del"]').click();
+    window.confirm = real;
+    let err = null;
+    try { renderResults(); } catch (e){ err = e.message; }
+    return {had, n: roster.length, gone: lastResults === null, stale: resultsStale,
+            err, text: $('results').textContent.replace(/\s+/g, ' ').trim()};
+  });
+  ok('刪除之前有推演結果', del.had > 0 && del.n === 6, `${del.had} 組 / ${del.n} 隻`);
+  ok('刪除之後結果作廢（否則索引會指到別隻）', del.gone && del.stale, JSON.stringify(del));
+  ok('而且不會炸掉（以前是 renderResults 讀 roster[undefined]）', del.err === null, String(del.err));
+  /* 靜靜地變回「還沒推演」的空狀態，使用者只會以為結果自己消失了。 */
+  ok('要講出來為什麼不見了', /過期|對不上/.test(del.text), del.text.slice(0, 70));
+
+  // 整批取代（雲端下載／JSON「取代」匯入）走的是同一條路
+  await doRun();
+  const rep = await page.evaluate(() => {
+    const had = lastResults ? lastResults.length : 0;
+    const mk = n => ({sp: D.dex.findIndex(x => x.n === n), level:40, nature:'Bashful',
+      ss:[null,null,null,null,null], ingSet:[0,0,0], skillLv:1, ribbon:0, pin:false, ex:false, nick:''});
+    deserialize({roster: ['PIKACHU','BULBASAUR','CHARMANDER','SQUIRTLE','CATERPIE'].map(mk)});
+    renderBox();
+    showView('team');
+    const note = $('tmNote').textContent;
+    showView('plan');
+    return {had, gone: lastResults === null, stale: resultsStale, note};
+  });
+  ok('整批取代 roster 也要作廢（deserialize 清了 monOpen／teams，以前漏了這個）',
+     rep.had > 0 && rep.gone && rep.stale, JSON.stringify(rep));
+  ok('自組隊伍那一列也講得出「已過期」', /過期/.test(rep.note), rep.note);
+}
+
+/* Worker 是**唯一一條 ASSET_V 擋不到的路徑**：`new Worker(url)` 和 worker 裡的
+   `importScripts()` 走另一條快取，主執行緒的 `<script src="…?v=">` 管不到。
+   少了版本號，部署後那個窗口裡 worker 會用舊引擎列舉評分、主執行緒用新引擎
+   rehydrate 與跑決賽 —— 兩套公式，不報錯，只是分數對不起來。 */
+console.log('\n[10c] Worker 也要被版本號擋住（?v= + ENGINE_V 斷言）');
+{
+  const src = await readFile(resolve(ROOT, 'src/app.js'), 'utf8');
+  const wsrc = await readFile(resolve(ROOT, 'src/engine.worker.js'), 'utf8');
+  ok('new Worker 的網址帶 ?v=', /new Worker\('\.\/src\/engine\.worker\.js'\s*\+\s*VQ\)/.test(src),
+     (src.match(/new Worker\([^)]*\)/) || [''])[0]);
+  ok('worker 的 importScripts 也帶 ?v=', /importScripts\('\.\/engine\.js'\s*\+/.test(wsrc),
+     (wsrc.match(/importScripts\([^)]*\)/) || [''])[0]);
+  const v = await page.evaluate(() => ({app: APP_V, eng: typeof ENGINE_V === 'string' ? ENGINE_V : null,
+                                        asset: window.ASSET_V}));
+  ok('engine.js 也有自己的版本常數，而且三處一致',
+     v.eng === v.app && v.app === v.asset, JSON.stringify(v));
+  /* `?v=` 只降低拿到舊檔的機率，斷言才擋得住 —— 和 APP_V 同一條理由。 */
+  ok('主執行緒會斷言 ENGINE_V', /ENGINE_V !== APP_V/.test(src));
+  ok('worker 回報自己載到的版本，主執行緒會比對',
+     /type: 'ready', v:/.test(wsrc) && /staleWorker/.test(src));
+  // 真的跑起來的那一份確實對得上（不是只有原始碼寫對）
+  const used = await page.evaluate(() => [...performance.getEntriesByType('resource')]
+    .map(e => e.name).filter(n => /engine(\.worker)?\.js/.test(n)).map(n => n.split('/').pop()));
+  ok('實際載入的 engine.js / engine.worker.js 都帶著對的 ?v=',
+     used.length > 0 && used.every(n => n.includes('?v=' + v.asset)), JSON.stringify([...new Set(used)]));
+}
+
+/* 樹果遽增（Berry Burst）／流星群（Draco Meteor）「發給隊友」的那一份，拿的是
+   **隊友自己的樹果**，不是持有者的 —— 遊戲內說明：「獲得自己以及隊伍中的寶可夢
+   **會撿來的**樹果」。
+
+   踩過：以前是 `procs * teamBerry * 4 * bp * favMul`，四個隊友全部套持有者的樹果
+   **與持有者的加成倍率**。實測（Treecko 帶 DURIN，隊友 GREPA／DURIN／LEPPA／ORAN）：
+   本週加成只有 DURIN 時整份樹果產出直接 ×2，連三隻根本不產加成樹果的隊友那一份
+   也跟著翻倍。Lv6 的 teamBerry 是 5 顆 ×4 人 = 20 顆，對照 selfBerry 30 顆 ——
+   那是這個技能約四成的產出。 */
+console.log('\n[5d] 發給隊友的樹果，算的是隊友自己的樹果');
+{
+  const r = await page.evaluate(() => {
+    const holder = D.dex.find(x => x.ms === 'Berry Burst');
+    if (!holder) return null;
+    const mk = n => ({sp: D.dex.findIndex(x => x.n === n), level:60, nature:'Bashful',
+      ss:[null,null,null,null,null], ingSet:[0,0,0], skillLv:6, ribbon:0, pin:false, ex:false, nick:''});
+    wk.recipe = D.recipes[0]; wk.recipeScope = 'all';
+    D.recipes.forEach(x => { wk.recipeLevels[x.n] = 20; });
+    buildPool(wk);
+    // 隊友刻意挑四種**不同**的樹果，只有其中一隻和持有者同款（或一隻都沒有）
+    const mates = ['PIKACHU', 'BULBASAUR', 'CHARMANDER', 'SQUIRTLE'];
+    const go = fav => {
+      const w = {...wk, fav: new Set(fav)};
+      roster = [holder.n, ...mates].map(mk);
+      roster.forEach(m => (m._bs = baseStats(m, w)));
+      const c = teamContext([0,1,2,3,4], roster, w, new Map());
+      return {b: memberOutput(roster[0], w, c).berryStrength, key: ctxKey(c)};
+    };
+    const none = go([]), holderOnly = go([holder.b]);
+    const mateBerries = mates.map(n => D.dex.find(x => x.n === n).b);
+    // 換掉隊友（樹果組成不同）→ 持有者的樹果產出必須跟著變
+    roster = [holder.n, 'PIKACHU', 'PIKACHU', 'PIKACHU', 'PIKACHU'].map(mk);
+    roster.forEach(m => (m._bs = baseStats(m, wk)));
+    const same = memberOutput(roster[0], wk,
+      teamContext([0,1,2,3,4], roster, wk, new Map())).berryStrength;
+    return {none: none.b, holderOnly: holderOnly.b, same,
+            keyDiff: none.key !== holderOnly.key,
+            holderBerry: holder.b, mateBerries,
+            teamOnly: monPower(mk(holder.n)).teamOnly};
+  });
+  ok('資料裡有樹果遽增的持有者', !!r, String(!!r));
+  /* 這是這一節的重點：加成只中持有者那一種樹果，所以總量**不可能**直接翻倍。 */
+  ok('本週加成只中持有者的樹果時，整份樹果產出不會直接 ×2',
+     r && r.holderOnly < r.none * 1.9,
+     r && `無加成 ${r.none.toFixed(1)} → 只加成 ${r.holderBerry} ${r.holderOnly.toFixed(1)}`
+        + `（比值 ${(r.holderOnly / r.none).toFixed(3)}，隊友樹果 ${r.mateBerries.join('/')}）`);
+  ok('但持有者自己那一份確實有吃到加成（不是完全沒差）',
+     r && r.holderOnly > r.none * 1.05, r && (r.holderOnly / r.none).toFixed(3));
+  /* 隊友是誰會改變答案 → 那個總和一定要進 ctxKey，否則記憶化會串味（陷阱 6）。 */
+  ok('換掉隊友的樹果組成，持有者的樹果產出跟著變',
+     r && Math.abs(r.same - r.none) > 1,
+     r && `四種樹果 ${r.none.toFixed(1)} vs 全皮卡丘 ${r.same.toFixed(1)}`);
+  ok('mateBerryPow 有進 ctxKey', r && r.keyDiff, String(r && r.keyDiff));
+  /* 單獨一隻沒有隊友，所以那一份是 0 —— **量不到就要標出來**，不能假裝算進去了。 */
+  ok('寶可夢箱要標「隊伍型」（單獨一隻量不到這一份）',
+     r && /發給隊友的樹果/.test(r.teamOnly), r && r.teamOnly);
+}
+
 console.log('\n[12] 快取偏移：schema 不符必須明確擋下');
 {
   ok('資料帶著 schema 版本', await page.evaluate(() => typeof D.meta.schema === 'number'));
@@ -2967,6 +3218,56 @@ console.log('\n[12] 快取偏移：schema 不符必須明確擋下');
   await p3.waitForTimeout(2000);
   ok('schema 正確時照常啟動', await p3.evaluate(() => typeof run === 'function' && !!document.getElementById('results')));
   await p3.close();
+}
+
+/* 手機上整頁橫向捲動 —— 純 CSS，但它讓每一個數字都要左右拖才看得完。
+   根因是 grid item 的 `min-width` 預設是 `auto`，而 `1fr` ＝ `minmax(auto,1fr)`，
+   所以欄位**縮不到 min-content 以下**。實際踩過（390px）：推演分頁的 `.panel`
+   被撐成 405.8px（容器只有 350px），documentElement.scrollWidth 487 vs clientWidth 390。
+   修法是 `.grid > *{min-width:0}` / `.hero > *{min-width:0}`，表格自己在 `.scroll` 裡橫捲。 */
+console.log('\n[13] 窄螢幕（390px）：任何分頁都不准整頁橫向捲動');
+{
+  const mob = await browser.newPage({ viewport: { width: 390, height: 844 } });
+  const mobErr = [];
+  mob.on('pageerror', (e) => mobErr.push(String(e.message)));
+  await mob.goto(PAGE);
+  await mob.waitForTimeout(2000);
+  await mob.evaluate(() => {
+    const mk = n => ({sp: D.dex.findIndex(x => x.n === n), level:55, nature:'Bashful',
+      ss:['Helping Speed M','Ingredient Finder M',null,null,null], ingSet:[0,0,0],
+      skillLv:5, ribbon:3, pin:false, ex:false, nick:''});
+    deserialize({roster: ['VENUSAUR','GENGAR','BLASTOISE','VICTREEBEL','MAROWAK','DODRIO'].map(mk)});
+    D.recipes.forEach(r => { wk.recipeLevels[r.n] = 25; });
+    wk.recipeScope = 'all'; wk.recipePick = 'auto'; renderBox();
+  });
+  await mob.evaluate(`(async () => { lastResults = null; await run(); })()`);
+  await mob.waitForFunction(() => lastResults && lastResults.length, null, { timeout: 60000 });
+
+  for (const v of ['plan', 'team', 'box', 'recipes']) {
+    const r = await mob.evaluate((name) => {
+      showView(name);
+      const de = document.documentElement;
+      /* 只怪**不在捲動容器裡**的元素 —— 表格本來就該在 `.scroll` 裡橫捲，那是設計。 */
+      const inScroller = (el) => {
+        for (let q = el.parentElement; q; q = q.parentElement){
+          const o = getComputedStyle(q).overflowX;
+          if (o === 'auto' || o === 'scroll' || o === 'hidden') return true;
+        }
+        return false;
+      };
+      const wide = [...document.querySelectorAll('.wrap *')]
+        .filter(el => !el.hidden && !inScroller(el)
+                   && el.getBoundingClientRect().right > innerWidth + 1)
+        .slice(0, 4)
+        .map(el => (el.tagName + '.' + (typeof el.className === 'string' ? el.className.trim().split(/\s+/)[0] : ''))
+                   + ' w=' + Math.round(el.getBoundingClientRect().width));
+      return {scrollW: de.scrollWidth, clientW: de.clientWidth, wide};
+    }, v);
+    ok(`${v} 分頁不會整頁橫向捲動`, r.scrollW <= r.clientW,
+       `scrollWidth ${r.scrollW} > clientWidth ${r.clientW}　撐開的是：${r.wide.join(' / ') || '（找不到，可能在捲動容器裡）'}`);
+  }
+  ok('窄螢幕下沒有 JS 錯誤', mobErr.length === 0, mobErr.slice(0, 2).join(' | '));
+  await mob.close();
 }
 
 // 放最後才檢查，才能涵蓋上面每一節（schema 那節刻意的錯誤發生在另開的頁面，不算在內）

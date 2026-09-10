@@ -24,6 +24,13 @@ const PATHS = {
     worker: 'src/engine.worker.js',
     import: 'src/import.js',
     html:   'index.html',
+    /* 屬性清單（惡／龍）。上游的 dex 沒有屬性欄位，這份是 repo 自己維護的。
+       文案有三個地方會提到它（已知簡化、主技能的 caveat、箱子裡的「惡」標籤）——
+       實際踩過：那三處都寫成 `tools/dark.txt`，而那個檔案根本不存在。 */
+    types:  'tools/types.txt',
+    // 同步面板的兩個檔名。它們寫在 index.html 的靜態文案裡，一樣要被守門掃到。
+    setup:  'SETUP-google-sheet.md',
+    gs:     'apps-script/Code.gs',
   },
   cmds: {
     rebuild: 'npm run data',
@@ -57,7 +64,7 @@ const SCHEMA = 4;   // 4: 新增 msExtra{}（上游沒有的主技能數值表�
    「新的 index.html ＋ 舊的 app.js」—— 畫面畫出舊版 UI，而使用者只會覺得
    「你根本沒改」，完全不知道是快取。有了這個斷言，過期的 app.js 會直接被擋下來
    並要求強制重新整理。tests/smoke.mjs 第 11 節會斷言三處一致。 */
-const APP_V = '20260910c';
+const APP_V = '20260910d';
 
 /** 致命錯誤：整頁換成一段說明。這種狀況下繼續跑只會產生錯的數字。 */
 function fatal(html){
@@ -70,6 +77,13 @@ function fatal(html){
 if (window.ASSET_V && window.ASSET_V !== APP_V){
   fatal(`程式檔的版本不一致（<code>index.html</code> 要 <code>${window.ASSET_V}</code>，`
       + `但載到的 ${code(P.app)} 是 <code>${APP_V}</code>）。`
+      + `這是瀏覽器快取到舊的程式檔 —— 請<b>強制重新整理</b>（Ctrl+Shift+R，Mac 是 Cmd+Shift+R）。`);
+}
+/* 引擎也要對。這兩個檔是分開快取的資源，而**走鐘的引擎不會報錯，只會算出別的數字**。
+   Worker 那一側另外比對（見 spawnPool）—— 那是唯一一條 ASSET_V 擋不到的路徑。 */
+if (typeof ENGINE_V === 'string' && ENGINE_V !== APP_V){
+  fatal(`程式檔的版本不一致（${code(P.app)} 是 <code>${APP_V}</code>，`
+      + `但載到的 ${code(P.engine)} 是 <code>${ENGINE_V}</code>）。`
       + `這是瀏覽器快取到舊的程式檔 —— 請<b>強制重新整理</b>（Ctrl+Shift+R，Mac 是 Cmd+Shift+R）。`);
 }
 if (!D || !D.meta || D.meta.schema !== SCHEMA){
@@ -115,6 +129,27 @@ const BLANK = () => ({sp: D.dex.findIndex(p=>p.n==='PIKACHU'), level:30, nature:
 let roster = [];
 let wk = {island:'greengrass', fav:new Set(), areaBonus:15, pot:57, sleepH:8.5, camp:0, collectH:DEFAULT_COLLECT_H, mode:'total', dishType:'curry', recipeName:null, recipeLv:20, recipePick:'auto', recipeScope:'type', recipeLevels:{}, strictBerry:true};
 let lastResults = null, shownAlt = 0;
+/* 「上一次的推演結果已經對不上現在的箱子了」。
+ *
+ *  `lastResults[n].idxs` 存的是**跑推演那一刻**的 roster 索引，而刪除一隻會讓後面的
+ *  索引整批前移、整批取代 roster 更是換成完全不同的寶可夢 —— 和 `monOpen` /
+ *  自組隊伍的 `members` 完全一樣的陷阱，只是這裡沒有人處理過。
+ *
+ *  實際踩過：跑完推演 → 到箱子刪一隻 → 回推演分頁點「替代隊伍」任一列 →
+ *  `renderResults` 讀 `roster[i]` 讀到 undefined，整頁 TypeError。而運氣「好」的時候
+ *  （索引還在範圍內）更糟：不會報錯，只是靜靜地顯示另一隻的名字與暱稱。
+ *
+ *  所以一律丟掉，並且**講出來為什麼不見了** —— 靜靜地變回「還沒推演」的空狀態，
+ *  使用者只會以為結果自己消失了。 */
+let resultsStale = false;
+function dropResults(){
+  if (lastResults && lastResults.length) resultsStale = true;
+  lastResults = null; shownAlt = 0;
+  /* 立刻重畫。推演分頁可能正在背景開著（刪除是在寶可夢箱做的），留著那份已經
+     對不上的 HTML，使用者切回去點一列就會炸。renderResults 是 function 宣告，
+     會提升，所以放在這裡呼叫沒有 TDZ 問題。 */
+  if (document.getElementById('results')) renderResults();
+}
 /* 自組隊伍（見檔案後段的「自組隊伍」那一區）。**宣告放在這裡而不是那一區旁邊** ——
    `deserialize` 會呼叫 `teamsReset()`，而它在前段；`let` 不會提升，宣告留在後面就有
    TDZ 風險（和陷阱 1 的 `$` 同一類）。函式本身是 function 宣告，會提升，留在後面沒問題。 */
@@ -159,7 +194,10 @@ function deserialize(o, opts){
        整個 roster 換掉了 —— 留著就會展開到「剛好是同一個索引」的那一隻身上
        （從雲端下載、JSON「取代」匯入都會走到這）。和 del 之後要 clear 同一個
        理由，見 CLAUDE.md「刪除之後的展開狀態」。append 不動舊的索引，所以不清。 */
-    if (!(opts && opts.append)) { monOpen.clear(); teamsReset(); }
+    /* 整批取代 → 展開狀態、自組隊伍、**上一次的推演結果**都指到別隻了。
+       前兩個本來就清，`lastResults` 漏了 —— 見 dropResults 的說明。
+       append 不動舊索引，所以三個都不用清。 */
+    if (!(opts && opts.append)) { monOpen.clear(); teamsReset(); dropResults(); }
   }
   if (o.wk && !(opts && opts.append)){
     const f = o.wk.fav||[];
@@ -1017,7 +1055,7 @@ const monName = m => (m.nick || '').trim() || pz(D.dex[m.sp]);
 const MS_CAVEAT = {
   'Bad Dreams (Charge Strength M)': {dir:'data', why:
     '扣活力那一面**有算**（每次發動讓隊上惡屬性以外的成員 −12 活力），但「誰是惡屬性」'
-    + '不在上游資料裡 —— 那份清單由 repo 自己維護（tools/dark.txt，目前 13 隻）。'
+    + `不在上游資料裡 —— 那份清單由 repo 自己維護（${P.types}，目前 ${DARK.size} 隻）。`
     + '清單錯了不會有任何錯誤訊息，只會讓分數偏掉，所以惡屬性的寶可夢在箱子裡會標「惡」，可以自己核對。'},
   'Moonlight (Charge Energy S)':      {dir:'under', why:'暴擊加成沒讀進來（主要的補活力效果有算）。'},
   'Hyper Cutter (Ingredient Draw S)': {dir:'under', why:'暴擊時的額外食材沒讀進來（主要的食材效果有算）。'},
@@ -1086,7 +1124,7 @@ function monHead(m, idx, open){
         <span class="mon-lv">Lv${m.level}</span>
       </span>
       <span class="mon-rest">
-        <span class="tag ${SPEC_TAG[p.sp]}" title="專長">${SPEC_ZH[p.sp]}</span>${DARK.has(p.n)?`<span class="tag dark" title="惡屬性 —— 只影響達克萊伊「夢魘」的扣活力（惡屬性免疫）。這份清單由 repo 維護在 tools/dark.txt，上游資料沒有屬性欄位">惡</span>`:``}
+        <span class="tag ${SPEC_TAG[p.sp]}" title="專長">${SPEC_ZH[p.sp]}</span>${DARK.has(p.n)?`<span class="tag dark" title="惡屬性 —— 只影響達克萊伊「夢魘」的扣活力（惡屬性免疫）。這份清單由 repo 維護在 ${P.types}，上游資料沒有屬性欄位">惡</span>`:``}
         <span class="mon-ms" title="主技能（由種類決定）">${msz(p.ms)}</span>${msCaveat(p.ms)}
         <span class="mon-nat">${natBrief(m)}</span>
         <span class="mon-sum">${ss}</span>
@@ -1368,6 +1406,10 @@ function applyBoxFilter(){
   let shown = 0;
   for (const el of $('boxList').querySelectorAll('[data-i]')){
     const i = +el.dataset.i;
+    /* roster 縮短了但列表還沒重畫的那個瞬間（例如 deserialize 之後才 showView('box')，
+       showView 會呼叫 idealFillAsync → applyBoxFilter）—— 沒有這道界線就是
+       `roster[i].sp` 讀 undefined，整頁 TypeError。`paintIdealChips` 本來就有擋。 */
+    if (!roster[i]){ el.hidden = true; continue; }
     const ok = monMatch(roster[i], i);
     el.hidden = !ok;
     if (ok) shown++;
@@ -1505,6 +1547,7 @@ $('boxList').addEventListener('click', e=>{
     if (!confirm(`確定要刪除「#${p.no} ${pz(p)} Lv${m.level} ${natZ(NAT[m.nature]||NAT.Bashful)}」嗎？\n\n刪掉之後沒辦法復原。`)) return;
     roster.splice(i,1); monOpen.clear();                    // 索引整批位移，全收起最安全
     teamsAfterDelete(i);      // 自組隊伍存的也是 roster 索引，同一個位移問題
+    dropResults();            // 推演結果存的也是索引 —— 同一個位移問題（見 dropResults）
   }
   /* ＋隊：純檢視狀態（自組隊伍不進 serialize()），所以不 save()，自己重畫就好。 */
   else if (a==='team'){ teamAddFromBox(i); return; }
@@ -1882,19 +1925,33 @@ function poolSize(){
   return Math.max(1, Math.min(MAX_WORKERS, hc));
 }
 
+/* Worker 是**唯一一條 ASSET_V 擋不到的路徑**：`new Worker(url)` 與 worker 裡的
+   `importScripts()` 走的是另一條快取，主執行緒 `<script src="…?v=">` 管不到它。
+   少了這一段，部署後那個窗口裡 worker 會用**舊引擎**列舉評分，而主執行緒用新引擎
+   `rehydrate()` 與跑決賽 —— 兩套公式，不會報錯，只會靜靜地算出對不起來的分數。
+   所以 (a) 網址帶 ?v=，(b) worker 回報它實際載到的 ENGINE_V，我們真的去比對。 */
+const VQ = window.ASSET_V ? '?v=' + encodeURIComponent(window.ASSET_V) : '';
 function spawnPool(n){
   const made = [];
   for (let i = 0; i < n; i++){
-    const w = new Worker('./src/engine.worker.js');
+    const w = new Worker('./src/engine.worker.js' + VQ);
     const ready = new Promise((ok, bad) => {
       const onMsg = (e) => {
-        if (e.data && e.data.type === 'ready'){ w.removeEventListener('message', onMsg); ok(w); }
+        if (!e.data || e.data.type !== 'ready') return;
+        w.removeEventListener('message', onMsg);
+        const got = e.data.v;
+        // `?v=` 只降低拿到舊檔的機率，這個斷言才擋得住（和 APP_V 同一條理由）
+        if (typeof ENGINE_V === 'string' && got != null && got !== ENGINE_V){
+          bad(Object.assign(new Error('stale-worker'), { staleWorker: { got, want: ENGINE_V } }));
+          return;
+        }
+        ok(w);
       };
       w.addEventListener('message', onMsg);
       w.addEventListener('error', (ev) => bad(new Error(ev.message || 'worker 載入失敗')));
     });
-    // 資料只在 init 送一次；之後每次推演只送 roster 與 wk
-    w.postMessage({ type:'init', data: D });
+    // 資料只在 init 送一次；之後每次推演只送 roster 與 wk。v 讓 worker 也載到對版的 engine.js
+    w.postMessage({ type:'init', data: D, v: window.ASSET_V || '' });
     made.push({ w, ready });
   }
   pool = made;
@@ -1968,7 +2025,17 @@ function setRunning(on){
 
 const RUN_ERR = {
   few:    n => `箱子裡至少要有 5 隻可用的寶可夢（目前 ${n} 隻）。`,
-  nopool: () => `目前的料理類型／範圍下沒有任何食譜可比較。`,
+  /* **最常見的原因是「一道都沒解鎖」，所以那句要先講。**
+     預設的 `wk.recipeLevels` 是空的（＝全部沒解鎖），全新的使用者按下推演就會走到
+     這裡 —— 而舊的文案只講「料理類型／範圍」，使用者只會去改那兩個下拉，怎麼改都
+     一樣。這是陷阱 4 的同一條規則：候選被過濾掉就要說得出是被什麼過濾掉的。 */
+  nopool: () => recipesOn(wk) === 0
+    ? `你目前<b>一道食譜都還沒解鎖</b>，所以沒有東西可以煮 —— 到右上角的`
+      + `<b>「食譜等級」</b>分頁，把你會煮的那幾道按「解鎖」並填上等級`
+      + `（或先按「全部解鎖」再逐一調整）。`
+    : `目前的「料理類型／考慮範圍」下沒有任何<b>已解鎖</b>的食譜`
+      + `（整體已解鎖 ${recipesOn(wk)} / ${D.recipes.length} 道）—— `
+      + `把「考慮範圍」改成<b>三類都比較</b>，或到「食譜等級」分頁解鎖這個類型的食譜。`,
   pins:   n => `固定（📌）的寶可夢超過 5 隻，請減少到 5 隻以內。`,
   fewBerry: n => `套用「樹果型只考慮本週加成樹果」之後只剩 ${n} 隻可用（需要 5 隻）。`
               + `請調整本週加成樹果、把需要的成員用 📌 固定（固定的不受此限），或關掉那個選項。`,
@@ -2020,7 +2087,23 @@ async function run(){
     }
   } catch (err){
     if (err.message === CANCELLED) return;   // 使用者按了取消，狀態已由 cancelBtn 處理好
+    if (err.staleWorker){
+      /* worker 載到的引擎和主執行緒的不同版本 —— 兩套公式算出來的分數對不起來，
+         繼續跑只會產生無法察覺的錯數字。和 APP_V 不符是同一件事、同一個解法。 */
+      killPool();
+      setRunning(false);
+      // fatal() 一定會 throw（那是它的設計）。頁面已經換成說明了，不必再往上冒。
+      try {
+        fatal(`Worker 載到的 ${code(P.engine)} 是舊版（<code>${esc(err.staleWorker.got)}</code>，`
+            + `這一份程式要 <code>${err.staleWorker.want}</code>）。`
+            + `這是瀏覽器快取到舊的程式檔 —— 請<b>強制重新整理</b>（Ctrl+Shift+R，Mac 是 Cmd+Shift+R）。`);
+      } catch (e){}
+      return;
+    }
     if (err.shardError){                     // worker 回報了引擎層的錯誤（例如候選不足 5 隻）
+      /* 一個分片失敗＝這次推演作廢，但其餘 worker 還在跑完整個分片（同步迴圈，
+         不理訊息佇列）—— 不砍掉就是白燒 CPU，而且它們的 pendingRejects 也留著。 */
+      killPool();
       setRunning(false);
       const m = err.shardError, f = RUN_ERR[m.error];
       $('results').innerHTML = `<div class="notice warn">${f ? f(m.n) : '推演失敗，請重試。'}</div>`;
@@ -2047,7 +2130,7 @@ async function run(){
     $('results').innerHTML = `<div class="notice warn">${f ? f(res.n) : '推演失敗，請重試。'}</div>`;
     return;
   }
-  lastResults = res.best; shownAlt = 0;
+  lastResults = res.best; shownAlt = 0; resultsStale = false;
   const cut = res.excluded ? res.excluded.length : 0;
   /* **煮得出來的只有幾道，一定要寫在這裡。** 沒解鎖的食譜整個不進池子，那是候選
      過濾 —— 陷阱 4：靜靜地少算候選就是「文案說謊」那一類的 bug。 */
@@ -2409,12 +2492,19 @@ function bindTeamDetail(host, after){
 
 function renderResults(){
   if (!lastResults || !lastResults.length){
-    $('results').innerHTML = roster.filter(m=>!m.ex).length < 5
+    /* **過期和「還沒跑過」是兩件事。** 使用者剛在箱子裡刪掉一隻、結果就不見了，
+       畫面卻寫「設定好本週條件後，按推演」—— 那看起來像結果自己壞掉了。 */
+    $('results').innerHTML = resultsStale
+      ? `<div class="notice">箱子改過了，上一次的推演結果已經<b>對不上現在的寶可夢箱</b>（結果存的是當時的位置），所以先收起來了 —— 請再按一次「推演最佳隊伍」。</div>`
+      : roster.filter(m=>!m.ex).length < 5
       ? `<div class="notice">先到右上角「寶可夢箱」分頁建立至少 5 隻，才能開始推演。</div>`
       : `<div class="notice">設定好本週條件後，按「推演最佳隊伍」。</div>`;
     return;
   }
-  const r = lastResults[shownAlt];
+  /* 最後一道防線：任何漏了 dropResults() 的新路徑都會在這裡被擋下來，
+     而不是讓 memberCard 讀 roster[undefined] 把整頁炸掉。 */
+  if (!lastResults.every(resultAlive)){ dropResults(); return; }
+  const r = lastResults[shownAlt] || lastResults[0];
   $('results').innerHTML = teamDetailHTML(r) + `
   <div class="grid" style="grid-template-columns:1fr;margin-top:16px;gap:16px">
     <div class="panel">
@@ -2481,9 +2571,15 @@ function prepTeamCalc(){
   roster.forEach(m => { m._bs = baseStats(m, wk); });
   return true;
 }
-/** 一支隊伍的結果。**湊滿 5 隻才算**（見下），沒滿就是 null。 */
+/** 一支隊伍的結果。**湊滿 5 隻才算**（見下），沒滿就是 null。
+ *
+ *  `t.blocked` ＝「人湊滿了，但算不出來」。目前唯一的原因是**一道食譜都沒解鎖**
+ *  （`prepTeamCalc` 的 POOL 是空的）。這兩件事一定要分開 —— 混在一起的話，
+ *  五格都填好的隊伍會顯示「還差 0 隻」，而詳情區還在說「湊滿 5 隻才會算出結果」。
+ *  兩句都是假話，而且會把使用者推去找一個不存在的問題。 */
 function computeTeam(t, ready){
   t.result = null;
+  t.blocked = !ready;
   if (!ready) return;
   if (t.members.some(x => x == null)) return;
   /* `teamContext` 的 `energyTeam*5` 與 `qE(energy/5)` 兩邊都寫死 5 人，所以不足 5 隻
@@ -2591,7 +2687,8 @@ function teamCardHTML(t, ti){
     <div class="tmhead">
       <b>隊伍 ${ti+1}</b>
       ${r ? `<span class="tmtot">週能量 ${fmt(r.total)}</span>`
-          : `<span class="muted">還差 ${5-filled} 隻</span>`}
+          : filled < 5 ? `<span class="muted">還差 ${5-filled} 隻</span>`
+          : `<span class="muted">算不出來（沒有解鎖的食譜）</span>`}
       <button type="button" class="tmx" data-delteam="${ti}"
         title="${teams.length>1?'刪除這支隊伍':'清空這支隊伍'}">✕</button>
     </div>
@@ -2637,9 +2734,12 @@ function renderTeamDetailPane(){
   const host = $('teamDetail');
   const done = teams.map((t,i)=>({t,i})).filter(x => x.t.result);
   if (!done.length){
-    host.innerHTML = roster.length
-      ? `<div class="notice" style="margin-top:16px">每支隊伍湊滿 5 隻才會算出結果 —— 隊伍情境（幫忙加成、技能補能量、Helper Boost 的列數）要 5 隻才成立，不足 5 隻算出來的數字沒有意義。</div>`
-      : '';
+    /* 「還沒湊滿」和「湊滿了但沒有食譜可煮」要分開講 —— 見 computeTeam 的 t.blocked。 */
+    const blocked = teams.some(t => t.blocked && t.members.every(x => x != null));
+    host.innerHTML = !roster.length ? ''
+      : blocked
+      ? `<div class="notice warn" style="margin-top:16px">這支隊伍已經滿 5 隻，但<b>一道食譜都沒有解鎖</b>，所以算不出料理分數 —— 到右上角的<b>「食譜等級」</b>分頁，把你會煮的那幾道按「解鎖」並填上等級（或先按「全部解鎖」再逐一調整）。</div>`
+      : `<div class="notice" style="margin-top:16px">每支隊伍湊滿 5 隻才會算出結果 —— 隊伍情境（幫忙加成、技能補能量、Helper Boost 的列數）要 5 隻才成立，不足 5 隻算出來的數字沒有意義。</div>`;
     return;
   }
   if (!teams[teamShown] || !teams[teamShown].result) teamShown = done[0].i;
@@ -2664,8 +2764,9 @@ function syncTeamBar(){
     ? alive.map(({x,n})=>`<option value="${n}">推演 #${n+1}　${fmt(x.total)}　${x.idxs.map(i=>pz(D.dex[roster[i].sp])).join('・')}</option>`).join('')
     : `<option>（還沒跑過推演）</option>`;
   $('tmNote').textContent = alive.length ? ''
-    : (lastResults && lastResults.length ? '箱子改過了，推演結果已過期 —— 請重新推演一次。'
-                                         : '「從推演結果複製」要先到推演分頁跑一次。');
+    : ((resultsStale || (lastResults && lastResults.length))
+        ? '箱子改過了，推演結果已過期 —— 請重新推演一次。'
+        : '「從推演結果複製」要先到推演分頁跑一次。');
 }
 function renderTeamsView(){
   sanitizeTeams();

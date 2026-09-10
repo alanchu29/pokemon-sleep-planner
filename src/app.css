@@ -55,6 +55,13 @@ section{margin-top:26px}
 
 /* ---- form controls ---- */
 .grid{display:grid;gap:14px}
+/* grid item 的 `min-width` 預設是 `auto`，而 `1fr` ＝ `minmax(auto,1fr)` ——
+   所以欄位**縮不到 min-content 以下**。實際踩過：390px 的手機上，推演分頁的
+   `.panel` 被撐成 405.8px（容器只有 350px），整頁跟著橫向捲動
+   （documentElement.scrollWidth 487 vs clientWidth 390）。
+   `min-width:0` 讓它縮得下去，裡面的表格自己在 `.scroll` 裡橫捲。 */
+.grid > *{min-width:0}
+.hero > *{min-width:0}
 label.f{display:flex;flex-direction:column;gap:5px;font-size:12px;color:var(--muted);font-weight:500}
 select,input[type=text],input[type=number]{font-family:var(--body);font-size:13.5px;color:var(--ink);background:var(--surface-2);border:1px solid var(--line-2);border-radius:7px;padding:7px 9px;width:100%}
 input[type=number]{font-family:var(--mono);font-variant-numeric:tabular-nums}

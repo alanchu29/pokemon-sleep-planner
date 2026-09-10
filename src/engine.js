@@ -16,6 +16,12 @@ const D = self.GAMEDATA;
 if (!D || !D.ings || !D.dex || !D.recipes || !D.ms) {
   throw new Error('engine.js: self.GAMEDATA 不完整 —— 載入順序錯了，或 data/game.json 壞了');
 }
+/* 這一份 engine.js 的資源版本。必須等於 index.html 的 ASSET_V 與 app.js 的 APP_V。
+   為什麼引擎也要有一份：`?v=` 只降低拿到舊檔的機率，而 **Worker 是唯一沒被
+   ASSET_V 擋到的路徑** —— 主執行緒載新引擎、worker 載到快取的舊引擎時，
+   搜尋（worker）與 rehydrate／決賽（主執行緒）會用兩套不同的公式，
+   不會報錯，只會靜靜地算出對不起來的分數。app.js 會比對這個值。 */
+const ENGINE_V = '20260910d';
 
 const ING_NAME = D.ings.map(x=>x[0]);
 const ING_VAL  = D.ings.map(x=>x[1]);
@@ -102,6 +108,14 @@ function baseStats(m, wk){
           ribbonMul:ribbonFreqMul(m.ribbon||0, p.re)};
 }
 const WILDCARD = /^(Metronome|Versatile|Skill Copy|Mimic \(|Transform \()/;
+/** 這個主技能會不會「發樹果給隊友」（樹果遽增 Berry Burst／流星群 Draco Meteor，
+ *  以及萬用技能平均進去的那一份）。
+ *
+ *  存在的理由是效能：隊友那一份要用**每個隊友自己的樹果**來算（見 memberOutput），
+ *  所以 `teamContext` 要多算一個 `mateBerryPow`。但那個值幾乎每一隊都不同，
+ *  無條件放進 `ctxKey` 會讓 `memberOutput` 的記憶化整個失效（33k 組的搜尋靠它）。
+ *  所以只有隊上真的有這種技能時才算，其餘維持 0 —— 絕大多數隊伍的快取粒度不變。 */
+const givesTeamBerry = ms => !!(D.ms[ms] && D.ms[ms].teamBerry) || /^Draco Meteor/.test(ms) || WILDCARD.test(ms);
 const BASE_SKILLS = Object.keys(D.ms).filter(n =>
   !WILDCARD.test(n) && !/Range$/.test(n) && !/\(/.test(n) && Object.keys(D.ms[n]).length > 1);
 const wildcardCache = {};
@@ -366,7 +380,23 @@ function memberOutput(m, wk, ctx){
   const bp = berryPower(bs.p.b, m.level);
   let berryStrength = sim.berries * bp * favMul;
   if (pay.selfBerry) berryStrength += sim.procs*pay.selfBerry*bp*favMul;
-  if (pay.teamBerry) berryStrength += sim.procs*pay.teamBerry*4*bp*favMul;
+  /* 「發給隊友的樹果」拿的是**隊友自己的樹果**，不是持有者的。
+     遊戲內說明（樹果遽增／流星群都一樣）：「獲得自己**以及隊伍中的寶可夢**會撿來的
+     樹果」—— 隊友撿的當然是牠們自己那一種。
+
+     以前這裡是 `4*bp*favMul`：四個隊友全部套持有者的樹果**與持有者的加成倍率**。
+     實測（Treecko 帶 DURIN，隊友 GREPA／DURIN／LEPPA／ORAN）：本週加成只有 DURIN 時
+     berryStrength 14,163.7 → 28,327.3，**整整 ×2** —— 三隻根本不產加成樹果的隊友
+     那一份也跟著翻倍。Lv6 的 teamBerry 是 5 顆 ×4 人 = 20 顆，對照 selfBerry 30 顆，
+     所以那是這個技能約四成的產出。
+
+     `ctx.mateBerryPow` 是**整隊五隻**的 `樹果能量 × 各自的加成倍率` 總和，
+     所以這裡要把自己那一份扣掉。單獨一隻時（寶可夢箱的 SCORE_CTX）沒有隊友，
+     這一項就是 0 —— 那是對的，而且 `monPower` 會標「隊伍型」徽章把它說出來。 */
+  if (pay.teamBerry){
+    const mates = Math.max(0, (ctx.mateBerryPow || 0) - bp*favMul);
+    berryStrength += sim.procs*pay.teamBerry*mates;
+  }
   const skillStrength = sim.procs * (pay.strength||0);
   return {sim, pay, ing, berryStrength, skillStrength,
           potBonus: sim.procs*(pay.pot||0),
@@ -387,7 +417,7 @@ const qH = v => Math.round(v*2)/2;
 /** Helper Boost 的列數是 `{樹果: 同樹果的不同物種數}` —— 一隊可能有**好幾個**持有者
  *  （三神獸的樹果各不相同），所以它是 map 不是純量。序列化要排序過才穩定。 */
 const hbKey = r => r ? Object.keys(r).sort().map(b => b+':'+r[b]).join(',') : '';
-function ctxKey(c){ return c.nHB+'|'+c.nERB+'|'+c.supportEnergy+'|'+c.extraHelps+'|'+hbKey(c.hbRows)+'|'+(c.hasPlus?1:0)+(c.hasMinus?1:0)+(c.hasLatias?1:0)+(c.hasLatios?1:0)+'|'+c.darkDrain+'|'+c.nDragon; }
+function ctxKey(c){ return c.nHB+'|'+c.nERB+'|'+c.supportEnergy+'|'+c.extraHelps+'|'+hbKey(c.hbRows)+'|'+(c.hasPlus?1:0)+(c.hasMinus?1:0)+(c.hasLatias?1:0)+(c.hasLatios?1:0)+'|'+c.darkDrain+'|'+c.nDragon+'|'+(c.mateBerryPow||0); }
 function teamContext(idxs, roster, wk, memo){
   let nHB=0, nERB=0, hasPlus=false, hasMinus=false, hasLatias=false, hasLatios=false;
   /* 流星群：「隊伍中有越多**不同種類的龍屬性**幫手寶可夢，樹果數量就會增加得越多」
@@ -421,14 +451,25 @@ function teamContext(idxs, roster, wk, memo){
   }
   // two-pass: neutral context to size team-wide skill support, then re-evaluate
   const nDragon = Math.max(1, Math.min(5, dragonKinds.size));
-  let ctx = {nHB, nERB, supportEnergy:0, extraHelps:0, darkDrain:0, hbRows, hasPlus, hasMinus, hasLatias, hasLatios, nDragon};
+  /* 「發樹果給隊友」那類技能要用**隊友自己的樹果**算（見 memberOutput）。
+     這個總和幾乎每一隊都不同，所以**只有隊上真的有那種技能時才算** ——
+     其餘一律 0，`ctxKey` 因此不變，記憶化的粒度也就不受影響。 */
+  let mateBerryPow = 0;
+  if (idxs.some(i => givesTeamBerry(roster[i]._bs.p.ms))){
+    for (const i of idxs){
+      const bs = roster[i]._bs;
+      mateBerryPow += berryPower(bs.p.b, roster[i].level) * (wk.fav.has(bs.p.b) ? 2 : 1);
+    }
+  }
+  let ctx = {nHB, nERB, supportEnergy:0, extraHelps:0, darkDrain:0, hbRows, hasPlus, hasMinus, hasLatias, hasLatios, nDragon, mateBerryPow};
   for (let pass=0; pass<2; pass++){
     let energy=0, helps=0, drain=0;
     for (const i of idxs){ const o = getOut(i, roster, wk, ctx, memo);
       energy += o.energyGiven; helps += o.helpsGiven; drain += o.energyDrain; }
     /* darkDrain 是**每個非惡屬性成員各自**被扣的量（夢魘同時打所有人，所以不除以 5）。
        量化成 3 的倍數控制快取爆炸，和 qE/qH 同一個道理。 */
-    const next = {nHB, nERB, hbRows, hasPlus, hasMinus, hasLatias, hasLatios, nDragon, supportEnergy: qE(energy/5),
+    const next = {nHB, nERB, hbRows, hasPlus, hasMinus, hasLatias, hasLatios, nDragon, mateBerryPow,
+                  supportEnergy: qE(energy/5),
                   extraHelps: qH(helps/5), darkDrain: Math.round(drain/3)*3};
     if (ctxKey(next)===ctxKey(ctx)) { ctx = next; break; }
     ctx = next;
@@ -778,7 +819,10 @@ function rankRecipesForTeam(r, wk){
    週設定跑；但**一定要有值**，否則技能率高的那幾隻會像推演以前那樣被高估
    （沒有「每段最多 2 次」的上限）。 */
 const SCORE_WK = {fav: new Set(), camp: false, sleepH: 8.5, collectH: DEFAULT_COLLECT_H};
-const SCORE_CTX = {nHB: 0, nERB: 0, supportEnergy: 0, extraHelps: 0, darkDrain: 0, hbRows: null, hasPlus: false, hasMinus: false, hasLatias: false, hasLatios: false, nDragon: 1};
+/* `mateBerryPow: 0` ＝ 沒有隊友，所以「發給隊友的樹果」那一份在這裡是 0。
+   那是對的（單獨一隻本來就沒有隊友可發），但**量不到就要標出來** ——
+   `monPower` 的 `teamOnly` 會把它列進「隊伍型」徽章。 */
+const SCORE_CTX = {nHB: 0, nERB: 0, supportEnergy: 0, extraHelps: 0, darkDrain: 0, hbRows: null, hasPlus: false, hasMinus: false, hasLatias: false, hasLatios: false, nDragon: 1, mateBerryPow: 0};
 
 /** 一隻的個體產能。純函式，不碰 POOL、不需要參考隊。 */
 function monPower(m){
@@ -810,15 +854,19 @@ function monPower(m){
        那個篩選排名用。注意它**包含食材磁鐵灑出來的那一份** —— 那是真的產出，
        但灑得很平均且不可指定，所以篩選是看食材欄位，排名才看這個數字。 */
     ingAll: o.ing,
-    /* 「單獨一隻量不到」的東西要標出來，不能假裝算進去了。三類都要：
+    /* 「單獨一隻量不到」的東西要標出來，不能假裝算進去了。四類都要：
        ① 幫忙加成（副技能）—— 價值主要在加速四個隊友，這裡只看得到自己那 5%
        ② 幫手加速（Helper Boost）—— 列數看隊上同樹果的物種數，單獨一隻只有第 1 列
        ③ 正電／負電 —— 加成要隊上有另一半才給，這裡兩邊都沒有
+       ④ 發給隊友的樹果（樹果遽增／流星群）—— 拿的是**隊友自己的**樹果，
+          沒有隊友就是 0。以前這一份被算成「四份持有者自己的樹果」，
+          所以單獨一隻反而看起來比較強（見 memberOutput）。
        回傳的是**原因字串**（沒有就是空字串），UI 直接寫進徽章的說明。 */
     teamOnly: [me._bs.hasHB && '幫忙加成',
                /^Helper Boost/.test(me._bs.p.ms) && '幫手加速',
                /^Plus \(/.test(me._bs.p.ms) && '正電',
-               /^Minus \(/.test(me._bs.p.ms) && '負電'].filter(Boolean).join('、'),
+               /^Minus \(/.test(me._bs.p.ms) && '負電',
+               givesTeamBerry(me._bs.p.ms) && '發給隊友的樹果'].filter(Boolean).join('、'),
     pay: o.pay,
   };
 }
@@ -1151,6 +1199,15 @@ function finalizeTeams(cands, roster, wk, finalists){
         b.cooksCapped = top.n;
         b.rv = top.each;
         b.fits = true;
+        /* **瓶頸食材一定要跟著重算。** 它是在 `scoreTeam` 裡對「搜尋階段選中的那道」
+           算的，而這裡剛把主食譜換成排程裡實際最值錢的那一道 —— 不重算的話，
+           結果卡的「瓶頸食材」與 `pickReason` 的「供應瓶頸食材 X」會指到一味
+           **新食譜根本不用**的食材，而上面那張「主食譜食材缺口」長條圖裡也找不到它。 */
+        let worst = Infinity; b.bottleneck = null;
+        for (const [i,a] of b.recipe.ings){
+          const c = b.wIng[i]/a;
+          if (c < worst){ worst = c; b.bottleneck = i; }
+        }
       }
     }
     b.total = b.berryS + b.skillS + b.dishS;

@@ -73,7 +73,11 @@ await page.evaluate(() => {
   window.__mkWk = () => ({
     island: 'greengrass', fav: new Set(['ORAN', 'PAMTRE', 'PECHA']), areaBonus: 15, pot: 57,
     sleepH: 8.5, camp: 0, mode: 'total', dishType: 'curry', recipeName: null, recipeLv: 20,
-    recipePick: 'auto', recipeScope: 'all', recipeLevels: {}, strictBerry: false,
+    recipePick: 'auto', recipeScope: 'all', strictBerry: false,
+    /* 沒填等級 ＝ 沒解鎖 ＝ 完全不進池子（engine 的 `recipeOn`），而預設是空的 ——
+       所以這裡一定要自己解鎖，否則 POOL 是空的、searchTeams 直接回 'nopool'，
+       整份驗證會變成在跑一個沒有料理分數的世界。 */
+    recipeLevels: Object.fromEntries(D.recipes.map(r => [r.n, 20])),
   });
   window.__shuffle = (arr, seed) => {
     const a = arr.slice(); let s = seed;
