@@ -57,7 +57,7 @@ const SCHEMA = 4;   // 4: 新增 msExtra{}（上游沒有的主技能數值表�
    「新的 index.html ＋ 舊的 app.js」—— 畫面畫出舊版 UI，而使用者只會覺得
    「你根本沒改」，完全不知道是快取。有了這個斷言，過期的 app.js 會直接被擋下來
    並要求強制重新整理。tests/smoke.mjs 第 11 節會斷言三處一致。 */
-const APP_V = '20260910b';
+const APP_V = '20260910c';
 
 /** 致命錯誤：整頁換成一段說明。這種狀況下繼續跑只會產生錯的數字。 */
 function fatal(html){
@@ -2139,6 +2139,34 @@ function pickReason(k, r){
   const shown = [...head, ...team, ...own, ...flag].slice(0, cost ? 2 : 3);
   return (cost ? [...shown, cost] : shown).join('　·　');
 }
+/** 小時 → 給人看的長度。超過一天就不再給精確值 —— 那個精度沒有意義。 */
+const durH = h => !isFinite(h) ? '—' : h >= 24 ? '＞24h' : h < 1 ? Math.round(h*60)+'分' : f1(h)+'h';
+
+/* 「多久該上去收一次」（成員卡那一行）。
+ *
+ * **兩個天花板都要講。** 背包裝滿之後只剩樹果、食材歸零；主技能存滿（技能專長 2 次、
+ * 其他 1 次）之後再發動也拿不到 —— 而**技能型先到的常常是後者**。只顯示背包時間的話，
+ * 高頻技能型看起來會像「那段時間什麼都沒漏」，那正是陷阱 6e 那個偏差的來源。
+ *
+ * 旁邊的「背包滿 N」是**事後結果**（你已經漏了多少），這一行是**該怎麼做**。 */
+function collectRow(sim){
+  const cap = Math.min(sim.fillH, sim.skillH);
+  const late = wk.collectH > 0 && cap < wk.collectH - 0.05;
+  const tip = ['背包裝滿之後不是白幫忙：那些幫忙會 100% 變成樹果，自動餵給卡比獸，能量照算。',
+    '漏掉的是兩樣：食材機率歸 0，而且連主技能的發動抽選都不會做。',
+    '主技能另外還有存量上限：技能專長最多存 2 次、其他 1 次，存滿之後發動了也拿不到。',
+    '',
+    '這是用白天的平均幫忙速度換算的。起床時活力最高、實際會比這個略快，所以偏保守。',
+    '夜間那一段沒辦法中途收，它的損失算在旁邊那個「背包滿」裡。',
+    '',
+    wk.collectH > 0
+      ? `你在「本週條件」把收取間隔設成 ${wk.collectH} 小時，推演就是照那個算的` +
+        (late ? `，比這一隻的 ${durH(cap)} 長 —— 所以牠的產出已經被扣掉一截了。` : `，這一隻來得及。`)
+      : '你目前沒有設定收取間隔（＝當成隨時在收），所以推演沒有扣任何溢出。'
+  ].join('&#10;');
+  return `<div class="muted" title="${tip}"${late?' style="color:var(--neg)"':''}>背包裝滿 ${durH(sim.fillH)}${
+    sim.skillH < sim.fillH ? ` · 技能存滿 ${durH(sim.skillH)}` : ''}${late?' ⚠':''}</div>`;
+}
 function memberCard(rank, i, r, o){
   const m = roster[i], p = D.dex[m.sp], bs = m._bs;
   const act = bs.act.map(a=>sss(a));
@@ -2158,7 +2186,8 @@ function memberCard(rank, i, r, o){
     </div>
     <div class="out">
       <div><span class="muted">週能量</span> ${fmt((o.berryStrength+o.skillStrength)*7*(1+wk.areaBonus/100))}</div>
-      <div class="muted" title="每天實際完成的幫忙次數（含睡眠期間存下來的那些）。&#10;每次幫忙會帶回樹果或食材，也有機率發動主技能。">幫忙 ${f1(o.sim.productive)} 次／日${o.sim.snack>0.5?` · <span title="睡覺時背包裝滿之後仍在幫忙，但拿不到那些產物 —— 這個數字大就代表該補「持有上限」副技能或緞帶。">背包滿 ${f1(o.sim.snack)}</span>`:''}</div>
+      <div class="muted" title="每天實際完成的幫忙次數（含睡眠期間存下來的那些）。&#10;每次幫忙會帶回樹果或食材，也有機率發動主技能。">幫忙 ${f1(o.sim.productive)} 次／日${o.sim.snack>0.5?` · <span title="背包裝滿之後仍在幫忙，那些幫忙會 100% 變成樹果（能量照算），但食材拿不到、主技能也不會發動。&#10;這個數字大就代表該補「持有上限」副技能或緞帶，或者收勤一點。">背包滿 ${f1(o.sim.snack)}</span>`:''}</div>
+      ${collectRow(o.sim)}
       <div class="muted" title="活力 80 以上時，幫忙間隔最短（×0.45）—— 也就是產出最快的狀態。&#10;這個數字 = 一天有幾個小時處在那個狀態。&#10;&#10;活力檔位（決定幫忙間隔要乘多少）：&#10;　80 以上 ×0.45（最快）&#10;　60〜79　 ×0.52&#10;　40〜59　 ×0.58&#10;　1〜39　　×0.66&#10;　0　　　　×1.00（最慢）&#10;&#10;80 到 150 是同一格 —— 超過 80 不會更快，但掉回 80 以下要更久&#10;（起床 100 只撐 3.3 小時，起床 150 撐 11.7 小時）。&#10;&#10;比例低就是這隻活力不夠：考慮帶補師（活力填充／活力全體療癒），或睡久一點。" style="color:${o.sim.fastShare>=0.6?'var(--pos)':o.sim.fastShare>=0.3?'var(--ing)':'var(--neg)'}">活力80以上 ${f1(o.sim.fastHours)}h／日（${Math.round(o.sim.fastShare*100)}%）</div>
     </div>
   </div>`;
@@ -2268,15 +2297,36 @@ function teamDetailHTML(r, opts){
   const util = ingUtilNotice(r);
   const bn = r.bottleneck!=null ? iz(ING_NAME[r.bottleneck]) : '—';
 
+  /* 「多久上去收一次」是**整隊**的問題 —— 一次上線全部一起收，所以由**最先到頂的
+     那一隻**決定。成員卡各自那一行回答「這一隻能撐多久」，這個 pill 回答「那我到底
+     該多久上去一次」。兩者都要有：只給每隻的數字，使用者還得自己去找最小值。 */
+  const capH = r.outs.map(o => Math.min(o.sim.fillH, o.sim.skillH));
+  let ci = 0; for (let n = 1; n < capH.length; n++) if (capH[n] < capH[ci]) ci = n;
+  const capWho = r.outs[ci] ? esc(monName(roster[r.idxs[ci]])) : '';
+  const capBy = r.outs[ci] && r.outs[ci].sim.skillH < r.outs[ci].sim.fillH ? '主技能存滿' : '背包裝滿';
+  const capLate = wk.collectH > 0 && capH[ci] < wk.collectH - 0.05;
+  const capTip = [`照這個間隔上線收，這一隊不會有任何東西溢出。`,
+    `最先到頂的是 ${capWho}（${capBy}）—— 拖過去之後先漏的就是牠。`,
+    `每一隻各自能撐多久，見上面成員卡的「背包裝滿」。`,
+    '',
+    capLate
+      ? `你設定的收取間隔是 ${wk.collectH} 小時，比這個長 —— 推演已經把溢出的那一段扣掉了，不是預估而已。`
+      : (wk.collectH > 0
+          ? `你設定的收取間隔是 ${wk.collectH} 小時，比這個短 —— 這一隊沒有溢出。`
+          : `你目前沒有設定收取間隔，推演是當成「隨時在收」算的（沒扣任何溢出）。`)
+  ].join('&#10;');
+
   return `
   ${warn}${util}
   <div class="panel hero" style="margin-top:${warn||util?'12px':'0'}">
     <div class="roster">
       <div class="eyebrow">${O.rosterLabel || '建議先發 5 隻'}</div>
       ${r.idxs.map((i,n)=>memberCard(n+1, i, r, r.outs[n])).join('')}
-      <!-- 這一列是**整隊共用**的加成（teamContext 算出來的），不屬於任何一隻。
+      <!-- 這一列是**整隊層級**的數字（teamContext 算出來的加成，加上整隊共用的
+           收取間隔），都不屬於任何一隻。
            以前寫 HB / ERB 這種縮寫 —— 那是原始碼裡的變數名，不是使用者看得懂的字。 -->
       <div class="pillrow" style="margin-top:4px">
+        ${isFinite(capH[ci])?`<span class="pill"${capLate?' style="color:var(--neg)"':''} title="${capTip}">建議收取間隔 ${durH(capH[ci])}${capLate?' ⚠':''}</span>`:''}
         <span class="pill" title="隊上帶「幫忙加成」副技能的隻數。&#10;每一隻讓全隊的幫手間隔 −5%（最多算到 5 隻）—— 所以它的價值主要在隊友身上。">幫忙加成 ×${r.ctx.nHB}</span>
         <span class="pill" title="隊上帶「活力回復提升」副技能的隻數。&#10;每一隻讓睡眠回復的活力 +14%（最多算到 5 隻），活力越高幫忙間隔越短。">活力回復提升 ×${r.ctx.nERB}</span>
         <span class="pill" title="隊上的主技能（活力填充／活力全體療癒之類）每天補給**每一位成員**的活力。&#10;成員卡上那句「每日補活力 N 全隊合計」是這個數字 ×5。&#10;活力高 → 幫忙間隔短 → 產出變多。">技能補活力 每隻 ${Math.round(r.ctx.supportEnergy)}／日</span>

@@ -2802,6 +2802,151 @@ console.log('\n[11p] 食譜等級：沒解鎖的完全不列入推演');
      rv.keys.length === 1 && rv.got[rv.n] === 35, JSON.stringify(rv.got));
 }
 
+console.log('\n[11q] 收取間隔：每一隻多久滿包、整隊多久該上去一次');
+{
+  /* ---- 引擎：**兩個**天花板都要算（背包、主技能存滿），而且都不可以跟著
+     「你設定多久收一次」跑 —— 那會變成自己追自己的尾巴。 ---- */
+  const e = await page.evaluate(() => {
+    const CTX = {nHB:0, nERB:0, supportEnergy:0, extraHelps:0, hbRows:{}, darkDrain:0};
+    const one = (n, over, rib) => {
+      const w = {...wk, ...over};
+      const m = {sp: D.dex.findIndex(p => p.n === n), level: 60, nature: 'Bashful',
+        ss: ['Helping Speed M','Ingredient Finder M','Skill Trigger M',null,null],
+        ingSet: [0,0,0], skillLv: 6, ribbon: rib == null ? 4 : rib, pin: false, ex: false, nick: ''};
+      m._bs = baseStats(m, w);
+      const bs = m._bs, sim = memberOutput(m, w, CTX).sim;
+      return {fillH: sim.fillH, skillH: sim.skillH, helpsDay: sim.helpsDay,
+              carry: bs.carry, eff: bs.effSkill, spec: bs.p.sp,
+              drop: (1-bs.ingChance)*bs.berriesPerDrop + bs.ingChance*bs.avgIngAmt,
+              wakeH: (1440 - Math.round(w.sleepH*60)) / 60};
+    };
+    return {
+      g4:  one('GOLDUCK',  {collectH: 4,   sleepH: 8.5}),
+      g6:  one('GOLDUCK',  {collectH: 6,   sleepH: 8.5}),
+      g0:  one('GOLDUCK',  {collectH: 0,   sleepH: 8.5}),
+      dk:  one('DARKRAI',  {collectH: 4,   sleepH: 8.5}),
+      r0:  one('RAICHU',   {collectH: 4,   sleepH: 8.5}, 0),
+      r4:  one('RAICHU',   {collectH: 4,   sleepH: 8.5}, 4),
+    };
+  });
+  /* 定義本身要被釘住：**白天**的平均速度（不是含夜間的全日速度）—— 夜間那一段
+     沒辦法中途收，它的損失走 nightSnack，不該混進「多久該上線」。 */
+  const want = s => (s.carry / s.drop) / (s.helpsDay / s.wakeH);
+  ok('背包裝滿的時間 = 裝滿要幾次幫忙 ÷ 白天每小時幫忙幾次',
+     Math.abs(e.g4.fillH - want(e.g4)) < 1e-9 && Math.abs(e.r4.fillH - want(e.r4)) < 1e-9,
+     `${e.g4.fillH} vs ${want(e.g4)}`);
+  /* 這是「這一隻能撐多久」，不是「你設定收多久」的函數。跟著設定跑的話，
+     使用者一調設定建議就跟著動，那個建議就沒有意義了。 */
+  ok('滿包／存滿的時間不隨 wk.collectH 改變',
+     Math.abs(e.g4.fillH - e.g6.fillH) < 1e-9 && Math.abs(e.g4.fillH - e.g0.fillH) < 1e-9 &&
+     Math.abs(e.g4.skillH - e.g6.skillH) < 1e-9,
+     JSON.stringify([e.g4.fillH, e.g6.fillH, e.g0.fillH]));
+  /* 陷阱 6e 的那個偏差就長在這裡：高頻技能型的主技能遠早於背包就存滿，
+     只顯示背包時間會讓那段時間看起來什麼都沒漏。 */
+  ok('技能專長最多存 2 次，換算成時間就是 skillH',
+     e.g4.spec === 'skill' &&
+     Math.abs(e.g4.skillH - (2 / e.g4.eff) / (e.g4.helpsDay / e.g4.wakeH)) < 1e-9,
+     JSON.stringify([e.g4.skillH, e.g4.eff]));
+  ok('高頻技能型（哥達鴨）先存滿技能，不是先滿背包',
+     e.g4.skillH < e.g4.fillH, `skill ${e.g4.skillH} vs fill ${e.g4.fillH}`);
+  ok('低頻的（達克萊伊）反過來，先滿的是背包',
+     e.dk.fillH < e.dk.skillH, `fill ${e.dk.fillH} vs skill ${e.dk.skillH}`);
+  ok('持有上限越大就撐越久（緞帶 4 vs 0）',
+     e.r4.carry > e.r0.carry && e.r4.fillH > e.r0.fillH,
+     `${e.r0.carry}/${e.r0.fillH} vs ${e.r4.carry}/${e.r4.fillH}`);
+
+  /* ---- 滿包之後到底發生什麼（2026-09-10 查證，來源見 engine.js 的註解）。
+     這三條**都很容易被當成 bug 順手改掉**，所以直接釘住：
+       ① 樹果機率 100% → `snack*berriesPerDrop` 刻意不乘 `(1-ingChance)`
+       ② 食材機率 0%   → `ing` 只吃 `productive`
+       ③ 技能抽選不做 → `procs` 用 `normal` 而不是 `h` ---- */
+  const full = await page.evaluate(() => {
+    const CTX = {nHB:0, nERB:0, supportEnergy:0, extraHelps:0, hbRows:{}, darkDrain:0};
+    const w = {...wk, collectH: 8, sleepH: 8.5};
+    return ['VICTREEBEL', 'GENGAR'].map(n => {
+      const m = {sp: D.dex.findIndex(p => p.n === n), level: 60, nature: 'Bashful',
+        ss: ['Helping Speed M','Ingredient Finder M','Skill Trigger M',null,null],
+        ingSet: [0,0,0], skillLv: 6, ribbon: 0, pin: false, ex: false, nick: ''};
+      m._bs = baseStats(m, w);
+      const bs = m._bs, o = memberOutput(m, w, CTX), s = o.sim;
+      return {n, snack: s.snack, berries: s.berries,
+              berriesNoSnack: s.productive*(1-bs.ingChance)*bs.berriesPerDrop,
+              drop: bs.berriesPerDrop, magnet: !!o.pay.ingSpread,
+              ing: o.ing.reduce((a, b) => a + b, 0),
+              ingFromProductive: s.productive*bs.ingChance*bs.ingVec.reduce((a, b) => a + b, 0),
+              procs: s.procs, prodEff: s.productive*bs.effSkill,
+              allEff: (s.helpsDay + s.helpsNight)*bs.effSkill};
+    });
+  });
+  ok('測到的確有滿包（不然下面三條是空的）', full.every(x => x.snack > 1),
+     JSON.stringify(full.map(x => [x.n, x.snack])));
+  /* 「食材掉落發動確定不會有能量嗎」→ 會。滿包的幫忙 100% 變成樹果，自動餵給卡比獸。
+     所以那一項**刻意不乘 `(1-ingChance)`** —— 看起來像漏寫，改掉就錯了。 */
+  ok('滿包之後的幫忙仍然產樹果（100%，不是按食材機率打折）',
+     full.every(x => Math.abs((x.berries - x.berriesNoSnack) - x.snack*x.drop) < 1e-9),
+     JSON.stringify(full.map(x => [x.n, x.berries - x.berriesNoSnack, x.snack*x.drop])));
+  ok('滿包之後拿不到食材（`ing` 只吃 productive）',
+     full.every(x => x.magnet || Math.abs(x.ing - x.ingFromProductive) < 1e-9),
+     JSON.stringify(full.map(x => [x.n, x.ing, x.ingFromProductive])));
+  /* `procs` 若改成吃 `h`（含滿包那些），這條就會破 —— 那正是要擋的那個改動。 */
+  ok('滿包之後不做技能抽選（procs 不吃 snack 那幾次）',
+     full.every(x => x.procs <= x.prodEff + 1e-9 && x.procs < x.allEff - 1e-6),
+     JSON.stringify(full.map(x => [x.n, x.procs, x.prodEff, x.allEff])));
+
+  /* ---- UI：成員卡回答「這一隻能撐多久」，pill 回答「那我到底該多久上去一次」。
+     只給前者的話，使用者還得自己去把最小值找出來。 ---- */
+  await page.evaluate((names, mk) => {
+    deserialize({roster: names.map(n => JSON.parse(mk.replace('__N__', n)))});
+  }, ['GOLDUCK','KANGASKHAN','VENUSAUR','AMPHAROS','ESPEON','RAICHU','GALLADE'],
+     JSON.stringify({sp:'__N__', level:55, nature:'Bashful',
+       ss:['Helping Speed M','Ingredient Finder M','Skill Trigger M',null,null],
+       ingSet:[0,0,0], skillLv:6, ribbon:0, pin:false, ex:false, nick:''}));
+  await doRun(`wk.collectH = 4; wk.recipeLevels = {}; D.recipes.forEach(r => wk.recipeLevels[r.n] = 20);
+               wk.recipeScope = 'all'; wk.recipePick = 'auto'; syncWeeklyUI()`);
+  const u = await page.evaluate(() => {
+    const rows = [...document.querySelectorAll('#results .mem .out')]
+      .map(x => x.innerText.replace(/\s+/g, ' '));
+    const pill = [...document.querySelectorAll('#results .pillrow .pill')]
+      .map(x => x.textContent.trim()).find(t => /建議收取間隔/.test(t));
+    const r = lastResults[0];
+    const cap = r.outs.map(o => Math.min(o.sim.fillH, o.sim.skillH));
+    /* 自組隊伍共用同一個渲染器（teamDetailHTML）—— 兩邊各寫一份就一定會走鐘。 */
+    showView('team'); teams = [newTeam()];
+    teams[0].members = r.idxs.slice(); renderTeamsView();
+    const t = $('teamDetail').innerText;
+    showView('plan');
+    return {rows, pill, wantMin: durH(Math.min(...cap)), n: r.idxs.length,
+            team: {mem: (t.match(/背包裝滿/g) || []).length, pill: /建議收取間隔/.test(t)}};
+  });
+  ok('每一隻的卡片都寫出「背包裝滿 N」',
+     u.rows.length === u.n && u.rows.every(t => /背包裝滿/.test(t)), u.rows[0]);
+  ok('整隊有一顆「建議收取間隔」的 pill', !!u.pill, String(u.pill));
+  /* pill 由**最先到頂的那一隻**決定 —— 一次上線是全隊一起收。 */
+  ok('pill 的數字 = 全隊 min(滿包, 技能存滿)',
+     !!u.pill && u.pill.includes(u.wantMin), `${u.pill} 應含 ${u.wantMin}`);
+  ok('自組隊伍也有（共用同一個渲染器）',
+     u.team.mem === u.n && u.team.pill === true, JSON.stringify(u.team));
+
+  /* 收取間隔設得比建議長 ＝ 推演**已經**把溢出扣掉了。那要講出來，否則使用者
+     看到分數低於預期卻不知道為什麼 —— 和「靜靜地少算候選」同一類。 */
+  await doRun(`wk.collectH = 12; syncWeeklyUI()`);
+  const late = await page.evaluate(() => {
+    const pill = [...document.querySelectorAll('#results .pillrow .pill')]
+      .find(x => /建議收取間隔/.test(x.textContent));
+    return {warn: /⚠/.test(pill.textContent),
+            neg: /--neg/.test(pill.getAttribute('style') || ''),
+            tip: pill.getAttribute('title') || '',
+            mem: [...document.querySelectorAll('#results .mem .out')]
+                   .some(x => /⚠/.test(x.innerHTML))};
+  });
+  ok('收得比建議晚 → pill 標紅並加 ⚠', late.warn && late.neg,
+     JSON.stringify([late.warn, late.neg]));
+  ok('說明要寫出「推演已經把溢出扣掉了」，不是只給一個數字',
+     /扣掉/.test(late.tip) && /12/.test(late.tip), late.tip.slice(0, 140));
+  ok('該收沒收的那幾隻自己也要標出來', late.mem === true, String(late.mem));
+  await doRun(`wk.collectH = DEFAULT_COLLECT_H; syncWeeklyUI()`);
+}
+
 console.log('\n[12] 快取偏移：schema 不符必須明確擋下');
 {
   ok('資料帶著 schema 版本', await page.evaluate(() => typeof D.meta.schema === 'number'));

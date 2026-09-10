@@ -223,7 +223,7 @@ function simulate(bs, m, wk, ctx, selfEnergy){
      之間」結算的，而每一段都有兩個上限：
 
        · 樹果／食材：背包裝滿就停（`helpsTillFull`）。滿了之後進入「偷吃」——
-         只產樹果、食材歸零。
+         只產樹果、食材歸零，而且**連技能抽選都不做**（見下面的出處）。
        · 主技能：**最多累積 `bankedProcs` 次**（技能專長 2 次，其他 1 次）。
 
      以前只有**夜間**那一段套這兩個上限，白天完全不套 —— 等於假設你整個白天隨時在
@@ -236,7 +236,24 @@ function simulate(bs, m, wk, ctx, selfEnergy){
   const dropPerHelp = (1-bs.ingChance)*bs.berriesPerDrop + bs.ingChance*bs.avgIngAmt;
   const helpsTillFull = dropPerHelp>0 ? bs.carry/dropPerHelp : Infinity;
   const bankedProcs = bs.p.sp==='skill' ? 2 : 1;
-  /* 一段區間內：`h` 次幫忙 → 產物受背包上限、技能發動受 banked 上限。 */
+  /* 一段區間內：`h` 次幫忙 → 產物受背包上限、技能發動受 banked 上限。
+   *
+   * **滿包之後到底發生什麼**（2026-09-10 查證，使用者問「食材掉落發動確定不會有能量嗎」）。
+   * 來源：日文驗證 wiki [おてつだい](https://wikiwiki.jp/poke_sleep/おてつだい) ——
+   * 所持數到上限後進入「いつのまに育成」：
+   *
+   *   「この状態になったポケモンのおてつだいでは食材を拾ってくる確率が **0％** となり、
+   *     きのみを拾ってくる確率が **100%** になる」
+   *   「最大所持数を超えた分のきのみを**自動的にカビゴンに与えてエナジーに変換する**」
+   *   「…また**メインスキルの発動判定も行われなくなる**」
+   *
+   * 所以滿包的幫忙**不是白幫**：
+   *
+   *   ① 食材機率歸 0、樹果機率 100% → 底下 `berries` 的 `snack*berriesPerDrop`
+   *      **刻意不乘 `(1-ingChance)`**。那不是漏寫，改掉就錯了。
+   *   ② 那些樹果照樣變成卡比獸能量。
+   *   ③ **技能抽選不做** → `procs` 用的是 `normal` 而不是 `h`。同樣不要「順手」改成 `h`。
+   */
   const segment = (h) => {
     const normal = Math.min(h, helpsTillFull);
     return {normal, snack: Math.max(0, h - normal),
@@ -257,7 +274,27 @@ function simulate(bs, m, wk, ctx, selfEnergy){
   const productive = dayNormal + night.normal;
   const snack = daySnack + night.snack;
   const procs = dayProcs + night.procs;
-  return {freqBase, helpsDay, helpsNight, productive, snack, procs,
+
+  /* ============ 「多久該上去收一次」（2026-09-10）============
+     `snack`（背包滿了之後的白幫忙）是**事後結果** —— 它說「你漏了」，但沒說
+     「那你該多久收一次」。使用者要的是後者，所以直接把時間算出來。
+
+     每一隻有**兩個**天花板，兩個都要算，只講一個會誤導：
+
+       · `fillH`  背包裝滿（`helpsTillFull` 次幫忙）→ 之後只剩樹果，食材歸零
+       · `skillH` 主技能存滿（`bankedProcs` 次：技能專長 2、其他 1）→ 之後發動也拿不到
+
+     **對技能型來說先到的常常是後者。** 哥達鴨的技能觸發率 20.4%，2 次很快就存滿，
+     遠早於背包 —— 只顯示背包時間的話，使用者會以為那段時間什麼都沒漏（見陷阱 6e）。
+
+     換算用**白天的平均幫忙速度**（`helpsDay / wakeH`）。起床時活力最高、實際比平均
+     快一點，所以這是偏保守的估計 —— UI 的 tooltip 要寫出來。夜間不算：那一段沒辦法
+     中途收，它的損失本來就在 `nightSnack` 裡。 */
+  const perH = wakeH > 0 ? helpsDay / wakeH : 0;
+  const fillH = (perH > 0 && isFinite(helpsTillFull)) ? helpsTillFull / perH : Infinity;
+  const skillH = (perH > 0 && bs.effSkill > 0) ? (bankedProcs / bs.effSkill) / perH : Infinity;
+
+  return {freqBase, helpsDay, helpsNight, productive, snack, procs, fillH, skillH,
           dayProcs, nightProcs: night.procs, daySnack, nightSnack: night.snack,
           fastHours: fastSteps/6, fastShare: totalSteps ? fastSteps/totalSteps : 0, wakeEnergy: start,
           berries: productive*(1-bs.ingChance)*bs.berriesPerDrop + snack*bs.berriesPerDrop};
