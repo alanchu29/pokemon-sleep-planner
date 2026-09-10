@@ -57,7 +57,7 @@ const SCHEMA = 4;   // 4: 新增 msExtra{}（上游沒有的主技能數值表�
    「新的 index.html ＋ 舊的 app.js」—— 畫面畫出舊版 UI，而使用者只會覺得
    「你根本沒改」，完全不知道是快取。有了這個斷言，過期的 app.js 會直接被擋下來
    並要求強制重新整理。tests/smoke.mjs 第 11 節會斷言三處一致。 */
-const APP_V = '20260909o';
+const APP_V = '20260910a';
 
 /** 致命錯誤：整頁換成一段說明。這種狀況下繼續跑只會產生錯的數字。 */
 function fatal(html){
@@ -665,14 +665,19 @@ let scoreNoteOpen = false;
  *  **摘要那一行一定要顯示** —— 沒有它，摺疊列上那些數字就是憑空來的（見 CLAUDE.md
  *  「個體產能」第 4 條：一個沒有出處的數字比沒有數字更糟，而「暗示可以互相比」又更糟）。
  *  但完整說明有 300 多字，攤在篩選列和箱子列表中間會把真正要看的東西推到畫面外，
- *  所以拆成兩段：**四件會害人讀錯數字的事留在外面**（基準情境、不能跨專長比、
- *  潛力是練滿後的比值、不影響推演），其餘（為什麼是這三個軸、為什麼基準是 Lv60、
- *  ≥ 是什麼意思、隊伍型徽章）摺進 `<details>`。 */
+ *  所以拆成兩段：**會害人讀錯數字的事留在外面**（基準情境、不能跨專長比、
+ *  三個數字各答哪個問題、不影響推演），其餘（為什麼是這三個軸、為什麼基準是 Lv60、
+ *  ≥ 是什麼意思、隊伍型徽章）摺進 `<details>`。
+ *
+ *  **「三個數字各答哪個問題」是摘要裡最不能省的一句。** 使用者本來會拿唯一能排序的
+ *  那個數字去決定練誰，而那個數字（資質）是同物種內才有意義的比值 —— 少了這句話，
+ *  介面本身就在請人用錯的軸做投資決定（使用者 2026-09-10 反映）。 */
 function scoreNote(){
   const brief = `<b>產能</b>是<b>單獨一隻</b>的每日產出（沒有隊友加成、無露營券、`
-              + `<b>不含本週加成樹果</b>）；<b>三種專長的數字不能互相比較</b>，能比的是同專長內的名次。`
-              + `摺疊列的 <b>潛力 N%</b> 是「練到 Lv${IDEAL_LEVEL} 之後離<b>自己</b>的天花板多近」。`
-              + `<b>這些數字不影響推演。</b>`;
+              + `<b>不含本週加成樹果</b>）；<b>三種專長的數字不能互相比較</b>。`
+              + `摺疊列的三個數字各答一個問題：<b>練滿</b>＝等級糖果先餵誰（同專長內比）、`
+              + `<b>資質</b>＝性格與副技能是不是好貨（<b>同物種內</b>比）、`
+              + `<b>技能</b>＝技能糖果先給誰。<b>這些數字不影響推演。</b>`;
   const full = `基準就是遊戲寶可夢詳細頁顯示幫忙間隔時的那個情境：單獨一隻、無露營券、睡 8.5 小時、`
        + `不含本週加成樹果，所以跨週可比。`
        + `<b>三種專長各有自己的軸</b>，因為職責不同：`
@@ -681,19 +686,28 @@ function scoreNote(){
        + `<b>技能型</b>看主技能發動次數（不同技能給的東西不同，換算成能量只會是憑空的假設）。`
        + `單位不同就是在提醒別跨專長比 —— 能比的是<b>同專長內的名次</b>。`
        + `<br><br>`
-       + `<b>潛力 N%</b> 是<b>牠 ÷ 同物種的理想個體</b>（分子分母同一個單位，所以是純比值）。`
-       + `它的基準是<b>雙方都練到 Lv${IDEAL_LEVEL}</b>（已經超過的就用牠的實際等級）——`
-       + `第 3 格食材要 Lv60 才解鎖，用當前等級當基準的話那一格是好是壞會等到升上去<b>那一刻</b>才被算進去，`
-       + `百分比會自己往下掉。所以<b>潛力問的是「練滿之後有多好」，左邊的產能問的才是「現在有多好」</b>。`
-       + `它可以跨專長讀，但說的是「離<b>自己</b>的天花板多近」，不是「哪一隻比較強」：`
-       + `100% 的皮卡丘不會比 70% 的妙蛙花強。`
+       + `三個投資數字**共用同一個基準**：<b>Lv${IDEAL_LEVEL} 以上、緞帶4、主技能滿級</b>。`
+       + `等級要規範化是因為第 3 格食材要 Lv60、第 3 格副技能要 Lv50 才解鎖 ——`
+       + `用當前等級當基準的話，那一格是好是壞會等到升上去<b>那一刻</b>才被算進去。`
+       + `<b>緞帶與主技能等級也要規範化</b>，否則同一份資質會因為「還沒練」而顯示低分`
+       + `（實測妙蛙花 51% vs 78%），於是照百分比排序的人剛好略過最該投資的那幾隻。`
+       + `<br><br>`
+       + `<b>練滿</b>是絕對值，和左邊的當前產能同單位，所以<b>同專長內</b>可以直接比大小 ——`
+       + `這是「等級糖果先餵誰」。`
+       + `<b>資質</b>是<b>牠 ÷ 同物種的理想個體</b>，規範化之後只剩性格、副技能、食材組合的差；`
+       + `它是比值，<b>只在同物種之間有意義</b>：100% 的皮卡丘不會比 70% 的妙蛙花強。`
        + `副技能還有空格沒填時分子只會被低估，所以那種會標成 <b>≥</b>。`
+       + `<b>技能</b>是主技能等級練到滿之後每天多產的能量 —— 技能糖果是同一種資源，`
+       + `所以這一項<b>全體都可以比</b>。它用的是總產能能量而不是各專長的主指標`
+       + `（技能型的主指標是發動次數，而發動次數幾乎不隨技能等級變），`
+       + `而其中的食材是<b>未經料理加成</b>的原始能量，所以食材型在這個軸上被低估。`
+       + `<br><br>`
        + `另外，「幫忙加成」這類<b>只對隊友有效</b>的副技能單獨一隻量不到，會另外標徽章。`
        + `<br><br>`
        + `<b>這些數字不影響推演</b> —— 每週的推薦還是原本的演算法，這裡只是幫你決定糖果餵給哪一隻。`;
   return `<div class="sum">${brief}</div>`
        + `<details class="more"${scoreNoteOpen ? ' open' : ''}>`
-       + `<summary>這些數字怎麼來的、為什麼不能跨專長比</summary>`
+       + `<summary>這些數字怎麼來的、為什麼各自只能在特定範圍內比</summary>`
        + `<div>${full}</div></details>`;
 }
 /* 理想值一隻要跑約 170 次 monPower（≈15ms）。展開一兩張感覺不到，但「展開全部」
@@ -702,10 +716,16 @@ function scoreNote(){
    快取鍵是**整隻的簽章**：看起來理想個體只該由物種與等級決定，但 `monIdeal`
    的最後一步會把**牠自己**也放進候選（保證「理想 ≥ 實際」），那一步和這一隻有關。 */
 const IDEAL_AUTO_MAX = 6;
+/* 這三個排序的**順序就是背景算出來的值** —— 算完一定要整個 renderBox()，
+   只補文字的話順序是錯的（見 idealFillAsync 收尾）。 */
+const IDEAL_SORTS = new Set(['ideal', 'full', 'skillRoom']);
 const idealCache = new Map();
-/* 快取鍵要用**評價等級正規化過**的簽章：理想值與分子都只取決於 `{...m, level:T}`，
-   所以 Lv30 和 Lv45 的同一隻共用同一格快取（兩者的 T 都是 60）。 */
-const idealKey = m => monPowerKey({...m, level: Math.max(IDEAL_LEVEL, m.level)});
+/* 快取鍵要用**規範化過**的簽章。`monIdeal` 現在把等級、緞帶、主技能等級三樣
+   全部推到基準（見那邊的說明），所以：
+     · Lv30 和 Lv45 的同一隻共用一格（兩者的評價等級都是 60）
+     · 只差緞帶的兩隻也共用一格
+   主技能等級**不能**正規化掉 —— `skillNow`（技能成長的基準）就是看它。 */
+const idealKey = m => monPowerKey({...m, level: Math.max(IDEAL_LEVEL, m.level), ribbon: 4});
 function idealOf(m, allowCompute){
   const k = idealKey(m);
   if (idealCache.has(k)) return idealCache.get(k);
@@ -714,15 +734,31 @@ function idealOf(m, allowCompute){
   idealCache.set(k, v);
   return v;
 }
-/** 牠 ÷ 理想個體，取整數百分比。
+/** **資質** ＝ 牠 ÷ 同物種的理想個體，取整數百分比。
  *
- *  分子是 `ideal.self` ——「**牠自己在評價等級（`ideal.lvl`，至少 60）上**」的產能，
- *  不是摺疊列上那個當前產能。分母也在同一個等級，所以這是個乾淨的比值；
- *  但也因此**它回答的是「練滿之後有多好」，不是「牠現在有多好」**。 */
+ *  分子 `ideal.self` 是「牠**練滿**」的產能（Lv60 以上、緞帶 4、主技能滿級），
+ *  分母也在同一個基準 —— 所以這個比值裡**只剩下改不掉的東西**：性格、副技能、
+ *  食材組合。這就是它回答的問題：「這一隻是不是好貨」。
+ *
+ *  它**不**回答「該不該練牠」（那是 `fullMain`，絕對值），也不回答「牠現在有多好」
+ *  （那是摺疊列上的當前產能）。三者混著讀就會用錯軸做投資決定。 */
 function idealPctFrom(m, ideal){
   const top = powerMain(ideal);
   return top > 0 ? Math.round(powerMain(ideal.self) / top * 100) : null;
 }
+/** **練滿產能** ＝ 牠練滿之後的主指標（絕對值）。「等級糖果先餵誰」的答案。
+ *  和摺疊列的當前產能同一個單位、同一條規則，所以**同專長內可比**。 */
+const fullMain = ideal => powerMain(ideal.self);
+/** **技能成長** ＝ 主技能等級從現在練到滿，每天多產多少能量。「技能糖果先給誰」。
+ *
+ *  用 `total`（樹果＋食材＋技能能量）而不是各專長的主指標，因為技能型的主指標是
+ *  **發動次數**，而發動次數幾乎不隨技能等級變（活力填充S 那幾隻是例外，牠們靠
+ *  自回活力間接加快幫忙）—— 用主指標去量，最該吃技能糖果的技能型會顯示 0。
+ *
+ *  ⚠ `total` 裡的食材是**未經料理加成的原始能量**（料理會再放大約 2.4 倍），
+ *  所以食材型（食材獲取S 那類）在這個軸上被低估。tooltip 一定要寫出來 ——
+ *  換算率是憑空的判斷，寧可標明低估也不要編一個係數。 */
+const skillRoom = ideal => Math.max(0, ideal.self.total - ideal.skillNow.total);
 /** 評價等級下「還空著、但已經生效」的副技能格數。
  *
  *  空格只會讓分子變小（副技能沒有負值），所以有空格時顯示的百分比是**下界** ——
@@ -770,9 +806,9 @@ function idealFillAsync(){
       return;
     }
     idealProg = null;
-    /* 「潛力」排序的**順序**就是這些值 —— 算完一定要重畫，只補文字的話順序是錯的。
+    /* 這三個排序的**順序**就是這些值 —— 算完一定要重畫，只補文字的話順序是錯的。
        其他排序不重畫：重畫會讓正在編輯的 select／input 掉焦點。 */
-    if (boxFlt.sort === 'ideal') renderBox();
+    if (IDEAL_SORTS.has(boxFlt.sort)) renderBox();
     else { paintIdealChips(batch); applyBoxFilter(); }
   };
   setTimeout(step, 0);
@@ -780,27 +816,31 @@ function idealFillAsync(){
 /** 就地把算好的百分比補進摺疊列（不重畫，才不會把正在編輯的欄位焦點弄掉）。
  *  `idxs` 省略就全部重寫。 */
 function paintIdealChips(idxs){
-  const sel = idxs ? idxs.map(i=>`[data-i="${i}"] > .mon-head > .mon-idl`).join(',')
-                   : '[data-i] > .mon-head > .mon-idl';
-  if (!sel) return;
+  if (idxs && !idxs.length) return;
+  const sel = suf => idxs ? idxs.map(i=>`[data-i="${i}"] ${suf}`).join(',') : `[data-i] ${suf}`;
   // querySelectorAll 回傳的是靜態列表，所以邊走邊換 outerHTML 是安全的
-  for (const el of $('boxList').querySelectorAll(sel)){
-    const i = +el.closest('[data-i]').dataset.i;
-    if (i < roster.length) el.outerHTML = idealChip(roster[i]);
-  }
+  const paint = (s, fn) => {
+    for (const el of $('boxList').querySelectorAll(s)){
+      const i = +el.closest('[data-i]').dataset.i;
+      if (i < roster.length) el.outerHTML = fn(roster[i]);
+    }
+  };
+  paint(sel('> .mon-head > .mon-idl'), idealChip);
+  /* 「練滿」與「技能成長」也是同一批算出來的，**一定要一起補** —— 只補其中一邊，
+     卡片上就會同時出現算好的資質和空著的練滿，看起來像壞掉。 */
+  paint(sel('> .mon-head > .mon-rest > .mon-inv'), investChip);
 }
-/** 摺疊列第二列、欄 1 的「理想個體百分比」。
+/** 摺疊列第二列、欄 1 的「資質 N%」。
  *
- *  **這是比值，不是產能。** 100% 的皮卡丘不會比 70% 的妙蛙花強 —— 它只說
- *  「這一隻離**牠自己**的天花板多近」，所以它是唯一一個可以跨專長讀的數字，
- *  而且要和旁邊的產能數字分得開（見 scoreNote）。
+ *  **這是比值，不是產能，而且只在同物種之間有意義。** 100% 的皮卡丘不會比 70% 的
+ *  妙蛙花強 —— 它說的是「這一隻的性格與副技能組合，離同物種的天花板多近」。
  *
- *  **基準是固定的 Lv60（超過就用實際等級），不是牠現在的等級** —— 見 monIdeal。
- *  所以它問的是「練滿之後有多好」，摺疊列上的產能問的才是「現在有多好」。 */
-const idealPend = why => `<span class="mon-idl pend" title="${why}">潛力 <b>—</b></span>`;
+ *  **基準三樣全部規範化**（Lv60 以上、緞帶 4、主技能滿級）—— 見 monIdeal。
+ *  所以「還沒練」不會壓低這個數字；「該不該練牠」要看旁邊的「練滿」。 */
+const idealPend = why => `<span class="mon-idl pend" title="${why}">資質 <b>—</b></span>`;
 function idealChip(m){
   const ideal = idealOf(m);
-  if (ideal === undefined) return idealPend(`練到 Lv${IDEAL_LEVEL} 時的個體潛力 —— 背景計算中（一隻約 15~40ms）`);
+  if (ideal === undefined) return idealPend(`資質／練滿／技能成長 —— 背景計算中（一隻約 15~40ms）`);
   if (!ideal) return idealPend('這一隻的理想個體算不出來');
   const pct = idealPctFrom(m, ideal);
   if (pct == null) return idealPend('這一隻的理想個體算不出來');
@@ -808,15 +848,53 @@ function idealChip(m){
   const unk = idealUnknownSlots(m, ideal);
   const t = powerText(ideal.self), it = powerText(ideal), lv = ideal.lvl;
   return `<span class="mon-idl ${band}${unk?' lb':''}" title="`
-       + `基準：都練到 Lv${lv}${lv > m.level ? `（牠現在 Lv${m.level}）` : ''}——`
-       + `所以這個數字問的是「練滿之後有多好」，不是「現在有多好」。&#10;`
-       + `牠 ${t.v} ÷ 理想個體 ${it.v}（${t.u}，都在 Lv${lv}）&#10;`
-       + `理想個體 ＝ 同物種、同等級的最佳性格＋最佳副技能＋緞帶4＋主技能滿級＋最佳食材組合：&#10;`
+       + `這一隻是不是好貨 —— 只比性格、副技能、食材組合這些改不掉的東西。&#10;`
+       + `牠 ${t.v} ÷ 同物種理想個體 ${it.v}（${t.u}）&#10;`
+       + `兩邊都在同一個基準：Lv${lv}${lv > m.level ? `（牠現在 Lv${m.level}）` : ''}、緞帶4、主技能滿級 ——`
+       + `所以「還沒練」不會讓這個數字變低。&#10;`
+       + `理想個體 ＝ 同物種的最佳性格＋最佳副技能＋最佳食材組合：&#10;`
        + `${natZ(NAT[ideal.member.nature]||NAT.Bashful)}／${ideal.member.ss.filter(Boolean).map(ssz).join('、')||'（無副技能）'}&#10;`
        + (unk ? `⚠ 還有 ${unk} 格副技能沒填 —— 填了只會讓分子變高，所以這是下界（≥）。&#10;` : '')
-       + `這是比值，可以跨專長讀 —— 但它說的是「離自己的天花板多近」，`
-       + `不是「哪一隻比較強」：100% 的皮卡丘不會比 70% 的妙蛙花強。&#10;`
-       + `貪婪搜尋出來的參考線，不是證明過的上限。">潛力 <b>${unk?'≥':''}${pct}%</b></span>`;
+       + `只在同物種之間比：100% 的皮卡丘不會比 70% 的妙蛙花強。&#10;`
+       + `「該練誰」看旁邊的「練滿」，「技能糖果給誰」看「技能」。&#10;`
+       + `貪婪搜尋出來的參考線，不是證明過的上限。">資質 <b>${unk?'≥':''}${pct}%</b></span>`;
+}
+/** 摺疊列上的兩個**投資**數字，緊跟在當前產能後面：`練滿 X` 與 `技能 +N`。
+ *
+ *  三個數字各對應一種資源，這是刻意的分工：
+ *
+ *  | chip | 回答 | 可比範圍 |
+ *  |---|---|---|
+ *  | 當前產能（`scoreChip`） | 牠**現在**有多好 | 同專長內 |
+ *  | 練滿（這裡） | **等級糖果**先餵誰 | 同專長內 |
+ *  | 技能（這裡） | **技能糖果**先給誰 | 全體 —— 那是同一種資源 |
+ *  | 資質（`idealChip`） | 這一隻是不是好貨 | **同物種內** |
+ *
+ *  **為什麼「練滿」非顯示不可、而且要能排序：** 使用者會很自然地拿摺疊列上唯一
+ *  能排序的數字去決定練誰。以前那個數字是「潛力 %」，而它是同物種內才有意義的
+ *  比值 —— 照它排序去略過低分的，等於用錯的軸做投資決定（使用者 2026-09-10 反映）。
+ *
+ *  背景算完才有值，所以 `paintIdealChips` 要把它和 `.mon-idl` **一起**補上。 */
+function investChip(m){
+  const ideal = idealOf(m);
+  if (!ideal) return `<span class="mon-inv"></span>`;
+  const fu = powerText(ideal.self), now = powerText(monPowerCached(m));
+  const maxed = m.skillLv >= ideal.maxSkillLv;
+  const room = skillRoom(ideal);
+  return `<span class="mon-inv">`
+    + `<span class="mon-full" title="牠練滿之後的產能：Lv${ideal.lvl}、緞帶4、主技能滿級。&#10;`
+    + `這是「等級糖果先餵誰」的答案 —— 和左邊的當前產能同一個單位（${fu.u}），`
+    + `所以同專長內可以直接比大小。&#10;`
+    + `牠現在是 ${now.v}。">練滿 <b>${fu.v}</b></span>`
+    + (maxed
+      ? `<span class="mon-room done" title="主技能已經滿級（Lv${ideal.maxSkillLv}）—— 技能糖果餵給別隻。">技能滿級</span>`
+      : `<span class="mon-room" title="主技能等級從 Lv${m.skillLv} 練到滿級 Lv${ideal.maxSkillLv}，每天多產的能量。&#10;`
+        + `這是「技能糖果先給誰」的答案，而技能糖果是同一種資源，所以這一項全體都可以比。&#10;`
+        + `⚠ 這裡用的是總產能能量（樹果＋食材＋技能），不是各專長的主指標 ——`
+        + `技能型的主指標是發動次數，而發動次數幾乎不隨技能等級變，用它量會顯示 0。&#10;`
+        + `⚠ 其中食材是未經料理加成的原始能量（料理會再放大約 2.4 倍），`
+        + `所以食材型在這個軸上被低估。">技能 <b>+${num(room)}</b></span>`)
+    + `</span>`;
 }
 /** 摺疊列上的那兩格：主指標 ＋ 同專長名次。
  *
@@ -860,18 +938,23 @@ function scoreRow(m, allowIdeal){
   else if (!ideal)
     cmp = `<span class="muted">理想值算不出來</span>`;
   else {
-    const pct = idealPctFrom(m, ideal) ?? 0;    // 摺疊列的「潛力 N%」用的是同一條算式
+    const pct = idealPctFrom(m, ideal) ?? 0;    // 摺疊列的「資質 N%」用的是同一條算式
     const it = powerText(ideal), unk = idealUnknownSlots(m, ideal);
-    cmp = `<span class="mon-ideal" title="基準是都練到 Lv${ideal.lvl}${ideal.lvl > m.level ? `（牠現在 Lv${m.level}）` : ''}，`
-        + `所以左邊那個當前產能和這個百分比不是同一個等級的東西。&#10;`
-        + `理想個體 ＝ 同物種、同等級的最佳性格＋最佳副技能＋緞帶4＋主技能滿級＋最佳食材組合。&#10;`
-        + `目標就是這個專長的主指標（${t.u}）—— 用別的目標會挑出完全不同的一組副技能。&#10;`
+    const room = skillRoom(ideal), maxed = m.skillLv >= ideal.maxSkillLv;
+    cmp = `<span class="mon-ideal" title="基準：Lv${ideal.lvl}${ideal.lvl > m.level ? `（牠現在 Lv${m.level}）` : ''}、緞帶4、主技能滿級。&#10;`
+        + `所以左邊那個當前產能和這裡的數字不是同一個狀態的東西 ——`
+        + `左邊是「現在有多好」，這裡是「練滿之後」。&#10;`
+        + `練滿 ${powerText(ideal.self).v}：等級糖果先餵誰（同專長內比）。&#10;`
+        + `資質 ${pct}%：牠 ÷ 同物種理想個體，只剩性格／副技能／食材組合的差（同物種內比）。&#10;`
+        + (maxed ? `主技能已經滿級（Lv${ideal.maxSkillLv}）。&#10;`
+                 : `技能成長 +${num(room)}：主技能練到 Lv${ideal.maxSkillLv} 每天多產的能量（全體可比）。&#10;`)
+        + `理想個體 ＝ 同物種的最佳性格＋最佳副技能＋最佳食材組合，目標是這個專長的主指標（${t.u}）。&#10;`
         + `理想個體：${natZ(NAT[ideal.member.nature]||NAT.Bashful)}／`
         + `${ideal.member.ss.filter(Boolean).map(ssz).join('、') || '（無副技能）'}&#10;`
-        + `牠在 Lv${ideal.lvl}：${powerText(ideal.self).v}&#10;`
-        + (unk ? `⚠ 還有 ${unk} 格副技能沒填，所以這是下界（≥）。&#10;` : '')
+        + (unk ? `⚠ 還有 ${unk} 格副技能沒填，所以資質是下界（≥）。&#10;` : '')
         + `這是貪婪搜尋，不是證明過的上限 —— 當參考線看，別當天花板。">`
-        + `Lv${ideal.lvl} 理想 ${it.v} · <b>${unk?'≥':''}${pct}%</b></span>`;
+        + `練滿 ${powerText(ideal.self).v} · 理想 ${it.v} · 資質 <b>${unk?'≥':''}${pct}%</b>`
+        + (maxed ? ` · 技能滿級` : ` · 技能 <b>+${num(room)}</b>`) + `</span>`;
   }
   const ings = p.ingTypes.length
     ? p.ingTypes.map(([n, v]) => `${iz(n)} ${v.toFixed(1)}`).join('、') : '無';
@@ -942,8 +1025,8 @@ function msCaveat(ms){
  *  欄 2 都從同一個 x 開始 —— 用 `max-content` 的話每張卡的起點會隨名字長度浮動，
  *  掃 60 隻時反而更亂。名字太長會在欄內自己折，不裁切（裁掉等於沒有）。
  *
- *  欄 2 第 1 列（`.mon-rest`）：`[專長] [主技能] 性格 副技能… 技Lv [＋隊 📍 ✕ 🗑]`
- *  欄 1 第 2 列（`.mon-idl`）：**潛力 N%**（理想個體百分比），就在名字／等級底下。
+ *  欄 2 第 1 列（`.mon-rest`）：`[專長] [主技能] 性格 副技能… 技Lv 產能 練滿 技能+N [＋隊 📍 ✕ 🗑]`
+ *  欄 1 第 2 列（`.mon-idl`）：**資質 N%**（同物種內的個體品質），就在名字／等級底下。
  *  欄 2 第 2 列（`.mon-ings`）：**只有食材**，起點對齊上一列的專長標籤。
  *
  *  DOM 順序必須是 `.mon-idy` → `.mon-rest` → `.mon-idl` → `.mon-ings`：grid 的自動
@@ -989,7 +1072,7 @@ function monHead(m, idx, open){
         <span class="mon-nat">${natBrief(m)}</span>
         <span class="mon-sum">${ss}</span>
         <span class="mon-sk" title="主技能 ${msz(p.ms)} 的基礎等級（副技能加成另計）">技Lv${m.skillLv}</span>
-        ${scoreChip(m, idx)}
+        ${scoreChip(m, idx)}${investChip(m)}
         <span class="mon-acts">
           <button class="btn sm ghost${inTeam.includes(teamShown+1)?' on':''}" data-act="team" title="${teamAddTitle(idx, inTeam)}">＋隊</button>
           <button class="btn sm ghost" data-act="pin" title="固定在隊上（推演一定選牠）">${m.pin?'📌':'📍'}</button>
@@ -1110,11 +1193,25 @@ const BOX_SORTS = {
      所以「誰產最多品鮮蘑菇」是一個有意義的問題，答案也可能是一隻全能型。
      沒選食材時退回加入順序（`boxCount` 會提示要先選）。 */
   ingAmt: (a,b)=> boxFlt.ing.size ? ingSum(roster[b]) - ingSum(roster[a]) : 0,
-  /* 理想個體的百分比，高→低。**這個可以跨專長排** —— 它是比值（牠 ÷ 同物種同等級
-     的理想個體），不是產能。但它排的是「離自己的天花板多近」，不是「哪一隻比較強」，
-     所以 `boxCount` 會把這句話寫出來。
+  /* 資質（性格＋副技能＋食材組合的品質），高→低。**只在同物種之間有意義** ——
+     它是比值不是產能，所以整箱排出來的名次**不能**拿來決定「該練誰」。
+     那是 `full` 的工作，`boxCount` 會把這句話寫出來。
      還沒算完的排最後（`-1`）—— 拿一半的值排出來的名次是錯的，而背景算完會重畫。 */
   ideal: (a,b)=> (idealPct(roster[b]) ?? -1) - (idealPct(roster[a]) ?? -1),
+  /* 練滿之後的主指標，**先分專長、再組內由高到低** —— 和 `power` 完全同一條規則，
+     因為它就是同一個單位的數字，只是把等級／緞帶／主技能等級都推到滿。
+     **這才是「等級糖果先餵誰」的排序。** 還沒算完的排在該專長的最後。 */
+  full: (a,b)=> {
+    const ia = idealOf(roster[a]), ib = idealOf(roster[b]);
+    return SPEC_ORD.indexOf(D.dex[roster[a].sp].sp) - SPEC_ORD.indexOf(D.dex[roster[b].sp].sp)
+        || (ib ? fullMain(ib) : -1) - (ia ? fullMain(ia) : -1);
+  },
+  /* 技能等級練滿能多產多少能量／日，高→低。**這個可以跨專長排** —— 技能糖果是
+     同一種資源，不放在一起比就分配不了。單位與「食材型被低估」見 `skillRoom`。 */
+  skillRoom: (a,b)=> {
+    const ia = idealOf(roster[a]), ib = idealOf(roster[b]);
+    return (ib ? skillRoom(ib) : -1) - (ia ? skillRoom(ia) : -1);
+  },
   level: (a,b)=> roster[b].level - roster[a].level,
   spec:  (a,b)=> SPEC_ORD.indexOf(D.dex[roster[a].sp].sp) - SPEC_ORD.indexOf(D.dex[roster[b].sp].sp),
   ms:    (a,b)=> msz(D.dex[roster[a].sp].ms).localeCompare(msz(D.dex[roster[b].sp].ms), 'zh-Hant'),
@@ -1133,7 +1230,9 @@ const SORT_DIR = {
   no:     ['編號小→大', '編號大→小'],
   power:  ['產能高→低', '產能低→高'],
   ingAmt: ['產量高→低', '產量低→高'],
-  ideal:  ['潛力高→低', '潛力低→高'],
+  ideal:  ['資質高→低', '資質低→高'],
+  full:   ['練滿高→低', '練滿低→高'],
+  skillRoom: ['技能成長高→低', '技能成長低→高'],
   level:  ['等級高→低', '等級低→高'],
   spec:   ['專長順序', '專長反序'],
   ms:     ['主技能 A→Z', '主技能 Z→A'],
@@ -1237,6 +1336,13 @@ function monHaystack(m){
     ...[0,1,2].map(s=>{ const k = ingPick(m, s); return k && k[0]!=null ? iz(ING_NAME[k[0]]) : ''; }),
   ].join(' ').toLowerCase();
 }
+/** 排序名稱之外還要講清楚「這個名次能怎麼讀」—— 見 boxCount。 */
+const SORT_WHAT = {
+  ideal:     '　（資質：只比性格與副技能，同物種之間才有意義）',
+  full:      '　（練滿：等級糖果先餵誰，同專長內比）',
+  skillRoom: '　（技能成長：技能糖果先給誰，能量/日）',
+  power:     '　（現在的產能，同專長內比）',
+};
 /** 目前篩選下看得到的真實索引。 */
 const visibleIdx = () => roster.map((m,i)=>i).filter(i=> monMatch(roster[i], i));
 function applyBoxFilter(){
@@ -1253,10 +1359,11 @@ function applyBoxFilter(){
   /* 「選定食材的產量」排序在沒選食材時等於沒作用 —— 靜靜地不排序就是「文案說謊」
      那類 bug 的一種，所以直接寫出來要先選哪個。 */
   const need = (boxFlt.sort === 'ingAmt' && !boxFlt.ing.size) ? '　（排序要先選食材）' : '';
-  /* 理想值是背景算的，算到一半的名次是錯的 —— 進度要看得到，而且要寫出這個排序
-     排的到底是什麼（「離自己的天花板多近」≠「哪一隻比較強」）。 */
-  const busy = idealProg ? `　潛力計算中 ${idealProg.done}/${idealProg.total}…` : '';
-  const what = (boxFlt.sort === 'ideal' && !busy) ? '　（比的是離自己天花板多近，不是誰比較強）' : '';
+  /* 理想值是背景算的，算到一半的名次是錯的 —— 進度要看得到。
+     而且**每個排序都要寫出它排的是什麼、可比範圍到哪**：三個數字回答三個不同的
+     問題（該練誰／是不是好貨／技能糖果給誰），混著讀就會用錯軸做投資決定。 */
+  const busy = idealProg ? `　資質／練滿計算中 ${idealProg.done}/${idealProg.total}…` : '';
+  const what = busy ? '' : (SORT_WHAT[boxFlt.sort] || '');
   $('boxCount').textContent = !roster.length ? ''
     : (on ? `顯示 ${shown} / ${roster.length} 隻` : `共 ${roster.length} 隻`) + dup + need + busy + what;
   // 展開／收起全部的按鈕文字要跟著目前狀態走
@@ -1276,7 +1383,7 @@ function renderBox(){
   host.innerHTML = boxOrder().map(idx => monCard(roster[idx], idx, {allowIdeal})).join('');
   for (const el of host.querySelectorAll('[data-i]')) setMonValues(el, roster[+el.dataset.i]);
   applyBoxFilter();
-  /* 摺疊列的「潛力 N%」是背景算的 —— 一定要放在 applyBoxFilter 之後，
+  /* 摺疊列的「資質／練滿／技能成長」是背景算的 —— 一定要放在 applyBoxFilter 之後，
      它算的是**目前看得到的那些**（`visibleIdx()` 只看 monMatch，和 hidden 無關，
      但進度文字要蓋在剛寫好的 boxCount 上）。 */
   idealFillAsync();
@@ -1977,6 +2084,11 @@ function pickReason(k, r){
      ＝ 每位成員拿到的量 × 5；而下方那排 pill 顯示的 `ctx.supportEnergy` /
      `ctx.extraHelps` 是 `/5` 之後的**每人平均**。同一個畫面上兩個差 5 倍的數字，
      不標單位就會被讀成同一件事（實際被問過）。 */
+  /* 自回活力和「補給隊友」是兩件事，**不能併成一句**：前者只有牠自己拿得到，
+     而且價值已經反映在牠自己的幫忙次數上（見 engine 的定點迭代）。以前這兩份被
+     加在一起再 ÷5 攤給全隊，等於持有者少拿 4/5、隊友白拿。 */
+  if (o.energySelfGiven > 0)
+    bits.push(`<span title="這隻的主技能每天回給**牠自己**的活力（活力填充S／月光）。&#10;活力越高幫忙間隔越短，所以這一份的價值已經算在上面的幫忙次數裡了。&#10;隊友拿不到 —— 那是另一條「每日補活力」。">每日自回活力 <b>${f1(o.energySelfGiven)}</b></span>`);
   if (o.energyGiven > 0)
     bits.push(`<span title="這隻的主技能每天補給隊上**每一位成員**的活力。&#10;整隊 5 隻收到的合計是 ${f1(o.energyGiven)}／日。&#10;下面那排 pill 的「技能補活力 每隻」是隊上所有補師加起來的每人總量。&#10;活力越高幫忙間隔越短，所以補師的價值是透過隊友的產出體現的。">每日補活力 <b>每隻 ${f1(o.energyGiven/5)}</b></span>`);
   if (o.helpsGiven > 0.2)
@@ -2325,7 +2437,7 @@ function teamAddTitle(idx, inTeam){
  *  和 `teamFromResult` 不同，那個是「整組複製過來」所以該開新的一支；這個是逐隻放，
  *  一隻放進 A、下一隻卻跳到 B 的話根本組不起來。
  *
- *  找寶可夢的地方本來就是箱子（有篩選、排序、潛力%），所以「看到就順手放進去」比
+ *  找寶可夢的地方本來就是箱子（有篩選、排序、資質%），所以「看到就順手放進去」比
  *  「切到自組隊伍 → 開選擇器 → 再搜尋一次」少三步。規則和選擇器共用：
  *  **同隊不可重複**（會讓 Helper Boost 的物種計數、流星群的龍屬性種類數全部算錯），
  *  跨隊可以。滿了就說滿了，不要靜靜地什麼都沒發生。 */
@@ -2532,7 +2644,7 @@ function renderPickerList(){
     const pct = idealPct(m);
     return `<button type="button" class="pickrow" data-take="${i}"${dis?' disabled title="這一隊已經有牠了"':''}>
       <div class="pk-1"><span class="num">#${p.no}</span><b${nick?' class="is-nick"':''}>${esc(nick || pz(p))}</b><span class="num">Lv${m.level}</span><span class="tag ${SPEC_TAG[p.sp]}">${SPEC_ZH[p.sp]}</span>${m.ex?'<span class="tag">🚫</span>':''}${other.length?`<span class="tag pin">隊伍 ${other.join('、')}</span>`:''}</div>
-      <div class="pk-2">${nick?esc(pz(p))+' · ':''}${msz(p.ms)}${pct!=null?` · 潛力 ${Math.round(pct)}%`:''}</div>
+      <div class="pk-2">${nick?esc(pz(p))+' · ':''}${msz(p.ms)}${pct!=null?` · 資質 ${Math.round(pct)}%`:''}</div>
     </button>`;
   }).join('') : `<div class="muted" style="padding:14px;text-align:center">找不到符合的</div>`;
 }
@@ -2546,7 +2658,7 @@ function showView(name){
   if (name !== 'team') closePicker();     // 浮層是 fixed 的，切走了不關會浮在別的分頁上
   if (name === 'recipes') renderRecipeLevels();
   if (name === 'team') renderTeamsView();
-  // 潛力值只在看得到箱子的時候才背景算（見 idealFillAsync），所以切過來要補開一輪
+  // 理想值只在看得到箱子的時候才背景算（見 idealFillAsync），所以切過來要補開一輪
   if (name === 'box') idealFillAsync();
   window.scrollTo({top:0, behavior:'instant'});
 }

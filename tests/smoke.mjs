@@ -1919,14 +1919,15 @@ console.log('\n[11g] 寶可夢箱：個體產能（三種專長各自的軸）')
   ok('說明文案講明隊伍型副技能量不到', /量不到/.test(r.note), r.note.slice(-90));
   /* 完整說明有 300 多字，攤在篩選列和箱子列表中間會把真正要看的東西推到畫面外。
      所以摺疊 —— 但**摘要那一行要獨力守住四件事**：基準情境、不能跨專長比、
-     潛力% 是練滿後的比值、不影響推演。少任何一件，摺起來的人就會讀錯數字。 */
+     資質% 是練滿後的比值、不影響推演。少任何一件，摺起來的人就會讀錯數字。 */
   ok('長篇說明預設摺起來（不然會把箱子列表推到畫面外）', r.exOpen === false && r.exText.length > 200,
      `open=${r.exOpen} len=${r.exText.length}`);
-  ok('摘要那一行獨力講完四件會害人讀錯的事（基準／不能跨專長比／潛力是練滿後的比值／不影響推演）',
+  ok('摘要那一行獨力講完會害人讀錯的事（基準／不能跨專長比／三個數字各答哪個問題／不影響推演）',
      /單獨一隻/.test(r.sum) && /不含本週加成樹果/.test(r.sum) &&
-     /不能互相比較/.test(r.sum) && /Lv60/.test(r.sum) && /不影響推演/.test(r.sum),
+     /不能互相比較/.test(r.sum) && /練滿/.test(r.sum) && /資質/.test(r.sum) &&
+     /技能/.test(r.sum) && /不影響推演/.test(r.sum),
      r.sum);
-  ok('摘要要短（超過 120 字就等於沒摺）', r.sum.length <= 120, `${r.sum.length} 字`);
+  ok('摘要要短（超過 160 字就等於沒摺）', r.sum.length <= 160, `${r.sum.length} 字`);
 }
 
 /* 食材篩選：「誰產這幾種食材、誰產最多」。食譜要的是**一組**特定食材，所以篩選
@@ -2011,11 +2012,11 @@ console.log('\n[11h] 寶可夢箱：食材篩選（可複選）與選中食材�
      r.cleared.size === 0 && r.cleared.n === 4 && r.cleared.pressed === 0, JSON.stringify(r.cleared));
 }
 
-/* 摺疊列上的「潛力 N%」（＝ 牠 ÷ 同物種同等級的理想個體）與**雙向**排序。
+/* 摺疊列上的「資質 N%」（＝ 牠 ÷ 同物種同等級的理想個體）與**雙向**排序。
    守兩件事：
    ① 那個百分比和展開後產能列上的是**同一個數字**（兩份算式一定會走鐘）。
    ② 方向只寫在按鈕上。`<option>` 裡再寫一次「高→低」，按了反轉就有一個變成謊話。 */
-console.log('\n[11i] 寶可夢箱：潛力（理想個體 %）與雙向排序');
+console.log('\n[11i] 寶可夢箱：資質（理想個體 %）與雙向排序');
 {
   const r = await page.evaluate(() => {
     const mk = (n, lv, nat, ss, sk, rib) => ({
@@ -2042,7 +2043,7 @@ console.log('\n[11i] 寶可夢箱：潛力（理想個體 %）與雙向排序');
     });
     const pcts = roster.map(m => idealPct(m));
     /* 基準是固定的 Lv60（超過就用實際等級），不是牠現在的等級。
-       所以同一隻在 Lv30 和 Lv45 必須給出**完全一樣**的潛力 —— 升級不會讓
+       所以同一隻在 Lv30 和 Lv45 必須給出**完全一樣**的資質 —— 升級不會讓
        這個數字自己跳動（以前會：跨過 50／60 才把第 3 格副技能／食材算進去）。 */
     const lvls = roster.map(m => idealOf(m).lvl);
     // 這一段直接叫引擎，所以 sp 要是 dex 索引（roster 裡的形式），不是內部名
@@ -2060,7 +2061,7 @@ console.log('\n[11i] 寶可夢箱：潛力（理想個體 %）與雙向排序');
     const filled  = at('RAICHU', 60, ['Berry Finding S','Helping Speed M','Inventory Up M']);
     idealOf(partial, true); idealOf(filled, true);
     const bound = {partial: idealChip(partial).includes('≥'), full: idealChip(filled).includes('≥')};
-    /* 版面：潛力在摺疊列的**第二列、欄 1**（名字／等級底下）。DOM 上它必須是
+    /* 版面：資質在摺疊列的**第二列、欄 1**（名字／等級底下）。DOM 上它必須是
        `.mon-head` 的直接子元素，而且排在 `.mon-rest` 之後、`.mon-ings` 之前 ——
        grid 的自動排版照 DOM 走，順序錯了就會掉到別的格子。 */
     const head = $('boxList').querySelector('[data-i="0"] .mon-head');
@@ -2075,7 +2076,7 @@ console.log('\n[11i] 寶可夢箱：潛力（理想個體 %）與雙向排序');
     const headPct = $('boxList').querySelector('[data-i="0"] .mon-idl b').textContent;
     monOpen.clear(); renderBox();
 
-    // 潛力排序（正向＝高→低）
+    // 資質排序（正向＝高→低）
     $('fltSort').value = 'ideal'; fire('fltSort', 'change');
     const byIdeal = order(), dirFwd = $('fltDir').textContent.trim();
     const fwdPcts = byIdeal.map(i => idealPct(roster[i]));
@@ -2103,8 +2104,8 @@ console.log('\n[11i] 寶可夢箱：潛力（理想個體 %）與雙向排序');
             dirFwd, dirRev, addedFwd, addedRev, addedDir, lvFwd, lvRev, revLabel, optTexts,
             note: $('scoreNote').textContent.trim()};
   });
-  ok('摺疊列每一隻都有「潛力 N%」', r.chips.every(t => t && /潛力\s*≥?\d+%/.test(t)), r.chips.join(' | '));
-  ok('潛力是比值，不會超過 100%（理想個體含牠自己、且同在評價等級上）',
+  ok('摺疊列每一隻都有「資質 N%」', r.chips.every(t => t && /資質\s*≥?\d+%/.test(t)), r.chips.join(' | '));
+  ok('資質是比值，不會超過 100%（理想個體含牠自己、且同在評價基準上）',
      r.pcts.every(v => v > 0 && v <= 100), r.pcts.join(', '));
   /* 基準固定在 Lv60（超過就用實際等級）。以前跟著當前等級走，於是升到 50／60
      跨過門檻時第 3 格副技能／食材才被算進去，百分比會自己往下掉 —— 而使用者問的是
@@ -2113,7 +2114,7 @@ console.log('\n[11i] 寶可夢箱：潛力（理想個體 %）與雙向排序');
      r.fixed.lv30 === 60 && r.fixed.lv45 === 60, `${r.fixed.lv30} / ${r.fixed.lv45}`);
   ok('已經超過 60 的用牠的實際等級（不丟掉已知的第 4 格副技能）',
      r.fixed.lv75 === 75, String(r.fixed.lv75));
-  ok('同一隻在 Lv30 和 Lv45 的潛力完全相同（升級不會讓這個數字自己跳動）',
+  ok('同一隻在 Lv30 和 Lv45 的資質完全相同（升級不會讓這個數字自己跳動）',
      r.fixed.pct30 === r.fixed.pct45, `${r.fixed.pct30}% vs ${r.fixed.pct45}%`);
   ok('快取鍵也依評價等級正規化（Lv30／Lv45 共用同一格）', r.fixed.sameKey, String(r.fixed.sameKey));
   ok('箱子裡的每一隻都評在 ≥60', r.lvls.every(v => v >= 60), r.lvls.join(', '));
@@ -2121,16 +2122,16 @@ console.log('\n[11i] 寶可夢箱：潛力（理想個體 %）與雙向排序');
      靜靜地把「還沒記」當成「就是沒有」，會誤導投資判斷。 */
   ok('副技能有空格時標成下界（≥），填滿就不標',
      r.bound.partial && !r.bound.full, JSON.stringify(r.bound));
-  /* 同物種同等級：練得好的那一隻百分比一定比白板高 —— 這正是「個體潛力」要回答的問題。 */
+  /* 同物種同等級：練得好的那一隻百分比一定比白板高 —— 這正是「個體資質」要回答的問題。 */
   ok('同物種同等級時，副技能／性格好的那一隻百分比比較高',
      r.pcts[0] > r.pcts[1], `${r.pcts[0]}% vs ${r.pcts[1]}%`);
-  ok('潛力在摺疊列第二列欄 1（.mon-head 的直接子元素，排在 .mon-rest 之後）',
+  ok('資質在摺疊列第二列欄 1（.mon-head 的直接子元素，排在 .mon-rest 之後）',
      r.layout.direct && r.layout.inIdy === 0 && r.layout.inIngs === 0 &&
      r.layout.kids.join(',') === 'mon-idy,mon-rest,mon-idl,mon-ings', r.layout.kids.join(','));
   /* 兩份算式一定會走鐘，而走鐘的那份會靜靜地顯示錯的數字。 */
   ok('摺疊列的百分比和展開後產能列上的是同一個數字',
      r.headPct === r.rowPct && /%$/.test(r.headPct), `摺疊 ${r.headPct} / 展開 ${r.rowPct}`);
-  ok('依潛力排序（高→低）',
+  ok('依資質排序（高→低）',
      r.fwdPcts.join(',') === [...r.fwdPcts].sort((a,b)=>b-a).join(','), r.fwdPcts.join(', '));
   ok('反轉之後就是整份倒過來',
      r.revIdeal.join(',') === [...r.byIdeal].reverse().join(','),
@@ -2145,18 +2146,20 @@ console.log('\n[11i] 寶可夢箱：潛力（理想個體 %）與雙向排序');
      r.lvRev.join(',') === [...r.lvRev].sort((a,b)=>a-b).join(','),
      `${r.lvFwd.join(',')} → ${r.lvRev.join(',')}`);
   ok('按鈕上寫著目前的方向（↓／↑ ＋ 文字）',
-     /^↓/.test(r.dirFwd) && /潛力高→低/.test(r.dirFwd) &&
-     /^↑/.test(r.dirRev) && /潛力低→高/.test(r.dirRev) && /等級低→高/.test(r.revLabel),
+     /^↓/.test(r.dirFwd) && /資質高→低/.test(r.dirFwd) &&
+     /^↑/.test(r.dirRev) && /資質低→高/.test(r.dirRev) && /等級低→高/.test(r.revLabel),
      `${r.dirFwd} / ${r.dirRev} / ${r.revLabel}`);
   /* 方向寫在兩個地方，按了反轉就有一個在說謊。 */
   ok('排序選單本身不寫方向（方向只在按鈕上）',
      !r.optTexts.some(t => /高→低|低→高/.test(t)), r.optTexts.join(' | '));
-  ok('說明文案講明潛力是比值、不是「誰比較強」',
-     /離.{0,4}自己.{0,4}的天花板多近/.test(r.note) && /100% 的皮卡丘/.test(r.note),
+  ok('說明文案講明資質是比值、只在同物種之間有意義',
+     /只在同物種之間有意義/.test(r.note) && /100% 的皮卡丘/.test(r.note),
      r.note.slice(-120));
-  /* 一個沒有出處的數字比沒有數字更糟 —— 基準等級一定要寫出來。 */
-  ok('說明文案講明基準是「雙方都練到 Lv60」與「練滿之後」',
-     /都練到 Lv60/.test(r.note) && /練滿之後有多好/.test(r.note), r.note.slice(-200));
+  /* 一個沒有出處的數字比沒有數字更糟 —— 基準的三樣都要寫出來。
+     少了「緞帶4、主技能滿級」，讀者就無從知道「還沒練」不會壓低這個數字。 */
+  ok('說明文案講明基準是 Lv60 以上 ＋ 緞帶4 ＋ 主技能滿級',
+     /Lv60 以上/.test(r.note) && /緞帶4/.test(r.note) && /主技能滿級/.test(r.note),
+     r.note.slice(-260));
 }
 
 /* 用另開的頁面跑 —— 這一節刻意觸發致命錯誤，不能污染上面的 errors 收集。 */
@@ -2426,7 +2429,7 @@ console.log('\n[11j] 自組隊伍：手動指定 5 隻，計算基礎必須和�
 
 /* 寶可夢箱的四顆動作鈕。兩件事：
    ①「＋隊」把箱子裡的一隻直接放進**目前顯示的那一支**自組隊伍 —— 找寶可夢的地方
-     本來就是箱子（有篩選、排序、潛力%），所以「看到就順手放進去」該少三步。
+     本來就是箱子（有篩選、排序、資質%），所以「看到就順手放進去」該少三步。
    ② 圖示不能撞：`✕` 是「從推演中排除」（可逆），刪除是 `🗑`（不可逆）。原本
      排除用 `○`，而 `○` 在中文慣例裡是「可以」，掛在一顆叫「排除」的按鈕上意思正好相反。 */
 console.log('\n[11k] 寶可夢箱：「＋隊」直接加進自組隊伍，以及按鈕圖示不能撞');
@@ -2517,6 +2520,141 @@ console.log('\n[11k] 寶可夢箱：「＋隊」直接加進自組隊伍，以�
      `${r.cross.t2.join(',')} | ${r.cross.title}`);
   /* 自組隊伍和 monOpen / boxFlt 同待遇：切分頁保留、重新整理清空。 */
   ok('＋隊不會把自組隊伍寫進 serialize()（純檢視狀態）', r.serHasTeams === false);
+}
+
+/* 三個投資數字，各對應一種資源 —— 而且**必須彼此獨立**：
+     練滿   → 等級糖果先餵誰（絕對值，同專長內比）
+     資質   → 這一隻是不是好貨（比值，同物種內比）
+     技能   → 技能糖果先給誰（能量/日，全體比）
+   這一節最重要的一條是「資質不受緞帶／主技能等級影響」：以前分子沒有規範化那兩樣，
+   於是同一份資質會**因為還沒練而顯示低分**（實測妙蛙花 51% vs 78%），使用者照著
+   排序略過低分的，剛好略過最該投資的那幾隻（使用者 2026-09-10 反映）。 */
+console.log('\n[11L] 寶可夢箱：練滿／資質／技能成長是三個獨立的數字');
+{
+  const r = await page.evaluate(() => {
+    const mk = (n, o) => ({sp:n, level:60, nature:'Adamant',
+      ss:['Helping Speed M','Ingredient Finder M','Helping Bonus',null,null],
+      ingSet:[0,0,0], skillLv:1, ribbon:0, pin:false, ex:false, nick:'', ...(o||{})});
+    /* 0 與 1 是**同一份資質**，只差「練得起來的東西」（緞帶 0→4、技能 Lv1→滿級）。 */
+    deserialize({roster: [
+      mk('VENUSAUR'),
+      mk('VENUSAUR', {ribbon:4}),
+      mk('RAICHU'),
+      mk('GENGAR', {level:30}),
+    ]});
+    /* 滿級**從資料查**，不要寫死 —— 妙蛙花的食材獲取S 上限是 7 而不是 6，
+       硬寫 6 會讓「技能滿級」那一條靜靜地測不到它想測的東西。 */
+    roster[1].skillLv = (D.ms[D.dex[roster[1].sp].ms] || {max: 6}).max;
+    showView('box'); clearBoxFilter(); monOpen.clear();
+    $('fltSort').value = 'added'; $('fltSort').dispatchEvent(new Event('change', {bubbles:true}));
+    roster.forEach(m => idealOf(m, true));
+    renderBox();
+    const cell = (i, cls) => {
+      const e = $('boxList').querySelector(`[data-i="${i}"] .${cls}`);
+      return e ? e.textContent.trim() : null;
+    };
+    const idl  = roster.map((_, i) => cell(i, 'mon-idl'));
+    const full = roster.map((_, i) => cell(i, 'mon-full'));
+    const room = roster.map((_, i) => cell(i, 'mon-room'));
+    const pcts = roster.map(m => idealPct(m));
+    const ideals = roster.map(m => idealOf(m));
+    /* 「練滿」是絕對值，必須 >= 當前產能（等級／緞帶／技能只會往上推，不會往下）。 */
+    const grow = roster.map((m, i) => fullMain(ideals[i]) >= powerMain(monPowerCached(m)) - 1e-9);
+    // 技能已滿級的那一隻：技能成長 = 0，而且要寫成「技能滿級」而不是 +0
+    const maxed = {room: skillRoom(ideals[1]), text: room[1]};
+    const fire = (id, ev) => $(id).dispatchEvent(new Event(ev, {bubbles:true}));
+    const order = () => [...$('boxList').querySelectorAll('[data-i]')].map(e => +e.dataset.i);
+    $('fltSort').value = 'full'; fire('fltSort', 'change');
+    const byFull = order(), fullDir = $('fltDir').textContent, fullWhat = $('boxCount').textContent;
+    $('fltSort').value = 'skillRoom'; fire('fltSort', 'change');
+    const byRoom = order(), roomVals = byRoom.map(i => skillRoom(ideals[i]));
+    const roomDir = $('fltDir').textContent;
+    const optTexts = [...$('fltSort').options].map(o => o.text);
+    $('fltSort').value = 'added'; fire('fltSort', 'change');
+    clearBoxFilter(); renderBox();
+    return {idl, full, room, pcts, grow, maxed, byFull, byRoom, roomVals,
+            fullDir, roomDir, fullWhat, optTexts,
+            sum: $('scoreNote').querySelector('.sum').textContent.trim()};
+  });
+  /* 這是整組改動的核心：資質量的是**改不掉的東西**，所以「還沒練」不能壓低它。 */
+  ok('資質不受緞帶與主技能等級影響（同一份性格／副技能 → 同一個 %）',
+     r.pcts[0] === r.pcts[1] && r.pcts[0] > 0, `緞帶0技Lv1 ${r.pcts[0]}% vs 緞帶4技滿 ${r.pcts[1]}%`);
+  ok('摺疊列每一隻都有「資質 N%」', r.idl.every(t => t && /資質\s*≥?\d+%/.test(t)), r.idl.join(' | '));
+  ok('摺疊列每一隻都有「練滿」的絕對值', r.full.every(t => t && /練滿\s*[\d,]+/.test(t)), r.full.join(' | '));
+  /* 練滿 >= 現在 —— 等級／緞帶／技能等級都只會往上推。低於當前產能就是算錯了。 */
+  ok('「練滿」一定 >= 目前的產能', r.grow.every(Boolean), r.grow.join(','));
+  ok('技能還沒滿的顯示「技能 +N」', /技能\s*\+[\d,]+/.test(r.room[0] || ''), String(r.room[0]));
+  /* 靜靜地顯示 +0 會讓人以為還有空間；藏起來又會被當成還沒算完。 */
+  ok('技能已滿級的寫「技能滿級」而不是 +0',
+     r.maxed.room === 0 && /技能滿級/.test(r.maxed.text || ''), `${r.maxed.room} / ${r.maxed.text}`);
+  /* SPEC_ORD 是 ['berry','ingredient','skill','all']，所以樹果（雷丘 i=2）排最前面，
+     再是三隻食材型依練滿由高到低：妙蛙花 15464（i=0、i=1 同值，靠 tie-break 回到
+     加入順序）、耿鬼 9569（i=3）。 */
+  ok('「練滿」排序：先分專長、再組內高→低（＝等級糖果先餵誰）',
+     r.byFull.join(',') === '2,0,1,3', r.byFull.join(','));
+  ok('「技能成長」排序可以跨專長（技能糖果是同一種資源）',
+     r.roomVals.join(',') === [...r.roomVals].sort((a,b)=>b-a).join(','), r.roomVals.join(', '));
+  ok('兩個新排序的方向都寫在按鈕上',
+     /練滿高→低/.test(r.fullDir) && /技能成長高→低/.test(r.roomDir), `${r.fullDir} / ${r.roomDir}`);
+  /* 三個數字回答三個不同的問題，混著讀就會用錯軸做投資決定 —— 所以每個排序都要
+     在 boxCount 上寫出它排的是什麼、可比範圍到哪。 */
+  ok('排序時 boxCount 寫出這個名次能怎麼讀',
+     /等級糖果先餵誰/.test(r.fullWhat) && /同專長內比/.test(r.fullWhat), r.fullWhat);
+  ok('排序選單本身仍然不寫方向', !r.optTexts.some(t => /高→低|低→高/.test(t)), r.optTexts.join(' | '));
+  /* 摘要那一行要獨力講完三個數字各答哪個問題 —— 少了它，介面就是在請人用錯的軸。 */
+  ok('摘要寫出三個數字各答哪個問題',
+     /練滿/.test(r.sum) && /資質/.test(r.sum) && /技能/.test(r.sum) &&
+     /同專長內/.test(r.sum) && /同物種內/.test(r.sum), r.sum);
+}
+
+/* 「回自己活力」只有牠自己拿得到。以前這一份被併進 `energyGiven`，再由 teamContext
+   `/5` 攤給全隊 —— 持有者少拿 4/5、另外四隻白拿。因為 `energyF` 是階梯函數，
+   「集中給一個人」和「攤平給五個人」差非常多：實測持有者的幫忙次數低估 31%。
+   這和夢魘的扣活力是同一條規則（CLAUDE.md 陷阱 6c）：**只有某些人拿到的量，
+   不可以走 `ctx.supportEnergy` 那條共用管道。** */
+console.log('\n[11m] 引擎：主技能「回自己活力」不可以攤給全隊');
+{
+  const r = await page.evaluate(() => {
+    const wk = {fav:new Set(), camp:false, sleepH:8.5, collectH:4, strictBerry:false, recipeLevels:{}};
+    const mk = n => {
+      const sp = D.dex.findIndex(p => p.n === n);
+      const m = {sp, level:60, nature:'Bashful', ss:[null,null,null,null,null],
+                 ingSet:[0,0,0], skillLv:6, ribbon:4};
+      m._bs = baseStats(m, wk); return m;
+    };
+    // 大食花 ＝ 活力填充S（只回自己）。其餘四隻不帶任何活力技能。
+    const team = ['VICTREEBEL','RAICHU','GENGAR','ESPEON','SUDOWOODO'].map(mk);
+    const ctx = teamContext([0,1,2,3,4], team, wk, new Map());
+    const out = team.map(m => memberOutput(m, wk, ctx));
+    /* 對照組：把持有者換掉，隊友的產出必須**完全不變** —— 變了就代表自回活力
+       又漏進共用管道了。 */
+    const team2 = ['SUDOWOODO','RAICHU','GENGAR','ESPEON','SUDOWOODO'].map(mk);
+    const ctx2 = teamContext([0,1,2,3,4], team2, wk, new Map());
+    const mate2 = [1,2,3].map(i => memberOutput(team2[i], wk, ctx2).sim.procs);
+    const solo = memberOutput(team[0], wk, SCORE_CTX);
+    const pay = skillPayload(team[0]._bs.p.ms, team[0]._bs.skillLv);
+    return {
+      holderSelf: out[0].energySelfGiven, holderTeam: out[0].energyGiven,
+      mateSelf: [1,2,3,4].map(i => out[i].energySelfGiven),
+      support: ctx.supportEnergy,
+      mateProcs: [1,2,3].map(i => out[i].sim.procs), mate2,
+      hasEnergy: !!pay.energySelf,
+      soloHelps: solo.sim.helpsDay + solo.sim.helpsNight,
+      soloSelf: solo.energySelfGiven,
+    };
+  });
+  ok('活力填充S 的自回活力算在 energySelfGiven，不在 energyGiven',
+     r.hasEnergy && r.holderSelf > 0 && r.holderTeam === 0,
+     `self=${r.holderSelf.toFixed(2)} team=${r.holderTeam}`);
+  ok('不帶活力技能的隊友 energySelfGiven 都是 0', r.mateSelf.every(v => v === 0), r.mateSelf.join(','));
+  /* 這一條就是那個 bug 的正面：自回活力不可以變成全隊的 supportEnergy。 */
+  ok('隊上只有「回自己」的技能時，共用的 supportEnergy 必須是 0', r.support === 0, String(r.support));
+  ok('把持有者換掉，隊友的技能發動次數完全不變（＝牠們本來就沒拿到那份活力）',
+     r.mateProcs.every((v, i) => Math.abs(v - r.mate2[i]) < 1e-9),
+     `${r.mateProcs.map(v=>v.toFixed(4)).join(',')} vs ${r.mate2.map(v=>v.toFixed(4)).join(',')}`);
+  /* 單獨一隻也要收得到 —— 個體產能（寶可夢箱）用的就是這個情境。 */
+  ok('單獨一隻時自己也收得到（寶可夢箱的個體產能就是這個情境）',
+     r.soloSelf > 0 && r.soloHelps > 0, `自回 ${r.soloSelf.toFixed(1)}／日，幫忙 ${r.soloHelps.toFixed(1)} 次/日`);
 }
 
 console.log('\n[12] 快取偏移：schema 不符必須明確擋下');

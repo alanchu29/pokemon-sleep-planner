@@ -167,9 +167,10 @@ td.n{font-family:var(--mono);font-variant-numeric:tabular-nums}
 .mon-nat{font-size:12px;color:var(--ink-2);flex:0 0 auto}
 .mon-nat .up{color:var(--pos)} .mon-nat .dn{color:var(--neg)}
 .mon-sum{display:flex;flex-wrap:wrap;gap:4px;align-items:center;flex:1 1 260px;min-width:0}
-/* 「潛力 N%」＝ 牠 ÷ 同物種同等級的理想個體。固定在第二列、欄 1 —— 就在名字／等級
-   底下那個原本空著的位置。`grid-column:1` 一定要寫（理由同下面的 .mon-ings）。
-   色階只是**粗略**的視覺分級，真正的數字就寫在旁邊；它是比值，不是產能。 */
+/* 「資質 N%」＝ 牠 ÷ 同物種的理想個體（雙方都在 Lv60／緞帶4／技能滿級）。固定在
+   第二列、欄 1 —— 就在名字／等級底下那個原本空著的位置。`grid-column:1` 一定要寫
+   （理由同下面的 .mon-ings）。色階只是**粗略**的視覺分級，真正的數字就寫在旁邊。
+   它是比值不是產能，而且**只在同物種之間有意義** —— 跨物種的「該練誰」看 .mon-full。 */
 .mon-idl{grid-column:1;font-family:var(--mono);font-variant-numeric:tabular-nums;
   font-size:11px;cursor:help;color:var(--muted);padding-left:19px;white-space:nowrap}
 .mon-idl b{font-size:12px;font-weight:700}
@@ -241,6 +242,19 @@ td.n{font-family:var(--mono);font-variant-numeric:tabular-nums}
 /* 選了食材篩選時，欄位有但還沒解鎖的那幾隻產量是 0 —— 變淡但照樣顯示，
    和摺疊列的未解鎖食材格同一個處理方式（藏起來反而看不出為什麼排在最後）。 */
 .mon-power.zero{opacity:.5}
+/* 「投資」那兩個數字（練滿／技能成長）緊跟在當前產能後面。當前產能回答「現在有
+   多好」，這兩個回答「糖果該餵給誰」—— 擺在一起才看得出它們是不同的問題。
+   邊框比產能弱一階：它們是**推算值**（背景算的、貪婪搜尋出來的參考線）。 */
+.mon-inv{display:inline-flex;gap:4px;align-items:center;flex:0 0 auto}
+.mon-full,.mon-room{font-family:var(--mono);font-variant-numeric:tabular-nums;font-size:11px;
+  padding:2px 6px;border-radius:5px;white-space:nowrap;cursor:help;
+  border:1px solid var(--line);flex:0 0 auto}
+.mon-full{color:var(--accent)}
+.mon-full b,.mon-room b{font-weight:700}
+.mon-room{opacity:.85}
+.mon-room b{color:var(--skill)}
+/* 已經滿級 ＝ 這一項對牠沒有意義了，淡掉但**不隱藏** —— 藏起來會讓人以為是還沒算完。 */
+.mon-room.done{opacity:.45;font-family:inherit}
 /* 食材篩選：攤平的可複選 chips。20 種攤開需要整行，所以自己一列，不擠在 .boxbar 裡。 */
 .ingflt{margin-top:10px;padding-top:10px;border-top:1px dashed var(--line)}
 .ingflt-hd{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center;margin-bottom:7px}

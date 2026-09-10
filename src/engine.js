@@ -175,8 +175,16 @@ function helpInterval(bs, m, wk, nHB){
   const levelFactor = 1 - 0.002*(m.level-1);
   return Math.floor(round4(bs.natureFreqMul * helpSS * levelFactor * bs.ribbonMul) * bs.p.f / (wk.camp?1.2:1));
 }
-/** Simulate one member's day. ctx = {nHB,nERB,supportEnergy (per day, to each member), extraHelps} */
-function simulate(bs, m, wk, ctx){
+/** Simulate one member's day. ctx = {nHB,nERB,supportEnergy (per day, to each member), extraHelps}
+ *
+ *  `selfEnergy` ＝ **只回給這一隻自己**的活力（活力填充S／月光／萬用技能平均進去的
+ *  那一份），每日總量。
+ *
+ *  **不能併進 `ctx.supportEnergy`** —— 那是「隊上每個人都拿到一樣多」的量，而
+ *  `energyF` 是階梯函數（80以上 ×0.45 … 0 ×1.00），所以「集中給一個人」和
+ *  「攤平給五個人」差非常多。這和夢魘的扣活力是完全同一條規則（見 CLAUDE.md 陷阱 6c）：
+ *  **只有某些人拿到的量，不可以走那條共用管道。** */
+function simulate(bs, m, wk, ctx, selfEnergy){
   const freqBase = helpInterval(bs, m, wk, ctx.nHB);
   const sleepMin = Math.round(wk.sleepH*60), wakeMin = 1440 - sleepMin;
   const cap = bs.hasERB ? 105 : 100;
@@ -184,7 +192,7 @@ function simulate(bs, m, wk, ctx){
   /* 夢魘的扣活力**只打在惡屬性以外的隊友身上**，所以不能併進共用的 supportEnergy
      （那是「每個人都拿到一樣多」的量）。惡屬性隊友（含達克萊伊自己）免疫。 */
   const drain = bs.dark ? 0 : (ctx.darkDrain || 0);
-  const supportPerStep = nSteps>0 ? (ctx.supportEnergy + drain)/nSteps : 0;
+  const supportPerStep = nSteps>0 ? (ctx.supportEnergy + drain + (selfEnergy||0))/nSteps : 0;
   let start = 0, helpsDay = 0, helpsNight = 0, fastSteps = 0, totalSteps = 0;
   for (let iter=0; iter<4; iter++){
     const rec = Math.min(cap, sleepMin*(100/510)*bs.nat.e*(1 + 0.14*Math.min(5, ctx.nERB)));
@@ -257,7 +265,9 @@ function simulate(bs, m, wk, ctx){
 /** Full per-member per-day output in a given team context. */
 function memberOutput(m, wk, ctx){
   const bs = m._bs;
-  const sim = simulate(bs, m, wk, ctx);
+  /* `pay` 要**先**算完再跑 `simulate` —— 自回活力的量取決於技能發動次數，
+     而技能發動次數又反過來取決於活力（見下面的定點迭代）。底下這些 `pay` 的調整
+     全部只看 `ctx`、不看 `sim`，所以搬到前面是等價的。 */
   const pay = {...skillPayload(bs.p.ms, bs.skillLv)};
   /* Helper Boost 吃的是**牠自己那個樹果**的列 —— 一隊可能有好幾個持有者，
      所以 ctx.hbRows 是 map 而不是純量（見 teamContext）。 */
@@ -290,7 +300,28 @@ function memberOutput(m, wk, ctx){
   /* 治癒波動：隊上有拉帝歐斯時額外幫忙加碼（基礎 + 額外 = 總計）。 */
   if (/^Heal Pulse/.test(bs.p.ms) && ctx.hasLatios)
     pay.helpsOne = (pay.helpsOne||0) + (pay.helpsWithLatios||0);
-  if (/^Minus \(/.test(bs.p.ms) && !ctx.hasPlus) delete pay.energySelf;
+  /* 負電：快照裡是 `energy`，但欄位語意（正電給食材、負電**給隊友**能量）說它是
+     發出去的，不是回自己的。遊戲內說明沒有再確認過對象，所以**刻意維持原行為** ——
+     這裡把它轉成 `energyTeam`，數值和改動前逐位相同（`energyTeam*5 === energySelf`）。
+     轉換的目的只是讓 `energySelf` 這個名字從此只代表「真的只回自己」。 */
+  if (/^Minus \(/.test(bs.p.ms)){
+    const e = pay.energySelf || 0; delete pay.energySelf;
+    if (ctx.hasPlus && e) pay.energyTeam = (pay.energyTeam || 0) + e/5;
+  }
+  /* 「回自己活力」要**自己收下**，不能丟進 `ctx.supportEnergy` 分給全隊（見 simulate）。
+     這是定點迭代：活力↑ → 幫忙間隔↓ → 幫忙次數↑ → 技能發動↑ → 活力↑。
+     單調遞增而且有上限（活力上限 150、`energyF` 最快 0.45），所以會收斂。
+     只有帶 `energySelf` 的那 **45 隻**要多跑（活力填充S 34 ＋ 月光 1 ＋ 萬用技能 10 ——
+     `WILDCARD` 那些的平均值裡本來就含一份自回活力），其餘一次就結束、成本完全沒變。 */
+  let sim = simulate(bs, m, wk, ctx, 0);
+  if (pay.energySelf){
+    for (let it = 0; it < 4; it++){
+      const next = simulate(bs, m, wk, ctx, sim.procs * pay.energySelf);
+      const done = Math.abs(next.procs - sim.procs) < 1e-4;
+      sim = next;
+      if (done) break;
+    }
+  }
   const ing = new Float64Array(NING);
   for (let i=0;i<NING;i++) ing[i] = sim.productive * bs.ingChance * bs.ingVec[i];
   if (pay.ingSpread) { const per = sim.procs*pay.ingSpread/MAGNET_POOL.length; for (const i of MAGNET_POOL) ing[i] += per; }
@@ -302,7 +333,11 @@ function memberOutput(m, wk, ctx){
   const skillStrength = sim.procs * (pay.strength||0);
   return {sim, pay, ing, berryStrength, skillStrength,
           potBonus: sim.procs*(pay.pot||0),
-          energyGiven: sim.procs*((pay.energyTeam||0)*5 + (pay.energySelf||0)),
+          /* **只算發給隊友的那一份。** 「回自己」的已經在上面的定點迭代裡由牠自己收下，
+             再算進來就是重複計分 —— 而且 `teamContext` 會把它 ÷5 攤給另外四隻，
+             等於持有者少拿 4/5、隊友白拿。實測持有者的幫忙次數因此低估 31%。 */
+          energyGiven: sim.procs*(pay.energyTeam||0)*5,
+          energySelfGiven: sim.procs*(pay.energySelf||0),
           /* 每天扣掉的活力（負值），之後在 teamContext 裡加總成 ctx.darkDrain。 */
           energyDrain: /^Bad Dreams/.test(bs.p.ms) ? -sim.procs*BAD_DREAMS_DRAIN : 0,
           helpsGiven: sim.procs*((pay.helpsAll||0)*5 + (pay.helpsOne||0)),
@@ -766,7 +801,25 @@ function monPowerCached(m){
  *  食材型少算整整一格 —— 那正是食材型主指標的來源。第 4／5 格副技能要 Lv70／80，
  *  多數箱子到不了，所以不納入；**已經超過 60 的就用牠的實際等級**，不丟掉已知資訊。
  *
- *  代價：分子也必須是「牠在同一個等級」的產能（`self`），不是畫面上那個當前產能。 */
+ *  **分子也要把「練得起來的東西」一起規範化掉**（緞帶 4、主技能滿級），不能只規範等級。
+ *
+ *  以前分子是 `{...m, level: 60}` —— 緞帶與主技能等級沿用牠現在的值，分母卻是滿的。
+ *  於是同一份資質會**因為「還沒練」而顯示低分**：實測妙蛙花 51% vs 78%、雷丘 54% vs 76%
+ *  （性格／副技能／食材組合完全相同，只差緞帶 0→4、技能 Lv1→滿）。使用者照這個數字
+ *  排序、略過低分的，剛好略過了最該投資的那幾隻 —— 一個會自我實現的惡性循環
+ *  （使用者 2026-09-10 直接反映）。規範化之後這個比值只剩**改不掉的部分**：
+ *  性格、副技能、食材組合。
+ *
+ *  所以這個函式一次回三個數字，各自對應一種資源：
+ *
+ *  | 回傳 | 是什麼 | 回答 | 可比範圍 |
+ *  |---|---|---|---|
+ *  | `self` | 練滿（Lv60・緞帶4・技能滿級）的產能 | **等級糖果先餵誰** | 同專長內 |
+ *  | `self ÷ 理想個體` | 資質（只剩性格＋副技能＋食材組合） | **這一隻是不是好貨** | 同物種內 |
+ *  | `self − skillNow` | 主技能等級練滿多產多少 | **技能糖果先給誰** | 全體（同一種資源） |
+ *
+ *  `skillNow` 只把主技能等級退回牠現在的值，其餘（等級、緞帶）維持規範化 ——
+ *  這樣那個差額才是**單獨**技能等級的貢獻，不混進等級或緞帶。 */
 const IDEAL_LEVEL = 60;
 function monIdeal(m){
   const p = D.dex[m.sp];
@@ -775,6 +828,8 @@ function monIdeal(m){
   /* 評價等級：至少 60，已經更高就用牠自己的 —— 分子分母都在這個等級上。 */
   const lvl = Math.max(IDEAL_LEVEL, m.level);
   const at = {...m, level: lvl};
+  /* 分子的基準：等級、緞帶、主技能等級**全部**規範化，只留下改不掉的資質。 */
+  const atFull = {...at, ribbon: 4, skillLv: maxSkillLv};
   const slots = [0,1,2,3,4].filter(s => lvl >= SS_SLOT_LV[s]);
   const ingOpts = [p.i0, p.i30, p.i60].map(l => (l || []).length);
   const nIngSlots = Math.min(Math.floor(lvl/30) + 1, 3);
@@ -813,16 +868,19 @@ function monIdeal(m){
   cur.nature = bestNat;
   cur.ss = fillSs();                                   // ④ 最佳性格會改變哪個副技能最值錢
 
-  /* ⑤ 保底：**牠自己（在同一個評價等級上）**也是候選，從結構上保證「理想 ≥ 實際」。
-        這裡一定要用 `at` 不是 `m` —— 分母若是 Lv60、分子是 Lv30，比值就沒有意義，
-        而且貪婪漏掉組合時會冒出超過 100% 的數字。 */
+  /* ⑤ 保底：**分子本人**（`atFull`）也要是候選，從結構上保證「理想 ≥ 分子」。
+        一定要用 `atFull` 而不是 `m` 或 `at` —— 分子分母若不在同一個基準
+        （等級、緞帶、主技能等級三樣都要一致），比值就沒有意義；而且貪婪逐格挑的時候
+        可能漏掉有交互作用的組合，漏掉時就會冒出超過 100% 的數字，看起來像壞掉。 */
   let best = null, bestScore = -Infinity;
-  for (const c of [cur, {...at, ribbon: 4, skillLv: maxSkillLv, ingSet: cur.ingSet.slice()}, {...at}]){
+  for (const c of [cur, {...atFull, ingSet: cur.ingSet.slice()}, atFull]){
     const v = val(c); if (v > bestScore){ bestScore = v; best = c; }
   }
-  /* `self` ＝ 牠**在評價等級上**的產能，也就是百分比的分子。放在這裡回傳，
-     UI 才不用自己再算一次（兩份一定會走鐘）。 */
-  return {...monPower(best), member: best, lvl, self: monPower(at)};
+  /* 三個數字一起回，UI 不用自己再算一次（兩份一定會走鐘）。
+     `skillNow` 只退主技能等級，所以 `self − skillNow` 就是技能等級**單獨**的貢獻。 */
+  return {...monPower(best), member: best, lvl, maxSkillLv,
+          self: monPower(atFull),
+          skillNow: monPower({...atFull, skillLv: m.skillLv})};
 }
 
 /* ================= SEARCH ================= */

@@ -14,7 +14,7 @@
      這裡、下面載入器的 ASSET_V、以及 src/app.js 的 APP_V。
      光靠 ?v= 只是降低機率，APP_V 的斷言才會真的擋下過期的 app.js。
      tests/smoke.mjs 第 11 節會斷言三處一致。 -->
-<link rel="stylesheet" href="./src/app.css?v=20260909o">
+<link rel="stylesheet" href="./src/app.css?v=20260910a">
 </head>
 <body>
 <div class="wrap">
@@ -329,7 +329,9 @@
           <option value="no">圖鑑編號</option>
           <option value="power">產能（專長內）</option>
           <option value="ingAmt">選定食材的產量</option>
-          <option value="ideal">潛力（％，離自己天花板多近）</option>
+          <option value="full">練滿產能（等級糖果先餵誰）</option>
+          <option value="ideal">資質％（性格與副技能，同物種內比）</option>
+          <option value="skillRoom">技能成長（技能糖果先給誰）</option>
           <option value="level">等級</option>
           <option value="spec">專長</option>
           <option value="ms">主技能</option>
@@ -504,7 +506,7 @@ try {
      也放到 window 上：app.js 有一份自己的 APP_V，兩者不符就整頁擋下來。
      理由和 game.json 的 SCHEMA 一樣 —— 過期的 app.js 會靜靜地畫出舊版 UI，
      而使用者只會覺得「你根本沒改」，完全不知道是快取。 */
-  const ASSET_V = '20260909o';
+  const ASSET_V = '20260910a';
   window.ASSET_V = ASSET_V;
   for (const src of ['./src/engine.js', './src/import.js', './src/app.js']) {
     await new Promise((ok, bad) => {
