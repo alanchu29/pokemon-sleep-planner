@@ -21,7 +21,7 @@ if (!D || !D.ings || !D.dex || !D.recipes || !D.ms) {
    ASSET_V 擋到的路徑** —— 主執行緒載新引擎、worker 載到快取的舊引擎時，
    搜尋（worker）與 rehydrate／決賽（主執行緒）會用兩套不同的公式，
    不會報錯，只會靜靜地算出對不起來的分數。app.js 會比對這個值。 */
-const ENGINE_V = '20260910d';
+const ENGINE_V = '20260910e';
 
 const ING_NAME = D.ings.map(x=>x[0]);
 const ING_VAL  = D.ings.map(x=>x[1]);
@@ -390,15 +390,21 @@ function memberOutput(m, wk, ctx){
      那一份也跟著翻倍。Lv6 的 teamBerry 是 5 顆 ×4 人 = 20 顆，對照 selfBerry 30 顆，
      所以那是這個技能約四成的產出。
 
-     `ctx.mateBerryPow` 是**整隊五隻**的 `樹果能量 × 各自的加成倍率` 總和，
-     所以這裡要把自己那一份扣掉。單獨一隻時（寶可夢箱的 SCORE_CTX）沒有隊友，
-     這一項就是 0 —— 那是對的，而且 `monPower` 會標「隊伍型」徽章把它說出來。 */
-  if (pay.teamBerry){
-    const mates = Math.max(0, (ctx.mateBerryPow || 0) - bp*favMul);
-    berryStrength += sim.procs*pay.teamBerry*mates;
-  }
+     ⚠ **這一份不在這裡加進 `berryStrength`，而是回傳係數讓 `scoreTeam` 事後補**
+     （`mateBerryAdd`）。理由是記憶化：隊友樹果總和（`ctx.mateBerryPow`）幾乎每一隊
+     都不同，把它放進 `ctxKey` 會讓快取從「收斂在幾千筆」變成**跟組合數線性成長**。
+     實測 42 隻的箱子（850,668 組）memo 從 6,415 筆爆到 487,899 筆（76 倍），
+     89 隻（41,507,642 組）跑到 25% 就把 renderer 的記憶體吃光 —— 分頁直接
+     Out of Memory 崩掉（使用者 2026-09-10 回報）。dedicated worker 和主執行緒
+     **共用同一個 renderer 行程**，所以六個 worker 的快取是加總的。
+
+     移出去之後 `ctxKey` 回到有界，而數值**完全等價**（不是近似、不是量化）——
+     這一項對每個成員是 `係數 × (隊伍總和 − 自己那一份)`，係數只跟牠自己有關。
+     只有真的帶這個技能的那一隻係數非 0，所以每隊最多複製一個 out 物件。 */
+  const mateBerryCoef = pay.teamBerry ? sim.procs*pay.teamBerry : 0;
   const skillStrength = sim.procs * (pay.strength||0);
   return {sim, pay, ing, berryStrength, skillStrength,
+          mateBerryCoef, ownBerryPow: bp*favMul,
           potBonus: sim.procs*(pay.pot||0),
           /* **只算發給隊友的那一份。** 「回自己」的已經在上面的定點迭代裡由牠自己收下，
              再算進來就是重複計分 —— 而且 `teamContext` 會把它 ÷5 攤給另外四隻，
@@ -417,7 +423,16 @@ const qH = v => Math.round(v*2)/2;
 /** Helper Boost 的列數是 `{樹果: 同樹果的不同物種數}` —— 一隊可能有**好幾個**持有者
  *  （三神獸的樹果各不相同），所以它是 map 不是純量。序列化要排序過才穩定。 */
 const hbKey = r => r ? Object.keys(r).sort().map(b => b+':'+r[b]).join(',') : '';
-function ctxKey(c){ return c.nHB+'|'+c.nERB+'|'+c.supportEnergy+'|'+c.extraHelps+'|'+hbKey(c.hbRows)+'|'+(c.hasPlus?1:0)+(c.hasMinus?1:0)+(c.hasLatias?1:0)+(c.hasLatios?1:0)+'|'+c.darkDrain+'|'+c.nDragon+'|'+(c.mateBerryPow||0); }
+/** ⚠ 這裡的每一項都必須是**有界**的（量化過或本來就只有幾種值）——
+ *  `memberOutput` 的記憶化靠它，而搜尋是幾千萬組。放一個連續值進來（例如
+ *  `ctx.mateBerryPow` 那種「整隊樹果能量總和」）會讓快取跟組合數線性成長，
+ *  89 隻的箱子直接把 renderer 的記憶體吃光。那一項因此**不在這裡**，改由
+ *  `scoreTeam` 事後補（見 `mateBerryAdd`）。 */
+function ctxKey(c){ return c.nHB+'|'+c.nERB+'|'+c.supportEnergy+'|'+c.extraHelps+'|'+hbKey(c.hbRows)+'|'+(c.hasPlus?1:0)+(c.hasMinus?1:0)+(c.hasLatias?1:0)+(c.hasLatios?1:0)+'|'+c.darkDrain+'|'+c.nDragon; }
+/** 「發給隊友的樹果」那一份：`係數 × (整隊樹果能量總和 − 自己那一份)`。
+ *  刻意留在記憶化之外 —— 理由見 `ctxKey` 與 `memberOutput` 的註解。 */
+const mateBerryAdd = (o, ctx) =>
+  o.mateBerryCoef ? o.mateBerryCoef * Math.max(0, (ctx.mateBerryPow||0) - o.ownBerryPow) : 0;
 function teamContext(idxs, roster, wk, memo){
   let nHB=0, nERB=0, hasPlus=false, hasMinus=false, hasLatias=false, hasLatios=false;
   /* 流星群：「隊伍中有越多**不同種類的龍屬性**幫手寶可夢，樹果數量就會增加得越多」
@@ -452,8 +467,9 @@ function teamContext(idxs, roster, wk, memo){
   // two-pass: neutral context to size team-wide skill support, then re-evaluate
   const nDragon = Math.max(1, Math.min(5, dragonKinds.size));
   /* 「發樹果給隊友」那類技能要用**隊友自己的樹果**算（見 memberOutput）。
-     這個總和幾乎每一隊都不同，所以**只有隊上真的有那種技能時才算** ——
-     其餘一律 0，`ctxKey` 因此不變，記憶化的粒度也就不受影響。 */
+     這個總和幾乎每一隊都不同，所以它**不進 `ctxKey`** —— 由 `scoreTeam` 在
+     記憶化之外事後補。這裡的 `some(...)` 只是省掉 5 次 `berryPower`，
+     和快取粒度無關（那條線在 `ctxKey` 上）。 */
   let mateBerryPow = 0;
   if (idxs.some(i => givesTeamBerry(roster[i]._bs.p.ms))){
     for (const i of idxs){
@@ -522,7 +538,12 @@ function scoreTeam(idxs, roster, wk, memo){
   let berryS=0, skillS=0, pot=0, critAdd=0;
   const outs = [];
   for (const i of idxs){
-    const o = getOut(i, roster, wk, ctx, memo);
+    let o = getOut(i, roster, wk, ctx, memo);
+    /* 「發給隊友的樹果」是記憶化之外的那一項（見 ctxKey）。memo 裡的物件是**跨隊
+       共用**的，所以不能就地改 —— 但只有真的帶那個技能的那一隻係數非 0，
+       所以一支隊伍最多複製一個。 */
+    const add = mateBerryAdd(o, ctx);
+    if (add) o = {...o, berryStrength: o.berryStrength + add};
     outs.push(o);
     for (let k=0;k<NING;k++) ing[k] += o.ing[k];
     berryS += o.berryStrength; skillS += o.skillStrength; pot += o.potBonus; critAdd += o.critAdd;

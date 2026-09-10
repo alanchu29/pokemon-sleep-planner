@@ -3161,22 +3161,44 @@ console.log('\n[5d] 發給隊友的樹果，算的是隊友自己的樹果');
     buildPool(wk);
     // 隊友刻意挑四種**不同**的樹果，只有其中一隻和持有者同款（或一隻都沒有）
     const mates = ['PIKACHU', 'BULBASAUR', 'CHARMANDER', 'SQUIRTLE'];
-    const go = fav => {
+    /* 走 `scoreTeam`（＝推演真正用的那條路）而不是直接叫 `memberOutput` ——
+       「發給隊友的樹果」刻意留在記憶化之外，`memberOutput` 自己那份 berryStrength
+       本來就不含它。看真正的隊伍產出才是這一節要驗的東西。 */
+    const teamBerryS = (names, fav) => {
       const w = {...wk, fav: new Set(fav)};
-      roster = [holder.n, ...mates].map(mk);
+      roster = names.map(mk);
       roster.forEach(m => (m._bs = baseStats(m, w)));
-      const c = teamContext([0,1,2,3,4], roster, w, new Map());
-      return {b: memberOutput(roster[0], w, c).berryStrength, key: ctxKey(c)};
+      return scoreTeam([0,1,2,3,4], roster, w, new Map()).outs[0].berryStrength;
     };
-    const none = go([]), holderOnly = go([holder.b]);
+    const team = [holder.n, ...mates];
+    const none = teamBerryS(team, []), holderOnly = teamBerryS(team, [holder.b]);
     const mateBerries = mates.map(n => D.dex.find(x => x.n === n).b);
     // 換掉隊友（樹果組成不同）→ 持有者的樹果產出必須跟著變
-    roster = [holder.n, 'PIKACHU', 'PIKACHU', 'PIKACHU', 'PIKACHU'].map(mk);
-    roster.forEach(m => (m._bs = baseStats(m, wk)));
-    const same = memberOutput(roster[0], wk,
-      teamContext([0,1,2,3,4], roster, wk, new Map())).berryStrength;
-    return {none: none.b, holderOnly: holderOnly.b, same,
-            keyDiff: none.key !== holderOnly.key,
+    const same = teamBerryS([holder.n, 'PIKACHU', 'PIKACHU', 'PIKACHU', 'PIKACHU'], []);
+    /* ⚠ 快取粒度：`ctxKey` 的每一項都必須有界。這個總和幾乎每一隊都不同，
+       放進去會讓 memo 跟組合數線性成長 —— 89 隻的箱子跑到 25% 就 OOM。 */
+    const kA = ctxKey({...SCORE_CTX, mateBerryPow: 0});
+    const kB = ctxKey({...SCORE_CTX, mateBerryPow: 1234.5678});
+
+    /* 移出記憶化的代價：memo 現在被 `mateBerryPow` 不同的隊伍**共用**。漏掉任何一處
+       事後補的話，答案就會取決於「這個 memo 之前算過誰」—— 那是靜靜地算錯。
+       所以直接比「共用 memo」與「每隊一份新 memo」：任何一組對不上就是串味了。 */
+    const w2 = {...wk, fav: new Set([holder.b])};
+    roster = [holder.n, 'PIKACHU', 'BULBASAUR', 'CHARMANDER', 'SQUIRTLE',
+              'RATTATA', 'GEODUDE', 'DIGLETT'].map(mk);
+    roster.forEach(m => (m._bs = baseStats(m, w2)));
+    const shared = new Map();
+    let leak = null, checked = 0;
+    for (let a = 1; a < 8; a++) for (let b = a + 1; b < 8; b++) for (let c = b + 1; c < 8; c++){
+      const t = [0, a, b, c, a === 1 && b === 2 ? 3 : 1].filter((v, i, arr) => arr.indexOf(v) === i);
+      if (t.length !== 5) continue;
+      checked++;
+      const s1 = scoreTeam(t, roster, w2, shared).outs.map(o => o.berryStrength);
+      const s2 = scoreTeam(t, roster, w2, new Map()).outs.map(o => o.berryStrength);
+      if (s1.some((v, i) => Math.abs(v - s2[i]) > 1e-9)) leak = leak || `${t} → ${s1[0]} vs ${s2[0]}`;
+    }
+    return {none, holderOnly, same,
+            keyStable: kA === kB, leak, checked,
             holderBerry: holder.b, mateBerries,
             teamOnly: monPower(mk(holder.n)).teamOnly};
   });
@@ -3188,11 +3210,21 @@ console.log('\n[5d] 發給隊友的樹果，算的是隊友自己的樹果');
         + `（比值 ${(r.holderOnly / r.none).toFixed(3)}，隊友樹果 ${r.mateBerries.join('/')}）`);
   ok('但持有者自己那一份確實有吃到加成（不是完全沒差）',
      r && r.holderOnly > r.none * 1.05, r && (r.holderOnly / r.none).toFixed(3));
-  /* 隊友是誰會改變答案 → 那個總和一定要進 ctxKey，否則記憶化會串味（陷阱 6）。 */
+  /* 隊友是誰會改變答案 —— 這一項因此必須真的被算進去（走 scoreTeam 那條路）。 */
   ok('換掉隊友的樹果組成，持有者的樹果產出跟著變',
      r && Math.abs(r.same - r.none) > 1,
      r && `四種樹果 ${r.none.toFixed(1)} vs 全皮卡丘 ${r.same.toFixed(1)}`);
-  ok('mateBerryPow 有進 ctxKey', r && r.keyDiff, String(r && r.keyDiff));
+  /* ⚠ 反過來的守門：它**不可以**進 ctxKey。這個總和幾乎每一隊都不同，放進去會讓
+     `memberOutput` 的 memo 從「收斂在幾千筆」變成跟組合數線性成長 —— 實測 42 隻的
+     箱子 6,415 → 487,899 筆（76 倍），89 隻（4,150 萬組）跑到 25% 就把 renderer
+     的記憶體吃光，分頁 Out of Memory（使用者 2026-09-10 回報）。
+     `ctxKey` 的每一項都必須是有界的（量化過或本來就只有幾種值）。 */
+  ok('但它不可以進 ctxKey（連續值會讓記憶化跟組合數線性成長 → OOM）',
+     r && r.keyStable, String(r && r.keyStable));
+  /* 移出快取鍵的代價：memo 被 mateBerryPow 不同的隊伍共用，所以那一項一定要在
+     記憶化之外事後補齊。漏一處的話答案會取決於「這個 memo 之前算過誰」。 */
+  ok('共用 memo 與每隊一份新 memo 的結果完全相同（沒有跨隊串味）',
+     r && !r.leak && r.checked > 0, r && `${r.checked} 組・${r.leak || 'ok'}`);
   /* 單獨一隻沒有隊友，所以那一份是 0 —— **量不到就要標出來**，不能假裝算進去了。 */
   ok('寶可夢箱要標「隊伍型」（單獨一隻量不到這一份）',
      r && /發給隊友的樹果/.test(r.teamOnly), r && r.teamOnly);
