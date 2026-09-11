@@ -3230,6 +3230,195 @@ console.log('\n[5d] 發給隊友的樹果，算的是隊友自己的樹果');
      r && /發給隊友的樹果/.test(r.teamOnly), r && r.teamOnly);
 }
 
+/* EX 營地（專家模式）。**它是「研究區域」的一個選項，不是另一個開關** ——
+   `wk.island` 的值就決定了是不是 EX 以及套哪一組數字（同一件事有兩個來源就會有
+   一個在說謊）。三檔的分界是「主要 / 其他喜好 / 非喜好」：**副喜好樹果既不加速也
+   不被罰**，做成「一組 EX 樹果」的話那 10% 會攤給三種樹果。
+
+   數值來源：遊戲內說明截圖（萌綠之島EX，使用者 2026-09-11 提供）＋ 上游的
+   common/src/events/events/*-expert-mode.ts。 */
+console.log('\n[14] EX 營地（專家模式）：三檔樹果待遇與隨機營地效果');
+{
+  const r = await page.evaluate(() => {
+    const idx = n => D.dex.findIndex(x => x.n === n);
+    const mk = n => ({sp: idx(n), level:60, nature:'Bashful', ss:[null,null,null,null,null],
+      ingSet:[0,0,0], skillLv:3, ribbon:0, pin:false, ex:false, nick:''});
+    /* VICTREEBEL = DURIN（主要・**食材**專長）／GOLDUCK = ORAN（其他喜好・技能專長）
+       ／CRESSELIA = MAGO（非喜好）。三隻剛好各壓一檔。 */
+    const W = (island, exBonus) => ({...wk, island, exBonus, favMain:'DURIN',
+      fav:new Set(['DURIN','ORAN','LEPPA'])});
+    const stat = (name, island, exBonus) => {
+      const m = mk(name), w = W(island, exBonus);
+      const bs = baseStats(m, w); m._bs = bs;
+      const o = memberOutput(m, w, SCORE_CTX);
+      return {tier: bs.exTier, interval: helpInterval(bs, m, w, 0), carry: bs.carry,
+              skillLv: bs.skillLv, effSkill: bs.effSkill, avgIng: bs.avgIngAmt,
+              fillH: o.sim.fillH, berryE: o.berryStrength};
+    };
+    const g = {}, gg = {}, cb = {}, ggB = {}, ggI = {}, ggS = {};
+    for (const n of ['VICTREEBEL','GOLDUCK','CRESSELIA']) {
+      g[n]   = stat(n, 'greengrass', null);
+      gg[n]  = stat(n, 'GGEX', null);
+      cb[n]  = stat(n, 'CBEX', null);
+      ggB[n] = stat(n, 'GGEX', 'berry');
+      ggI[n] = stat(n, 'GGEX', 'ingredient');
+      ggS[n] = stat(n, 'GGEX', 'skill');
+    }
+    /* 「發給隊友的樹果」那一份也要吃到 2.4 —— 它走的是 teamContext 的 mateBerryPow，
+       和 memberOutput 的 favMul 是**兩個**地方。漏掉後者就是 6h 那個 bug 的翻版。 */
+    const holder = D.dex.find(x => x.ms === 'Berry Burst');
+    const teamBerryS = (island, exBonus) => {
+      const w = W(island, exBonus);
+      roster = [holder.n, 'VICTREEBEL', 'VICTREEBEL', 'VICTREEBEL', 'VICTREEBEL'].map(mk);
+      roster.forEach(m => (m._bs = baseStats(m, w)));
+      return scoreTeam([0,1,2,3,4], roster, w, new Map()).outs[0].berryStrength;
+    };
+    const mateBase = teamBerryS('GGEX', null), mateBerry = teamBerryS('GGEX', 'berry');
+    /* 個體產能刻意不套 EX：`SCORE_WK` 連 `island` 欄位都沒有，所以這是自動成立的。
+       那組數字要跨週可比 —— 跟著 EX 跑的話「該練誰」的答案會每搬一次營地就變。 */
+    const mpBase = monPower(mk('VICTREEBEL')).total;
+    wk.island = 'GGEX'; wk.favMain = 'DURIN'; wk.fav = new Set(['DURIN','ORAN','LEPPA']);
+    const mpEx = monPower(mk('VICTREEBEL')).total;
+    wk.island = 'greengrass'; wk.favMain = null; wk.exBonus = null; wk.fav = new Set();
+    return {g, gg, cb, ggB, ggI, ggS, mateBase, mateBerry, mpBase, mpEx, holder: holder && holder.n};
+  });
+  const V = 'VICTREEBEL', G = 'GOLDUCK', C = 'CRESSELIA';
+  ok('三檔判定正確（主要／其他喜好／非喜好）',
+     r.g[V].tier === null && r.gg[V].tier === 'main' && r.gg[G].tier === 'fav' && r.gg[C].tier === 'off',
+     `${r.gg[V].tier}/${r.gg[G].tier}/${r.gg[C].tier}`);
+  /* 幫忙間隔打在**種族頻率**上（上游也是改 pokemon.frequency），所以 floor 之後
+     會差一點點 —— 用 ±1 秒的容差比。 */
+  ok('主要樹果：幫忙間隔縮短 10%（萌綠）／20%（天青）',
+     Math.abs(r.gg[V].interval - r.g[V].interval * 0.9) <= 1
+     && Math.abs(r.cb[V].interval - r.g[V].interval * 0.8) <= 1,
+     `${r.g[V].interval} → GGEX ${r.gg[V].interval} / CBEX ${r.cb[V].interval}`);
+  /* 這一條才是 EX 真正會改變陣容的地方 —— 非喜好樹果被罰，所以牠們會掉出名單。 */
+  ok('非喜好樹果：幫忙間隔延長 15%（萌綠）／35%（天青）',
+     Math.abs(r.gg[C].interval - r.g[C].interval * 1.15) <= 1
+     && Math.abs(r.cb[C].interval - r.g[C].interval * 1.35) <= 1,
+     `${r.g[C].interval} → GGEX ${r.gg[C].interval} / CBEX ${r.cb[C].interval}`);
+  /* **其他喜好樹果既不加速也不被罰。** 把三種樹果當成一組的話這條會紅。 */
+  ok('其他喜好樹果：幫忙間隔完全不變',
+     r.gg[G].interval === r.g[G].interval && r.cb[G].interval === r.g[G].interval,
+     `${r.g[G].interval} / ${r.gg[G].interval} / ${r.cb[G].interval}`);
+  ok('主要樹果：發動的主技能等級 +1（其他兩檔不變）',
+     r.gg[V].skillLv === r.g[V].skillLv + 1 && r.gg[G].skillLv === r.g[G].skillLv
+     && r.gg[C].skillLv === r.g[C].skillLv,
+     `${r.g[V].skillLv} → ${r.gg[V].skillLv}`);
+  ok('天青沙灘EX：主要樹果的持有上限 +5（萌綠之島EX 沒有這一項）',
+     r.cb[V].carry === r.g[V].carry + 5 && r.gg[V].carry === r.g[V].carry,
+     `${r.g[V].carry} → GGEX ${r.gg[V].carry} / CBEX ${r.cb[V].carry}`);
+  /* 營地效果三選一。每一種都只打在**喜好樹果**（主要＋其他）身上。 */
+  ok('營地效果「樹果」：加成樹果的能量倍率 2 → 2.4',
+     Math.abs(r.ggB[V].berryE / r.gg[V].berryE - 1.2) < 1e-6,
+     `×${(r.ggB[V].berryE / r.gg[V].berryE).toFixed(4)}`);
+  ok('營地效果「樹果」：發給隊友的那一份也要吃到（兩處都要改）',
+     !!r.holder && Math.abs(r.mateBerry / r.mateBase - 1.2) < 1e-3,
+     r.holder ? `${r.mateBase.toFixed(1)} → ${r.mateBerry.toFixed(1)}` : 'no holder');
+  ok('營地效果「樹果」：非喜好樹果完全不受影響',
+     r.ggB[C].berryE === r.gg[C].berryE, `${r.gg[C].berryE.toFixed(1)}`);
+  /* 遊戲：「撿來的食材數量會增加 1 個。此外，專長為食材的有時候會額外撿來 2 個。」
+     上游把「有時候」當 50%，所以食材專長是 +1.5 —— **那是假設，不是查到的數字**。 */
+  ok('營地效果「食材」：每次撿食材 +1，食材專長再 +0.5（上游的 50% 假設）',
+     Math.abs(r.ggI[V].avgIng - r.gg[V].avgIng - 1.5) < 1e-9
+     && Math.abs(r.ggI[G].avgIng - r.gg[G].avgIng - 1) < 1e-9
+     && r.ggI[C].avgIng === r.gg[C].avgIng,
+     `食材專長 +${(r.ggI[V].avgIng - r.gg[V].avgIng).toFixed(2)} / 技能專長 +${(r.ggI[G].avgIng - r.gg[G].avgIng).toFixed(2)}`);
+  /* 一次幫忙帶回來的東西變多 → 背包更快滿 → 建議收取間隔要跟著縮短。
+     這是真的會影響推薦的連鎖，不是副作用。 */
+  ok('營地效果「食材」：背包會更快滿（fillH 跟著縮短）',
+     r.ggI[V].fillH < r.gg[V].fillH,
+     `${r.gg[V].fillH.toFixed(2)}h → ${r.ggI[V].fillH.toFixed(2)}h`);
+  ok('營地效果「技能」：喜好樹果者的技能發動率 ×1.25，非喜好不變',
+     r.ggS[G].effSkill > r.gg[G].effSkill * 1.2 && r.ggS[C].effSkill === r.gg[C].effSkill,
+     `${r.gg[G].effSkill.toFixed(4)} → ${r.ggS[G].effSkill.toFixed(4)}`);
+  /* 個體產能要跨週可比 —— 跟著 EX 跑的話「等級糖果先餵誰」的答案會每搬一次營地就變。 */
+  ok('寶可夢箱的個體產能刻意不套 EX（跨週可比）',
+     r.mpBase === r.mpEx, `${r.mpBase.toFixed(4)} / ${r.mpEx.toFixed(4)}`);
+}
+
+console.log('\n[14b] EX 營地：UI 與「沒選主要樹果」的擋門');
+{
+  const r = await page.evaluate(async () => {
+    const out = {};
+    const mk = n => ({sp: D.dex.findIndex(x => x.n === n), level:55, nature:'Bashful',
+      ss:[null,null,null,null,null], ingSet:[0,0,0], skillLv:5, ribbon:0, pin:false, ex:false, nick:''});
+    deserialize({roster: ['VENUSAUR','GENGAR','BLASTOISE','VICTREEBEL','MAROWAK','DODRIO'].map(mk)});
+    D.recipes.forEach(x => { wk.recipeLevels[x.n] = 20; });
+    wk.recipeScope = 'all'; wk.recipePick = 'auto';
+    renderBox();
+    out.opts = [...$('island').options].map(o => o.value);
+    out.labels = [...$('island').options].map(o => o.textContent);
+    out.baseNames = D.islands.map(i => isl(i.n));
+    /* 非 EX 島時那兩個控制項不生效，**留在畫面上會讓人以為有作用**。 */
+    wk.island = 'greengrass'; syncWeeklyUI();
+    out.hiddenOffEx = $('favMainWrap').hidden && $('exBonusWrap').hidden;
+    // 走真的 change 事件 —— 和使用者按下去同一條路
+    $('island').value = 'CBEX'; $('island').dispatchEvent(new Event('change'));
+    out.shownOnEx = !$('favMainWrap').hidden && !$('exBonusWrap').hidden;
+    out.cbFav = [...wk.fav].sort();          // 天青沙灘的固定 3 種要被預填
+    out.favMainOpts = [...$('favMain').options].map(o => o.value).filter(Boolean).sort();
+    out.noteNoMain = $('exNote').hidden ? '' : $('exNote').textContent;
+    // 沒選主要樹果 → 推演要擋下來，而且要指名真正的原因
+    lastResults = null;
+    await run();
+    out.blockedPlan = $('results').textContent;
+    out.ran = !!lastResults;
+    // 自組隊伍的那一面牆：五格都填滿了，不可以說「還差 0 隻」
+    teams = [newTeam()]; teams[0].members = [0,1,2,3,4]; teamShown = 0;
+    showView('team');
+    out.card = $('teamList').textContent.replace(/\s+/g, ' ');
+    out.detail = $('teamDetail').textContent.replace(/\s+/g, ' ');
+    showView('plan');
+    // 選了主要樹果就跑得動，而且結果那一行要寫出現在算的是哪一種狀態
+    $('favMain').value = 'ORAN'; $('favMain').dispatchEvent(new Event('change'));
+    lastResults = null;
+    await run();
+    out.ranAfter = !!lastResults;
+    out.combo = $('comboCount').textContent;
+    out.exTag = /EX減速|EX主要/.test($('results').innerHTML);
+    /* 主要樹果必須是喜好樹果之一 —— 取消勾選之後留著會讓三檔判定靜靜地全變「非喜好」。 */
+    $('favBerries').querySelector('[data-berry="ORAN"]').click();
+    out.favMainCleared = wk.favMain === null;
+    // deserialize 的正規化：認不得的島名要退回，favMain 指到沒勾的樹果也要清掉
+    deserialize({wk: {island: 'NOT_AN_ISLAND', fav: ['ORAN'], favMain: 'DURIN', exBonus: 'nope'}});
+    out.revived = {island: wk.island, favMain: wk.favMain, exBonus: wk.exBonus};
+    wk.island = 'greengrass'; wk.favMain = null; wk.exBonus = null; syncWeeklyUI();
+    return out;
+  });
+  ok('島嶼選單有兩個 EX 島', r.opts.includes('GGEX') && r.opts.includes('CBEX'), r.opts.join(','));
+  /* 名字是「母島的中文名 ＋ EX」—— 抄遊戲畫面（萌綠之島EX），不是自創中文名。 */
+  const exLabels = r.labels.filter(t => /EX$/.test(t));
+  ok('EX 島的名字 = 母島中文名 + EX',
+     exLabels.length === 2 && exLabels.every(t => r.baseNames.includes(t.slice(0, -2))),
+     exLabels.join(',') + ' / 母島：' + r.baseNames.join(','));
+  ok('非 EX 島時兩個 EX 控制項要藏起來', r.hiddenOffEx, String(r.hiddenOffEx));
+  ok('選了 EX 島才出現', r.shownOnEx, String(r.shownOnEx));
+  ok('天青沙灘EX 沿用母島的固定 3 種加成樹果',
+     r.cbFav.join(',') === 'ORAN,PAMTRE,PECHA', r.cbFav.join(','));
+  ok('「主要樹果」的選項只列已勾選的加成樹果',
+     r.favMainOpts.join(',') === r.cbFav.join(','), r.favMainOpts.join(','));
+  ok('沒選主要樹果時要出聲（不是靜靜地當成全部都是其他喜好樹果）',
+     /主要樹果/.test(r.noteNoMain), r.noteNoMain.slice(0, 60));
+  ok('沒選主要樹果 → 推演擋下來', !r.ran, String(r.ran));
+  ok('而且訊息要指名「主要樹果」，不是講別的',
+     /主要樹果/.test(r.blockedPlan), r.blockedPlan.trim().slice(0, 80));
+  /* 和 2e 節同一條規則：每多一種「算不出來」的原因，兩處文案都要跟著分岔。 */
+  ok('自組隊伍不能說「還差 0 隻」', !/還差 ?0 ?隻/.test(r.card), r.card.slice(0, 70));
+  ok('自組隊伍也要指名「主要樹果」，而不是「沒有解鎖的食譜」',
+     /主要樹果/.test(r.card + r.detail) && !/一道食譜都沒有解鎖/.test(r.detail),
+     r.detail.slice(0, 90));
+  ok('選了主要樹果之後就跑得動', r.ranAfter, String(r.ranAfter));
+  /* 回頭看一份結果要分得出它是不是 EX 下算的 —— 不寫出來就分不出。 */
+  ok('結果那一行要寫出島名、主要樹果與營地效果',
+     /EX/.test(r.combo) && /主要/.test(r.combo), r.combo.slice(0, 110));
+  ok('被罰／被加速的成員卡上要標出來', r.exTag, String(r.exTag));
+  ok('取消勾選主要樹果 → favMain 跟著清掉', r.favMainCleared, String(r.favMainCleared));
+  ok('deserialize 要正規化認不得的島名／主要樹果／營地效果',
+     r.revived.island === 'greengrass' && r.revived.favMain === null && r.revived.exBonus === null,
+     JSON.stringify(r.revived));
+}
+
 console.log('\n[12] 快取偏移：schema 不符必須明確擋下');
 {
   ok('資料帶著 schema 版本', await page.evaluate(() => typeof D.meta.schema === 'number'));

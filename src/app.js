@@ -64,7 +64,7 @@ const SCHEMA = 4;   // 4: 新增 msExtra{}（上游沒有的主技能數值表�
    「新的 index.html ＋ 舊的 app.js」—— 畫面畫出舊版 UI，而使用者只會覺得
    「你根本沒改」，完全不知道是快取。有了這個斷言，過期的 app.js 會直接被擋下來
    並要求強制重新整理。tests/smoke.mjs 第 11 節會斷言三處一致。 */
-const APP_V = '20260910e';
+const APP_V = '20260911a';
 
 /** 致命錯誤：整頁換成一段說明。這種狀況下繼續跑只會產生錯的數字。 */
 function fatal(html){
@@ -96,6 +96,15 @@ const bz  = k => (Z.berries   && Z.berries[k])   || k;
 const iz  = k => (Z.ings      && Z.ings[k])      || k;
 const pz  = p => (Z.pk        && Z.pk[p.n])      || p.d;
 const isl = n => (Z.islands   && Z.islands[n])   || n;
+/* ---- EX 營地（專家模式）的顯示層 ----
+   數值表在 engine.js 的 `EX_ISLANDS`；這裡只負責名字與樹果預設值。
+   **顯示名 ＝ 母島的中文名 ＋「EX」** —— 遊戲畫面上就是「萌綠之島EX」，所以那個
+   「EX」是抄來的不是自創的（zh 對照表裡沒有 EX 島這一項，而這個 repo 不自創中文名）。 */
+const islBase    = s => { const ex = EX_ISLANDS[s]; return D.islands.find(i => i.s === (ex ? ex.base : s)) || null; };
+const islName    = s => { const b = islBase(s); return (b ? isl(b.n) : s) + (EX_ISLANDS[s] ? 'EX' : ''); };
+const islBerries = s => { const b = islBase(s); return b ? b.b : []; };
+const EX_BONUS_ZH = {berry:'樹果能量 2.4 倍', ingredient:'食材 +1 個', skill:'主技能發動率 ×1.25'};
+const exBonusLabel = () => wk.exBonus ? EX_BONUS_ZH[wk.exBonus] : '營地效果未計入';
 const msz = n => (Z.ms        && Z.ms[n])        || n;
 const ssz = n => (Z.subskills && Z.subskills[n]) || n;
 const sss = n => (Z.ssShort   && Z.ssShort[n])   || (SS[n] ? SS[n].s : n);
@@ -127,7 +136,7 @@ const f1 = n => (Math.round(n*10)/10).toFixed(1);
 const NICK_MAX = 24;
 const BLANK = () => ({sp: D.dex.findIndex(p=>p.n==='PIKACHU'), level:30, nature:'Bashful', ss:[null,null,null,null,null], ingSet:[0,0,0], skillLv:1, ribbon:0, nick:'', pin:false, ex:false});
 let roster = [];
-let wk = {island:'greengrass', fav:new Set(), areaBonus:15, pot:57, sleepH:8.5, camp:0, collectH:DEFAULT_COLLECT_H, mode:'total', dishType:'curry', recipeName:null, recipeLv:20, recipePick:'auto', recipeScope:'type', recipeLevels:{}, strictBerry:true};
+let wk = {island:'greengrass', fav:new Set(), favMain:null, exBonus:null, areaBonus:15, pot:57, sleepH:8.5, camp:0, collectH:DEFAULT_COLLECT_H, mode:'total', dishType:'curry', recipeName:null, recipeLv:20, recipePick:'auto', recipeScope:'type', recipeLevels:{}, strictBerry:true};
 let lastResults = null, shownAlt = 0;
 /* 「上一次的推演結果已經對不上現在的箱子了」。
  *
@@ -202,6 +211,13 @@ function deserialize(o, opts){
   if (o.wk && !(opts && opts.append)){
     const f = o.wk.fav||[];
     wk = {...wk, ...o.wk, fav:new Set(f), recipeLevels:reviveRecipeLevels(o.wk.recipeLevels)};
+    /* EX 欄位的正規化。舊資料沒有這兩個欄位（`{...wk, ...o.wk}` 會保留預設的 null），
+       但**認不得的島名**會讓 `exOf` 回 null，整個 EX 就靜靜地不生效 —— 使用者看到的
+       是「我明明選了 EX，數字卻沒變」，而畫面上沒有任何提示。所以直接退回萌綠之島。
+       `favMain` 指到沒勾選的樹果也一樣：留著會讓三檔判定全部變成「非喜好」。 */
+    if (!D.islands.some(i => i.s === wk.island) && !EX_ISLANDS[wk.island]) wk.island = 'greengrass';
+    if (!wk.favMain || !wk.fav.has(wk.favMain)) wk.favMain = null;
+    if (!EX_BONUSES.includes(wk.exBonus)) wk.exBonus = null;
   }
   return {badSp};
 }
@@ -575,20 +591,31 @@ function weeklyChanged(){
   if (!$('view-team').hidden) renderTeamsView();
 }
 function buildWeekly(){
-  $('island').innerHTML = D.islands.map(i=>`<option value="${i.s}">${isl(i.n)}</option>`).join('');
+  /* EX 島接在普通島後面。**不另外做一個「現在是 EX」的勾選框** —— `wk.island` 的值
+     就決定了是不是 EX 以及套哪一組數字，同一件事有兩個來源就會有一個在說謊。 */
+  $('island').innerHTML = D.islands.map(i=>`<option value="${i.s}">${isl(i.n)}</option>`).join('')
+    + Object.keys(EX_ISLANDS).map(k=>`<option value="${k}">${islName(k)}</option>`).join('');
   $('favBerries').innerHTML = BERRY_NAMES.map(b=>`<button type="button" class="chip" data-berry="${b}" aria-pressed="false" title="${b.toLowerCase()}">${bz(b)}</button>`).join('');
   $('favBerries').addEventListener('click', e=>{
     const b = e.target.closest('[data-berry]'); if (!b) return;
     const k = b.dataset.berry;
     if (wk.fav.has(k)) wk.fav.delete(k); else wk.fav.add(k);
+    /* 主要樹果一定要是喜好樹果之一。取消勾選之後留著一個指向沒勾選的樹果的值，
+       三檔判定會靜靜地變成「連主要樹果都算非喜好」—— 那是純粹的錯答案。 */
+    if (wk.favMain && !wk.fav.has(wk.favMain)) wk.favMain = null;
     syncWeeklyUI(); weeklyChanged();
   });
   $('island').addEventListener('change', e=>{
     wk.island = e.target.value;
-    const isl = D.islands.find(i=>i.s===wk.island);
-    if (isl && isl.b.length){ wk.fav = new Set(isl.b); }
+    /* EX 島沿用母島的加成樹果（天青沙灘有固定 3 種；萌綠之島是空的，本來就要自己勾）。
+       和原本的行為一致 —— 預填，但使用者可以改。 */
+    const b = islBerries(wk.island);
+    if (b.length){ wk.fav = new Set(b); }
+    if (wk.favMain && !wk.fav.has(wk.favMain)) wk.favMain = null;
     syncWeeklyUI(); weeklyChanged();
   });
+  $('favMain').addEventListener('change', e=>{ wk.favMain = e.target.value || null; syncWeeklyUI(); weeklyChanged(); });
+  $('exBonus').addEventListener('change', e=>{ wk.exBonus = e.target.value || null; syncWeeklyUI(); weeklyChanged(); });
   $('dishType').addEventListener('change', e=>{ wk.dishType = e.target.value; wk.recipeName = null; fillRecipes(); weeklyChanged(); });
   $('recipe').addEventListener('change', e=>{ wk.recipeName = e.target.value; syncRecipeIngs(); weeklyChanged(); });
   for (const [id, key, num] of [['areaBonus','areaBonus',1],['pot','pot',1],['sleepH','sleepH',1],['collectH','collectH',1],['recipeLv','recipeLv',1],['camp','camp',1]]){
@@ -640,7 +667,38 @@ function syncWeeklyUI(){
   $('dishType').disabled = auto && wk.recipeScope === 'all';
   for (const el of $('favBerries').querySelectorAll('[data-berry]'))
     el.setAttribute('aria-pressed', wk.fav.has(el.dataset.berry) ? 'true' : 'false');
+  syncExUI();
   fillRecipes();
+}
+/** EX 營地的兩個控制項。**非 EX 島時整個藏起來** —— 那兩個值在非 EX 島不生效，
+ *  留在畫面上會讓人以為有作用（和「沒解鎖的食譜不列進食譜選單」同一條規則）。
+ *
+ *  兩種「填得不完整」要分開講，不能收斂成同一句：
+ *    沒選主要樹果 → 那 10%／+1 沒有對象，推演會**擋下來**（見 RUN_ERR.exNoMain）
+ *    勾的不是 3 種 → 照樣算，只是和遊戲裡的狀態不一樣 */
+function syncExUI(){
+  const ex = EX_ISLANDS[wk.island];
+  $('favMainWrap').hidden = !ex;
+  $('exBonusWrap').hidden = !ex;
+  const fav = BERRY_NAMES.filter(b => wk.fav.has(b));
+  $('favMain').innerHTML = `<option value="">（還沒選）</option>`
+    + fav.map(b=>`<option value="${b}">${bz(b)}</option>`).join('');
+  $('favMain').value = (wk.favMain && wk.fav.has(wk.favMain)) ? wk.favMain : '';
+  $('exBonus').value = wk.exBonus || '';
+  const note = $('exNote');
+  if (!ex){ note.hidden = true; note.innerHTML = ''; return; }
+  const msg = [];
+  if (!wk.favMain)
+    msg.push(`<b>還沒選主要樹果</b> —— EX 營地的「幫忙間隔縮短 ${Math.round((1-ex.mainFreq)*100)}%、`
+      + `發動的主技能等級 +1${ex.mainCarry?`、持有上限 +${ex.mainCarry}`:''}」只有<b>主要</b>那一種吃得到，`
+      + `沒指定等於整個加成沒有對象，所以推演不會跑。`);
+  if (fav.length !== 3)
+    msg.push(`EX 營地是 <b>1 種主要 ＋ 2 種其他</b>喜好樹果（共 3 種），你現在勾了 <b>${fav.length}</b> 種`
+      + ` —— 照樣算得出來，但那和遊戲裡的狀態不一樣。`);
+  note.hidden = !msg.length;
+  /* 'span2' 要一起寫回去 —— 這個 div 在 .wk 的 grid 裡，掉了就只佔一欄。 */
+  note.className = 'notice warn span2';
+  note.innerHTML = msg.join('<br>');
 }
 
 /* ================= UI: box ================= */
@@ -2037,6 +2095,14 @@ const RUN_ERR = {
       + `（整體已解鎖 ${recipesOn(wk)} / ${D.recipes.length} 道）—— `
       + `把「考慮範圍」改成<b>三類都比較</b>，或到「食譜等級」分頁解鎖這個類型的食譜。`,
   pins:   n => `固定（📌）的寶可夢超過 5 隻，請減少到 5 隻以內。`,
+  /* EX 營地沒指定主要樹果 ＝ 那 10%／+1 沒有對象。**不可以靜靜地當成「全部都是
+     其他喜好樹果」硬算** —— 那會給出一份看起來正常、實際少了整個主要樹果加成的
+     推薦，而畫面上完全看不出來。和「一道食譜都沒解鎖」同一條規則：撞牆時的訊息
+     要指名真正的原因。 */
+  exNoMain: () => `你選的是 <b>${islName(wk.island)}</b>，但還沒指定<b>主要樹果</b> —— `
+    + `EX 營地的「幫忙間隔縮短、發動的主技能等級 +1」只有主要那一種吃得到，`
+    + `沒指定等於整個加成沒有對象。請在上面的<b>「主要樹果」</b>選一種`
+    + `（要先在「本週加成樹果」把它勾起來）。`,
   fewBerry: n => `套用「樹果型只考慮本週加成樹果」之後只剩 ${n} 隻可用（需要 5 隻）。`
               + `請調整本週加成樹果、把需要的成員用 📌 固定（固定的不受此限），或關掉那個選項。`,
 };
@@ -2048,6 +2114,7 @@ async function run(){
   // 前置驗證與主執行緒的準備工作（這些都要 DOM 或會被 renderResults 用到）
   const active = roster.filter(m => !m.ex);
   if (active.length < 5){ $('results').innerHTML = `<div class="notice warn">${RUN_ERR.few(active.length)}</div>`; return; }
+  if (EX_ISLANDS[wk.island] && !wk.favMain){ $('results').innerHTML = `<div class="notice warn">${RUN_ERR.exNoMain()}</div>`; return; }
   wk.recipe = D.recipes.find(r=>r.n===wk.recipeName) || D.recipes[0];
   buildPool(wk);                       // renderResults 的 rankRecipesForTeam 需要 POOL
   if (!POOL.length){ $('results').innerHTML = `<div class="notice warn">${RUN_ERR.nopool()}</div>`; return; }
@@ -2136,6 +2203,9 @@ async function run(){
      過濾 —— 陷阱 4：靜靜地少算候選就是「文案說謊」那一類的 bug。 */
   $('comboCount').textContent = `${res.count.toLocaleString()} 種組合 · ${Math.round(performance.now()-t0)}ms`
     + ` · 食譜 ${recipesOn(wk)}/${D.recipes.length} 道已解鎖`
+    /* EX 的設定會整個改變答案（非喜好樹果被罰 15%／35%），所以**這一行一定要寫出來
+       算的是哪一種狀態** —— 不然回頭看一份結果根本分不出它是不是 EX 下算的。 */
+    + (EX_ISLANDS[wk.island] ? ` · ${islName(wk.island)}（主要 ${bz(wk.favMain)}・${exBonusLabel()}）` : '')
     + (cut ? ` · 已排除 ${cut} 隻樹果不符的樹果型` : '')
     + (nWorkers ? ` · ${nWorkers} 執行緒` : ' · 主執行緒');
   // 排除名單要看得到 —— 靜靜地少算候選是這個 repo 最不想要的行為
@@ -2153,6 +2223,19 @@ $('cancelBtn').addEventListener('click', ()=>{
   setRunning(false);
   $('comboCount').textContent = '已取消';
 });
+
+/** EX 營地的三檔要在卡片上看得見。
+ *
+ *  被罰 15%／35% 的那一隻不標出來的話，使用者只會看到「這隻怎麼這麼慢」而找不到原因
+ *  —— 和「排除名單要顯示出來」、「沒解鎖的食譜要變淡但照樣顯示」同一條規則。
+ *  中間那一檔（其他喜好樹果）**刻意不標**：它既不加速也不被罰，標了只是雜訊。 */
+function exTag(bs){
+  const ex = bs && bs.exTier && EX_ISLANDS[wk.island];
+  if (!ex || bs.exTier === 'fav') return '';
+  return bs.exTier === 'main'
+    ? `<span class="tag exmain" title="EX 營地的主要樹果：幫忙間隔縮短 ${Math.round((1-ex.mainFreq)*100)}%、發動的主技能等級 +1${ex.mainCarry?`、持有上限 +${ex.mainCarry}`:''}">EX主要</span>`
+    : `<span class="tag exoff" title="不是卡比獸喜歡的樹果 —— EX 營地會讓牠的幫忙間隔延長 ${Math.round((ex.offFreq-1)*100)}%">EX減速</span>`;
+}
 
 /* ================= RESULTS RENDER ================= */
 /* 「為什麼是這一隻」。
@@ -2198,7 +2281,7 @@ function pickReason(k, r){
   /* 瓶頸食材是「為什麼非牠不可」最強的理由 —— 換掉牠，主食譜就少煮好幾次。 */
   if (r.bottleneck != null && o.ing[r.bottleneck] * 7 > 1)
     own.push(`供應瓶頸食材 <b>${iz(ING_NAME[r.bottleneck])}</b> ${f1(o.ing[r.bottleneck] * 7)}／週`);
-  if (wk.fav.has(p.b)) flag.push(`產本週加成樹果（能量 ×2）`);
+  if (wk.fav.has(p.b)) flag.push(`產本週加成樹果（能量 ×${favBerryMul(wk, p.b)}）`);
   if (bs.hasHB) flag.push(`帶「幫忙加成」：全隊幫手間隔 −5%`);
   if (bs.hasERB) flag.push(`帶「活力回復提升」：睡眠回復 +14%`);
   if (/^Helper Boost/.test(p.ms)) flag.push(`幫手加速：發動時讓全隊各多幫忙一次`);
@@ -2262,7 +2345,7 @@ function memberCard(rank, i, r, o){
         /* 推演結果是**最需要暱稱的地方**：箱子裡有兩隻妙蛙花時，選中的是哪一隻只有
            暱稱分得出來。但學名也一定要在（不然不知道要看哪一隻的數值），所以並列。 */
         (m.nick||'').trim() ? `<span class="nm-sci">${pz(p)}</span>` : ''
-      }<span class="tag ${SPEC_TAG[p.sp]}">${SPEC_ZH[p.sp]}</span>${wk.fav.has(p.b)?`<span class="tag fav">加成樹果</span>`:''}${m.pin?`<span class="tag pin">固定</span>`:''}</div>
+      }<span class="tag ${SPEC_TAG[p.sp]}">${SPEC_ZH[p.sp]}</span>${wk.fav.has(p.b)?`<span class="tag fav" title="本週加成樹果：樹果能量 ×${favBerryMul(wk, p.b)}">加成樹果</span>`:''}${exTag(bs)}${m.pin?`<span class="tag pin">固定</span>`:''}</div>
       <div class="meta">Lv${m.level} · ${natZ(NAT[m.nature]||NAT.Bashful)} · ${act.length?act.join('／'):'無副技能'} · 頻率 ${Math.round(o.sim.freqBase/60*10)/10}分</div>\n      <div class="meta">${msz(p.ms)} Lv${bs.skillLv} · 每日發動 ${f1(o.sim.procs)} 次 ${msCaveat(p.ms)}</div>
       <div class="meta" style="color:var(--ing)">${ingList.length?ingList.join('　'):'（無食材產出）'}</div>
       <div class="why">${pickReason(rank-1, r)}</div>
@@ -2563,24 +2646,40 @@ function sanitizeTeams(){
   if (teamShown >= teams.length) teamShown = 0;
 }
 
-/** 搜尋與 POOL 的前置，和 `run()` 開頭做的是同一件事。 */
+/** 搜尋與 POOL 的前置，和 `run()` 開頭做的是同一件事。
+ *
+ *  回傳 `null` ＝ 可以算；回傳**代號字串** ＝ 算不出來的原因（給 `t.blocked` 用）。
+ *  **每多一種「算不出來」的原因，這裡就要多一個代號、`TEAM_BLOCK` 就要多一句話。**
+ *  把不同原因收斂成同一句正是 2e 節那一類 bug 的溫床（五格都填滿了卻說「還差 0 隻」）。 */
 function prepTeamCalc(){
+  if (EX_ISLANDS[wk.island] && !wk.favMain) return 'exNoMain';
   wk.recipe = D.recipes.find(r=>r.n===wk.recipeName) || D.recipes[0];
   buildPool(wk);
-  if (!POOL.length) return false;
+  if (!POOL.length) return 'nopool';
   roster.forEach(m => { m._bs = baseStats(m, wk); });
-  return true;
+  return null;
 }
+/** `t.blocked` 的每一種原因各自的話：短的給隊伍卡、長的給詳情區。 */
+const TEAM_BLOCK = {
+  nopool: {
+    short: '算不出來（沒有解鎖的食譜）',
+    long:  '這支隊伍已經滿 5 隻，但<b>一道食譜都沒有解鎖</b>，所以算不出料理分數 —— 到右上角的<b>「食譜等級」</b>分頁，把你會煮的那幾道按「解鎖」並填上等級（或先按「全部解鎖」再逐一調整）。',
+  },
+  exNoMain: {
+    short: '算不出來（還沒選主要樹果）',
+    long:  '這支隊伍已經滿 5 隻，但你選的是 <b>EX 營地</b>而還沒指定<b>主要樹果</b> —— 到「本週設定」分頁的「主要樹果」選一種（要先在「本週加成樹果」勾起來），否則 EX 的幫忙間隔縮短與主技能等級 +1 沒有對象。',
+  },
+};
 /** 一支隊伍的結果。**湊滿 5 隻才算**（見下），沒滿就是 null。
  *
  *  `t.blocked` ＝「人湊滿了，但算不出來」。目前唯一的原因是**一道食譜都沒解鎖**
  *  （`prepTeamCalc` 的 POOL 是空的）。這兩件事一定要分開 —— 混在一起的話，
  *  五格都填好的隊伍會顯示「還差 0 隻」，而詳情區還在說「湊滿 5 隻才會算出結果」。
  *  兩句都是假話，而且會把使用者推去找一個不存在的問題。 */
-function computeTeam(t, ready){
+function computeTeam(t, block){
   t.result = null;
-  t.blocked = !ready;
-  if (!ready) return;
+  t.blocked = block || false;
+  if (block) return;
   if (t.members.some(x => x == null)) return;
   /* `teamContext` 的 `energyTeam*5` 與 `qE(energy/5)` 兩邊都寫死 5 人，所以不足 5 隻
      算出來的數字沒有意義（技能補的能量會被低估）。與其給一個看起來像答案的錯數字，
@@ -2688,7 +2787,7 @@ function teamCardHTML(t, ti){
       <b>隊伍 ${ti+1}</b>
       ${r ? `<span class="tmtot">週能量 ${fmt(r.total)}</span>`
           : filled < 5 ? `<span class="muted">還差 ${5-filled} 隻</span>`
-          : `<span class="muted">算不出來（沒有解鎖的食譜）</span>`}
+          : `<span class="muted">${(TEAM_BLOCK[t.blocked]||TEAM_BLOCK.nopool).short}</span>`}
       <button type="button" class="tmx" data-delteam="${ti}"
         title="${teams.length>1?'刪除這支隊伍':'清空這支隊伍'}">✕</button>
     </div>
@@ -2735,10 +2834,10 @@ function renderTeamDetailPane(){
   const done = teams.map((t,i)=>({t,i})).filter(x => x.t.result);
   if (!done.length){
     /* 「還沒湊滿」和「湊滿了但沒有食譜可煮」要分開講 —— 見 computeTeam 的 t.blocked。 */
-    const blocked = teams.some(t => t.blocked && t.members.every(x => x != null));
+    const blocked = teams.find(t => t.blocked && t.members.every(x => x != null));
     host.innerHTML = !roster.length ? ''
       : blocked
-      ? `<div class="notice warn" style="margin-top:16px">這支隊伍已經滿 5 隻，但<b>一道食譜都沒有解鎖</b>，所以算不出料理分數 —— 到右上角的<b>「食譜等級」</b>分頁，把你會煮的那幾道按「解鎖」並填上等級（或先按「全部解鎖」再逐一調整）。</div>`
+      ? `<div class="notice warn" style="margin-top:16px">${(TEAM_BLOCK[blocked.blocked]||TEAM_BLOCK.nopool).long}</div>`
       : `<div class="notice" style="margin-top:16px">每支隊伍湊滿 5 隻才會算出結果 —— 隊伍情境（幫忙加成、技能補能量、Helper Boost 的列數）要 5 隻才成立，不足 5 隻算出來的數字沒有意義。</div>`;
     return;
   }
@@ -2776,8 +2875,8 @@ function renderTeamsView(){
     $('teamCompare').innerHTML = ''; $('teamDetail').innerHTML = '';
     syncTeamBar(); return;
   }
-  const ready = prepTeamCalc();
-  teams.forEach(t => computeTeam(t, ready));
+  const block = prepTeamCalc();
+  teams.forEach(t => computeTeam(t, block));
   host.innerHTML = teams.map((t,i)=>teamCardHTML(t,i)).join('');
   renderTeamCompare();
   renderTeamDetailPane();

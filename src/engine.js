@@ -21,7 +21,7 @@ if (!D || !D.ings || !D.dex || !D.recipes || !D.ms) {
    ASSET_V 擋到的路徑** —— 主執行緒載新引擎、worker 載到快取的舊引擎時，
    搜尋（worker）與 rehydrate／決賽（主執行緒）會用兩套不同的公式，
    不會報錯，只會靜靜地算出對不起來的分數。app.js 會比對這個值。 */
-const ENGINE_V = '20260910e';
+const ENGINE_V = '20260911a';
 
 const ING_NAME = D.ings.map(x=>x[0]);
 const ING_VAL  = D.ings.map(x=>x[1]);
@@ -49,6 +49,58 @@ const MS_EXTRA = D.msExtra || {};
 const BAD_DREAMS_DRAIN = 12;
 /* 治癒波動（活力療癒S）一次打 2 隻 —— 見 rawPayload。一般的活力療癒S 是 1 隻。 */
 const HEAL_PULSE_TARGETS = 2;
+/* ---- 專家模式（EX 營地）-------------------------------------------------
+   上游把 EX 寫成 EventBuilder **函式**（common/src/events/events/*-expert-mode.ts）
+   而不是資料，所以 tools/extract-data.mjs 抽不出 JSON —— 和 BAD_DREAMS_DRAIN 同一個
+   處理方式：數值寫在這裡，出處寫在註解。
+
+   萌綠之島EX 的數字有遊戲內說明截圖當憑據（使用者 2026-09-11 提供）：
+     「撿來卡比獸喜歡的樹果（**主要**）的寶可夢，幫忙能力會提升
+        ・幫手寶可夢的幫忙間隔縮短 10%
+        ・幫手寶可夢發動的主技能等級提升 1
+      不撿來卡比獸喜歡的樹果的寶可夢，幫忙能力會降低
+        ・幫手寶可夢的幫忙間隔延長 15%」
+   天青沙灘EX（×0.8／×1.35／攜帶 +5）**只有上游程式碼**，沒有截圖確認。
+
+   ⚠ 三檔的分界是「主要 / 其他喜好 / 非喜好」—— **副喜好樹果既不加速也不被罰**。
+   做成「一組 EX 樹果」的話，那 10% 會攤給三種樹果，等於憑空多算兩種樹果型的速度。 */
+const EX_ISLANDS = {
+  GGEX: {base:'greengrass', mainFreq:0.90, offFreq:1.15, mainSkillLv:1, mainCarry:0},
+  CBEX: {base:'cyan',       mainFreq:0.80, offFreq:1.35, mainSkillLv:1, mainCarry:5},
+};
+/* 隨機的 EX 營地效果。遊戲內說明：「**每次移動到EX營地時**，都會有 1 種隨機的營地
+   效果生效」—— 所以它不是「本週」的，標籤上不要那樣寫。三種擇一：
+     berry      —「卡比獸喜歡的樹果」帶來的能量增加量會變成 2.4 倍
+     ingredient — 喜好樹果者平常幫忙撿來的食材 +1 個；**專長為食材**的有時候再額外 +1
+     skill      — 喜好樹果者的主技能發動機率變成 1.25 倍
+   ⚠「有時候」遊戲沒有給機率，上游取 50%（rollExpertIngredientBonus），所以這裡用
+     期望值 +0.5。**那是上游的假設，不是查到的數字** —— 已知簡化要寫出來。 */
+const EX_BONUSES = ['berry', 'ingredient', 'skill'];
+const EX_FAV_BERRY_MUL = 2.4;
+const EX_ING_ADD = 1;
+const EX_ING_SPECIALIST_EV = 0.5;
+const EX_SKILL_MUL = 1.25;
+const FAV_BERRY_MUL = 2;
+
+/** 這一份週設定是不是 EX 營地；不是就回 null。**單一真實來源是 `wk.island`** ——
+ *  不另外開一個 `wk.ex` 布林，同一件事有兩個來源就一定會有一個在說謊。 */
+const exOf = wk => (wk && EX_ISLANDS[wk.island]) || null;
+/** EX 營地下這一隻屬於哪一檔：`'main'`（主要樹果）／`'fav'`（其他喜好樹果）／
+ *  `'off'`（非喜好樹果）。非 EX 島一律 null —— 所以 `SCORE_WK`（連 `island` 欄位都
+ *  沒有）與截圖匯入（`wk` 只有 `camp`）**自動**不受影響，不必另外加判斷。 */
+function exTier(wk, berry){
+  const ex = exOf(wk); if (!ex) return null;
+  if (wk.favMain && berry === wk.favMain) return 'main';
+  return (wk.fav && wk.fav.has(berry)) ? 'fav' : 'off';
+}
+/** 加成樹果倍率（EX 的「樹果」營地效果會把它從 2 抬到 2.4）。
+ *  **兩個地方都要走這一份**：`memberOutput` 的 `favMul`，以及 `teamContext` 的
+ *  `mateBerryPow`（發給隊友的樹果算的是隊友自己的樹果與**隊友自己的**加成倍率）。
+ *  漏掉後者就是 CLAUDE.md 6h 那個 bug 的翻版 —— 而且一樣不會報錯。 */
+function favBerryMul(wk, berry){
+  if (!wk.fav || !wk.fav.has(berry)) return 1;
+  return (exOf(wk) && wk.exBonus === 'berry') ? EX_FAV_BERRY_MUL : FAV_BERRY_MUL;
+}
 const MAGNET_POOL = ING_NAME.map((n,i)=>i).filter(i=>ING_NAME[i]!=='Tail');
 const MEALS_WEEK = 21;
 /* 白天平均多久上線收取一次（小時）。**這個遊戲不會自動收取**，所以產出是按
@@ -81,8 +133,18 @@ function baseStats(m, wk){
   const p = D.dex[m.sp], nat = NAT[m.nature] || NAT.Bashful;
   const act = activeSubskills(m);
   const h = nm => act.includes(nm);
+  /* EX 營地（專家模式）。非 EX 島時 `exT` 是 null，底下每一項都退回原本的值 ——
+     所以個體產能（`SCORE_WK` 沒有 `island`）與截圖匯入（`wk` 只有 `camp`）**逐位不變**。 */
+  const ex = exOf(wk), exT = ex ? exTier(wk, p.b) : null;
+  const exFav = exT === 'main' || exT === 'fav';
+  /* 上游把修正打在**種族頻率**上（`pokemon.frequency` ×0.9／×1.15），所以這裡也先乘
+     進 `freq`，再交給 `helpInterval` 的 floor 與底下的 `pity` —— 順序跟上游一致。 */
+  const freq = p.f * (exT === 'main' ? ex.mainFreq : exT === 'off' ? ex.offFreq : 1);
   const invAdd = (h('Inventory Up S')?6:0)+(h('Inventory Up M')?12:0)+(h('Inventory Up L')?18:0);
-  const carry = Math.ceil((p.cs + 5*p.pe + invAdd + RIBBON_CARRY[m.ribbon||0]) * (wk.camp?1.2:1));
+  /* 天青沙灘EX 的主要樹果持有上限 +5。和 `invAdd`／`RIBBON_CARRY` 同一層（種族值那一
+     層），所以會一起吃到好露營券的 ×1.2 —— 上游也是加在 `pokemon.carrySize` 上。 */
+  const carry = Math.ceil((p.cs + 5*p.pe + invAdd + RIBBON_CARRY[m.ribbon||0]
+                           + (exT === 'main' ? ex.mainCarry : 0)) * (wk.camp?1.2:1));
   const ingChance = Math.min(1, (p.ip/100) * nat.i * (1 + (h('Ingredient Finder S')?0.18:0) + (h('Ingredient Finder M')?0.36:0)));
   const berriesPerDrop = ((p.sp==='berry'||p.sp==='all')?2:1) + (h('Berry Finding S')?1:0);
   const slots = Math.min(Math.floor(m.level/30)+1, 3);
@@ -90,20 +152,30 @@ function baseStats(m, wk){
   const opts = [p.i0, p.i30, p.i60];
   const ingVec = new Float64Array(NING);
   let avgIngAmt = 0;
+  /* EX 的「食材」營地效果：喜好樹果者平常幫忙撿來的食材 +1 個，專長為食材的再加上
+     「有時候額外 +1」的期望值（上游把「有時候」當 50%，見 EX_ING_SPECIALIST_EV）。
+     ⚠ 它同時會讓 `avgIngAmt` 變大 → `dropPerHelp` 變大 → **背包更快滿**
+     （`helpsTillFull`），所以成員卡上的「背包裝滿 N」與整隊的「建議收取間隔」會跟著
+     縮短。那是對的，不是 bug —— 一次幫忙帶回來的東西真的變多了。 */
+  const exIngAdd = (ex && wk.exBonus === 'ingredient' && exFav)
+    ? EX_ING_ADD + (p.sp === 'ingredient' ? EX_ING_SPECIALIST_EV : 0) : 0;
   for (let s=0;s<slots;s++){
     const list = opts[s] || [];
     const pick = list[Math.min(m.ingSet[s]||0, list.length-1)];
     if (!pick) continue;
-    ingVec[pick[0]] += pick[1]/slots;
-    avgIngAmt += pick[1]/slots;
+    ingVec[pick[0]] += (pick[1]+exIngAdd)/slots;
+    avgIngAmt += (pick[1]+exIngAdd)/slots;
   }
   const skillLvMax = (D.ms[p.ms]||{max:6}).max;
-  const skillLv = Math.max(1, Math.min(skillLvMax, (m.skillLv||1) + (h('Skill Level Up M')?2:0) + (h('Skill Level Up S')?1:0)));
-  const skillChance = (p.sk/100) * (1 + (h('Skill Trigger S')?0.18:0) + (h('Skill Trigger M')?0.36:0)) * nat.s;
-  const pity = p.sp==='skill' ? Math.floor(144000/p.f) : 78;
+  /* 主要樹果的「發動的主技能等級提升 1」。放在 clamp 之內 —— 已經滿級的不會超出。 */
+  const skillLv = Math.max(1, Math.min(skillLvMax, (m.skillLv||1) + (h('Skill Level Up M')?2:0) + (h('Skill Level Up S')?1:0)
+                                                   + (exT === 'main' ? ex.mainSkillLv : 0)));
+  const skillChance = (p.sk/100) * (1 + (h('Skill Trigger S')?0.18:0) + (h('Skill Trigger M')?0.36:0)) * nat.s
+                      * (ex && wk.exBonus === 'skill' && exFav ? EX_SKILL_MUL : 1);
+  const pity = p.sp==='skill' ? Math.floor(144000/freq) : 78;
   const effSkill = skillChance<=0 ? 0 : skillChance/(1 - Math.pow(1-skillChance, pity+1));
   const natureFreqMul = 2 - nat.f;
-  return {p, nat, act, h, carry, ingChance, berriesPerDrop, slots, ingVec, avgIngAmt, dark: DARK.has(p.n), dragon: DRAGON.has(p.n),
+  return {p, nat, act, h, freq, exTier: exT, carry, ingChance, berriesPerDrop, slots, ingVec, avgIngAmt, dark: DARK.has(p.n), dragon: DRAGON.has(p.n),
           skillLv, effSkill, natureFreqMul, hasHB:h('Helping Bonus'), hasERB:h('Energy Recovery Bonus'),
           ribbonMul:ribbonFreqMul(m.ribbon||0, p.re)};
 }
@@ -187,7 +259,9 @@ function rawPayload(msName, lv){
 function helpInterval(bs, m, wk, nHB){
   const helpSS = Math.max(0.65, 1 - (bs.h('Helping Speed M')?0.14:0) - (bs.h('Helping Speed S')?0.07:0) - 0.05*Math.min(5, nHB));
   const levelFactor = 1 - 0.002*(m.level-1);
-  return Math.floor(round4(bs.natureFreqMul * helpSS * levelFactor * bs.ribbonMul) * bs.p.f / (wk.camp?1.2:1));
+  /* `bs.freq` 而不是 `bs.p.f` —— EX 營地的頻率修正已經乘在種族頻率上（見 baseStats）。
+     非 EX 島時 `bs.freq === bs.p.f`，所以舊行為逐位不變。 */
+  return Math.floor(round4(bs.natureFreqMul * helpSS * levelFactor * bs.ribbonMul) * bs.freq / (wk.camp?1.2:1));
 }
 /** Simulate one member's day. ctx = {nHB,nERB,supportEnergy (per day, to each member), extraHelps}
  *
@@ -376,7 +450,7 @@ function memberOutput(m, wk, ctx){
   const ing = new Float64Array(NING);
   for (let i=0;i<NING;i++) ing[i] = sim.productive * bs.ingChance * bs.ingVec[i];
   if (pay.ingSpread) { const per = sim.procs*pay.ingSpread/MAGNET_POOL.length; for (const i of MAGNET_POOL) ing[i] += per; }
-  const favMul = wk.fav.has(bs.p.b) ? 2 : 1;
+  const favMul = favBerryMul(wk, bs.p.b);
   const bp = berryPower(bs.p.b, m.level);
   let berryStrength = sim.berries * bp * favMul;
   if (pay.selfBerry) berryStrength += sim.procs*pay.selfBerry*bp*favMul;
@@ -474,7 +548,7 @@ function teamContext(idxs, roster, wk, memo){
   if (idxs.some(i => givesTeamBerry(roster[i]._bs.p.ms))){
     for (const i of idxs){
       const bs = roster[i]._bs;
-      mateBerryPow += berryPower(bs.p.b, roster[i].level) * (wk.fav.has(bs.p.b) ? 2 : 1);
+      mateBerryPow += berryPower(bs.p.b, roster[i].level) * favBerryMul(wk, bs.p.b);
     }
   }
   let ctx = {nHB, nERB, supportEnergy:0, extraHelps:0, darkDrain:0, hbRows, hasPlus, hasMinus, hasLatias, hasLatios, nDragon, mateBerryPow};

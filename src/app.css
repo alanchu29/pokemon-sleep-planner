@@ -118,6 +118,10 @@ input[type=range]{width:100%;accent-color:var(--accent)}
 .tag.all{background:color-mix(in srgb,var(--pos) 18%,transparent);color:var(--pos)}
 .tag.fav{background:color-mix(in srgb,var(--berry) 90%,var(--ink));color:#fff}
 .tag.pin{background:var(--surface-3);color:var(--ink-2)}
+/* EX 營地（專家模式）的三檔。中間那一檔（其他喜好樹果）刻意沒有標籤 ——
+   它既不加速也不被罰，標了只是雜訊。 */
+.tag.exmain{background:color-mix(in srgb,var(--pos) 88%,var(--ink));color:#fff}
+.tag.exoff{background:color-mix(in srgb,var(--neg) 82%,var(--ink));color:#fff}
 /* 惡屬性 —— 只跟達克萊伊「夢魘」的扣活力有關，所以用中性色，不搶專長標籤的位置 */
 .tag.dark{background:color-mix(in srgb,var(--ink) 72%,transparent);color:var(--surface)}
 
