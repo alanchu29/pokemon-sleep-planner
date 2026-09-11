@@ -21,7 +21,7 @@ if (!D || !D.ings || !D.dex || !D.recipes || !D.ms) {
    ASSET_V 擋到的路徑** —— 主執行緒載新引擎、worker 載到快取的舊引擎時，
    搜尋（worker）與 rehydrate／決賽（主執行緒）會用兩套不同的公式，
    不會報錯，只會靜靜地算出對不起來的分數。app.js 會比對這個值。 */
-const ENGINE_V = '20260911a';
+const ENGINE_V = '20260911b';
 
 const ING_NAME = D.ings.map(x=>x[0]);
 const ING_VAL  = D.ings.map(x=>x[1]);
@@ -32,7 +32,33 @@ const NAT = Object.fromEntries(D.natures.map(n=>[n.n,n]));
 const SS = Object.fromEntries(D.subskills.map(s=>[s.n,s]));
 const SS_SLOT_LV = [10,25,50,70,80];
 const RIBBON_CARRY = [0,1,3,6,8];
+/* 料理大成功。上游把它拆得很清楚（common/src/types/constants.ts）：
+     平日 10% 機率、能量 x2；週日 30% 機率、能量 x3
+   一週 21 餐 = 18 平日 + 3 週日，加權起來
+     (18*(1+0.1*1) + 3*(1+0.3*2)) / 21 = 24.6/21 = 1.171428571
+   —— 正好等於底下這個常數，所以 AVG_CRIT 不是烘死的魔術數字，它是這組機率的期望值。
+   **拆出來的理由**：有了機率本身，「大成功機率 +N 個百分點」（料理機率提升S、以及
+   本週活動加成）才算得出來；只有平均倍率的話那種加成無從下手。 */
+const CRIT_MEALS   = [18, 3];        // 平日 / 週日的餐數，合計 MEALS_WEEK
+const CRIT_CHANCE  = [0.10, 0.30];   // 各自的基礎大成功機率
+const CRIT_GAIN    = [1, 2];         // 各自大成功時「多出來」的倍率（x2 -> +1、x3 -> +2）
 const AVG_CRIT = 1.171428571;
+/** 一週平均的大成功倍率；`add` 是額外的大成功**機率**（0~1，加在基礎機率上）。
+ *
+ *  ⚠ `add === 0` 時直接回傳 AVG_CRIT 那個既有常數，**不是重算** —— 重算會得到
+ *  1.1714285714285714，和寫死的 9 位小數差 4e-10，足以讓「沒有活動、沒有料理機率
+ *  技能時逐位不變」那條回歸斷言變紅。差的是常數的精度，不是模型。 */
+function critMultiplier(add){
+  if (!add) return AVG_CRIT;
+  let base = 0, now = 0;
+  for (let i=0;i<2;i++){
+    base += CRIT_MEALS[i] * CRIT_CHANCE[i] * CRIT_GAIN[i];
+    now  += CRIT_MEALS[i] * Math.min(1, CRIT_CHANCE[i] + add) * CRIT_GAIN[i];
+  }
+  return AVG_CRIT + (now - base) / MEALS_WEEK;
+}
+/* 一天煮幾餐。`critAdd` 要除以它 —— 見 memberOutput 裡那一段。 */
+const MEALS_DAY = 3;
 // Helper Boost extra helps: rows = unique species on the team sharing its berry (1-5)
 const HB_TABLE = [[2,3,3,4,4,5],[2,3,3,4,5,6],[3,4,5,6,7,8],[4,5,6,7,8,9],[6,7,8,9,10,11]];
 /* 屬性清單（內部名）。上游的 dex **沒有屬性欄位**，這份來自 tools/types.txt ——
@@ -101,6 +127,34 @@ function favBerryMul(wk, berry){
   if (!wk.fav || !wk.fav.has(berry)) return 1;
   return (exOf(wk) && wk.exBonus === 'berry') ? EX_FAV_BERRY_MUL : FAV_BERRY_MUL;
 }
+/* ================= 本週活動加成（自訂） =================
+   遊戲會辦期間限定的活動：主技能發動機率上升、樹果能量上升、食材獲得量上升、
+   料理能量上升、大成功機率上升。數值每次活動都不一樣，所以這一組**沒有內建表**，
+   由使用者自己勾選並輸入。
+
+   ⚠ 和 `wk.areaBonus`（地區加成）的分別：`areaBonus` 是乘在樹果＋技能＋料理
+   **全部**上面的總乘數，表示不出「只有料理 +25%」這種活動。所以這五項是分項的。
+
+   ⚠ 和 EX 營地效果（`wk.exBonus`）的分別：EX 那三種是固定數值、而且**只打喜好
+   樹果**；活動加成打全員、任何島都生效。兩者**獨立相乘**（使用者 2026-09-11 指定），
+   所以畫面上一定要把合成後的倍率寫出來，例如樹果能量 x2.4 x1.2 = x2.88。
+
+   `evt` 這個欄位不存在時（`SCORE_WK` 個體產能、截圖匯入的 `wk` 只有 `camp`）
+   `evtPct` 一律回 0 —— 和 `exOf` 同一個手法，那兩條路徑不必加任何判斷。
+   個體產能刻意不吃（使用者 2026-09-11：「箱子裡呈現的都是個體的預設，與該週的任何
+   條件無關」）。 */
+const EVT_KEYS = ['skill', 'berry', 'ing', 'dish', 'crit'];
+/** 勾起來時的數值，沒勾或沒有這個欄位一律 0。
+ *  前四項的單位是**百分比**（+N% -> 乘 1+N/100），`crit` 是**百分點**（加在機率上）。 */
+function evtPct(wk, key){
+  const e = wk && wk.evt && wk.evt[key];
+  if (!e || !e.on) return 0;
+  const v = +e.v;
+  return v > 0 ? v : 0;
+}
+/** 前四項用的乘數。 */
+const evtMul = (wk, key) => 1 + evtPct(wk, key)/100;
+
 const MAGNET_POOL = ING_NAME.map((n,i)=>i).filter(i=>ING_NAME[i]!=='Tail');
 const MEALS_WEEK = 21;
 /* 白天平均多久上線收取一次（小時）。**這個遊戲不會自動收取**，所以產出是按
@@ -159,19 +213,31 @@ function baseStats(m, wk){
      縮短。那是對的，不是 bug —— 一次幫忙帶回來的東西真的變多了。 */
   const exIngAdd = (ex && wk.exBonus === 'ingredient' && exFav)
     ? EX_ING_ADD + (p.sp === 'ingredient' ? EX_ING_SPECIALIST_EV : 0) : 0;
+  /* 本週活動「食材獲得量 +N%」。**乘在含 EX 那 +1 之後的總量上**（使用者 2026-09-11
+     指定）—— 活動的語意是「你這次幫忙撿到的東西變多」，而 EX 那一顆已經是你撿到的
+     一部分。火辣香草 x7 + EX 的 1 + 活動 20% = 9.6 個，不是 9.4 個。
+     ⚠ **只打幫忙撿來的這一條路徑**（使用者指定：「技能跟撿的是不同的」）——
+     主技能灑出來的食材（`pay.ingSpread`，食材獲取S／怪力鉗那類）不吃這個加成。 */
+  const evtIngMul = evtMul(wk, 'ing');
   for (let s=0;s<slots;s++){
     const list = opts[s] || [];
     const pick = list[Math.min(m.ingSet[s]||0, list.length-1)];
     if (!pick) continue;
-    ingVec[pick[0]] += (pick[1]+exIngAdd)/slots;
-    avgIngAmt += (pick[1]+exIngAdd)/slots;
+    ingVec[pick[0]] += (pick[1]+exIngAdd)*evtIngMul/slots;
+    avgIngAmt += (pick[1]+exIngAdd)*evtIngMul/slots;
   }
   const skillLvMax = (D.ms[p.ms]||{max:6}).max;
   /* 主要樹果的「發動的主技能等級提升 1」。放在 clamp 之內 —— 已經滿級的不會超出。 */
   const skillLv = Math.max(1, Math.min(skillLvMax, (m.skillLv||1) + (h('Skill Level Up M')?2:0) + (h('Skill Level Up S')?1:0)
                                                    + (exT === 'main' ? ex.mainSkillLv : 0)));
-  const skillChance = (p.sk/100) * (1 + (h('Skill Trigger S')?0.18:0) + (h('Skill Trigger M')?0.36:0)) * nat.s
-                      * (ex && wk.exBonus === 'skill' && exFav ? EX_SKILL_MUL : 1);
+  /* 本週活動「主技能發動機率 +N%」。和 EX 的 x1.25 同一處、獨立相乘。
+     **一定要 clamp 到 1**：底下 `effSkill` 的保底公式含 `(1-skillChance)^(pity+1)`，
+     機率超過 1 會讓底數變負數，偶次方又變正，算出來的是垃圾而且不會報錯。
+     原本沒有 clamp 是因為 `p.sk/100` 最大約 0.2、副技能與性格頂多再翻一倍多；
+     活動加成可以輸到 +300%，所以這道門現在是必要的。 */
+  const skillChance = Math.min(1, (p.sk/100) * (1 + (h('Skill Trigger S')?0.18:0) + (h('Skill Trigger M')?0.36:0)) * nat.s
+                      * (ex && wk.exBonus === 'skill' && exFav ? EX_SKILL_MUL : 1)
+                      * evtMul(wk, 'skill'));
   const pity = p.sp==='skill' ? Math.floor(144000/freq) : 78;
   const effSkill = skillChance<=0 ? 0 : skillChance/(1 - Math.pow(1-skillChance, pity+1));
   const natureFreqMul = 2 - nat.f;
@@ -452,7 +518,12 @@ function memberOutput(m, wk, ctx){
   if (pay.ingSpread) { const per = sim.procs*pay.ingSpread/MAGNET_POOL.length; for (const i of MAGNET_POOL) ing[i] += per; }
   const favMul = favBerryMul(wk, bs.p.b);
   const bp = berryPower(bs.p.b, m.level);
-  let berryStrength = sim.berries * bp * favMul;
+  /* 本週活動「樹果能量 +N%」**只打幫忙撿來的那一份**（使用者 2026-09-11 指定：
+     Q16「只有撿的」）。所以主技能發出的樹果 —— `selfBerry`（樹果遽增／流星群發給
+     自己的）與發給隊友的那一份（`mateBerryCoef` / `ownBerryPow`）—— 刻意不吃。
+     ⚠ 下一個讀到這裡的人幾乎一定會覺得「樹果能量加成竟然不打樹果技能」是 bug。
+     **那是使用者指定的範圍，不是漏掉** —— 要改之前先去問他。 */
+  let berryStrength = sim.berries * bp * favMul * evtMul(wk, 'berry');
   if (pay.selfBerry) berryStrength += sim.procs*pay.selfBerry*bp*favMul;
   /* 「發給隊友的樹果」拿的是**隊友自己的樹果**，不是持有者的。
      遊戲內說明（樹果遽增／流星群都一樣）：「獲得自己**以及隊伍中的寶可夢**會撿來的
@@ -488,7 +559,22 @@ function memberOutput(m, wk, ctx){
           /* 每天扣掉的活力（負值），之後在 teamContext 裡加總成 ctx.darkDrain。 */
           energyDrain: /^Bad Dreams/.test(bs.p.ms) ? -sim.procs*BAD_DREAMS_DRAIN : 0,
           helpsGiven: sim.procs*((pay.helpsAll||0)*5 + (pay.helpsOne||0)),
-          critAdd: Math.min(0.7, sim.procs*(pay.critChance||0)/100)};
+          /* 料理機率提升系（美味機會S `[4,5,6,7,8,10]`、怪力鉗 `[1,2,2,3,3,4,5]`）
+             每次發動讓**下一餐**的大成功機率 +N 個百分點。所以要把「每日發動次數」
+             換算成「每餐期望值」—— 除以 MEALS_DAY。
+
+             ⚠ 這裡以前是 `Math.min(0.7, sim.procs*pay.critChance/100)`，**沒有除以
+             餐數**，於是每日 3 次發動 x 10 點被當成「每一餐都 +30 點」。配上當時
+             `critMul` 那個 `critAdd*0.8`（正確加權是 1.1428，見 critMultiplier），
+             淨效果是把這一系的貢獻**高估約 2.1 倍** —— 也就是把料理機率型往推薦
+             名單裡推。2026-09-11 兩個因子一起修正（使用者指定一批做完）。
+
+             0.7 那個上限拿掉了：單餐機率的上限現在由 `critMultiplier` 的
+             `Math.min(1, 基礎+add)` 按平日／週日各自處理，那才是機率真正的天花板。
+
+             ⚠ 這是**期望值近似**：遊戲沒有公布「一餐之前發動兩次能不能疊」以及
+             發動時機與煮飯時機的關係。已知簡化要寫出來。 */
+          critAdd: sim.procs*(pay.critChance||0)/100/MEALS_DAY};
 }
 
 /* -------- team context resolution + memoised member outputs -------- */
@@ -625,9 +711,18 @@ function scoreTeam(idxs, roster, wk, memo){
   const wIng = new Float64Array(NING);
   for (let k=0;k<NING;k++) wIng[k] = ing[k]*7;
   const potEff = Math.round((wk.pot + pot) * (wk.camp?1.5:1));
-  const critMul = AVG_CRIT + critAdd*0.8;
+  /* 大成功倍率。`critAdd` 是隊上料理機率提升系累積的**每餐**額外機率，本週活動的
+     「大成功機率 +N 個百分點」加在同一個地方（單位相同，所以不會兩套算法打架）。
+     ⚠ 這裡以前是 `AVG_CRIT + critAdd*0.8`，那個 0.8 對不上平日／週日的加權
+     （正確是 1.1428），見 critMultiplier 與 memberOutput 的 critAdd 註解。 */
+  const critMul = critMultiplier(critAdd + evtPct(wk, 'crit')/100);
   const areaMul = 1 + wk.areaBonus/100;
-  const mul = critMul * areaMul;
+  /* 本週活動「料理能量 +N%」。和地區加成同一層 —— 作用在**整鍋**上，所以塞進鍋子
+     空位的額外食材也跟著放大（那些食材已經是這鍋料理的一部分）。
+     它折進 `mul` 之後就留在 `dishS` 裡（`dishS` 只把 `areaMul` 除出去再乘回來），
+     所以樹果與主技能那兩項完全不受影響 —— 這正是它和 `areaBonus` 的分別。 */
+  const dishMul = evtMul(wk, 'dish');
+  const mul = critMul * areaMul * dishMul;
   let r, cooksCapped, fits, rv, dishS;
   if (wk.recipePick === 'auto'){
     const b = bestSingleRecipe(wIng, potEff, mul);
@@ -669,7 +764,7 @@ function scoreTeam(idxs, roster, wk, memo){
   const total = (berryS*7 + skillS*7 + dishS) * areaMul;
   const score = wk.mode==='dish' ? dishS*areaMul : wk.mode==='berry' ? berryS*7*areaMul : total;
   return {idxs, ctx, outs, ing, wIng, berryS:berryS*7*areaMul, skillS:skillS*7*areaMul,
-          dishS:dishS*areaMul, total, score, cooksCapped, bottleneck, fits, potEff, rv, critMul, recipe:r, mul};
+          dishS:dishS*areaMul, total, score, cooksCapped, bottleneck, fits, potEff, rv, critMul, dishMul, recipe:r, mul};
 }
 
 let POOL = [];
@@ -866,7 +961,10 @@ function rankRecipesForTeam(r, wk){
     const fits = rec.cnt <= potEff;
     const rv = cand.rv;
     out.push({rec, capped, fits, rv, bn,
-              strength: fits ? capped*rv*r.critMul*(1+wk.areaBonus/100) : 0});
+              /* `r.dishMul`（本週活動的料理能量加成）漏掉的話，這張「這隊最能煮的
+                 食譜」表就會和上面的料理分數對不上 —— 和填充那一列漏掉會導致
+                 「逐列加起來少一截」同一類的 bug。 */
+              strength: fits ? capped*rv*r.critMul*(r.dishMul||1)*(1+wk.areaBonus/100) : 0});
   }
   out.sort((a,b)=>b.strength-a.strength);
   return out;

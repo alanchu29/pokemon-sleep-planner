@@ -87,6 +87,31 @@ input[type=range]{width:100%;accent-color:var(--accent)}
 .wk .span2{grid-column:span 2}
 @media(max-width:640px){.wk .span2{grid-column:span 1}}
 
+/* ---- 本週活動加成（自訂）----
+   自己一塊框線，**刻意不長得像旁邊的料理欄** —— 它擺在料理控制項下方，沒有框線的話
+   會被讀成「料理設定的一部分」，而裡面有三項（技能／樹果／食材）和料理無關。 */
+.evtbox{border:1px solid var(--line);border-radius:10px;background:var(--surface-2);padding:10px 12px}
+.evtbox>summary{cursor:pointer;font-weight:600;font-size:13px;list-style:none;display:flex;
+  flex-wrap:wrap;gap:6px;align-items:baseline}
+.evtbox>summary::-webkit-details-marker{display:none}
+.evtbox>summary::before{content:'▸';font-size:10px;line-height:1.6;color:var(--muted)}
+.evtbox[open]>summary::before{content:'▾'}
+/* 摺起來時就是唯一看得到生效項目的地方，所以它不能是 muted 到看不見的灰。 */
+.evtsum{font-weight:400;font-size:12px;color:var(--ink-2)}
+.evtsum.off{color:var(--muted)}
+/* grid item 一定要 min-width:0 —— `1fr` = `minmax(auto,1fr)`，縮不到 min-content
+   以下，390px 下會把整頁撐出橫向捲動（CLAUDE.md 那個陷阱踩過三次）。 */
+.evtgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(232px,1fr));gap:12px;margin-top:10px}
+.evtgrid>*{min-width:0}
+.evtrow{display:flex;flex-direction:column;gap:4px;font-size:12.5px}
+.evtck{display:flex;gap:6px;align-items:center;cursor:pointer;font-weight:600}
+.evtnum{display:flex;gap:3px;align-items:center;color:var(--ink-2)}
+.evtnum input{width:72px}
+/* 「個百分點」和其他四項的「%」是不同單位，字要小但不能藏 —— 混在一起就是文案說謊。 */
+.evtpp{font-size:11px;color:var(--muted)}
+.evtrow .hint{font-weight:400;font-size:11px;color:var(--muted);opacity:.85;line-height:1.35}
+.evtbox .notice{margin-top:10px}
+
 /* ---- result hero ---- */
 .hero{display:grid;grid-template-columns:minmax(0,1fr) 280px;gap:0}
 @media(max-width:860px){.hero{grid-template-columns:1fr}}

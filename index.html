@@ -14,7 +14,7 @@
      這裡、下面載入器的 ASSET_V、以及 src/app.js 的 APP_V。
      光靠 ?v= 只是降低機率，APP_V 的斷言才會真的擋下過期的 app.js。
      tests/smoke.mjs 第 11 節會斷言三處一致。 -->
-<link rel="stylesheet" href="./src/app.css?v=20260911a">
+<link rel="stylesheet" href="./src/app.css?v=20260911b">
 </head>
 <body>
 <div class="wrap">
@@ -119,6 +119,46 @@
       <label class="f" title="按下食譜頁的「解鎖」時，等級先填這個值（之後可以一道一道改）。&#10;沒解鎖的食譜煮不出來，完全不列入推演。">新解鎖時的等級<span class="muted" style="font-weight:400" id="rlvCount"></span>
         <input type="number" id="recipeLv" min="1" max="70" step="1" value="20">
       </label>
+      <!-- 本週活動加成（自訂）。遊戲會辦期間限定的活動（主技能發動機率／樹果能量／
+           食材獲得量／料理能量／大成功機率上升），數值每次都不一樣，所以沒有內建表。
+
+           **和「地區加成」的分別**：地區加成是乘在樹果＋技能＋料理全部上面的總乘數，
+           表示不出「只有料理 +25%」這種活動。**和 EX 營地效果的分別**：EX 那三種是
+           固定數值而且只打喜好樹果；這五項打全員、任何島都生效，兩者獨立相乘。
+
+           摺起來時 summary 會寫出生效項目 —— 這個 repo 的紅線是「不能讓人看不出為什麼
+           那個數字沒被算」，只要 summary 講出來，摺起來也騙不了人。 -->
+      <details class="span2 evtbox" id="evtBox">
+        <summary>本週活動加成<span class="evtsum" id="evtSum"></span></summary>
+        <div class="evtgrid">
+          <div class="evtrow">
+            <label class="evtck"><input type="checkbox" id="evtSkillOn">主技能發動率</label>
+            <span class="evtnum">+<input type="number" id="evtSkillV" min="0" max="300" step="5" value="0">%</span>
+            <span class="hint">和 EX 的 &times;1.25 相乘。已經撞到「每段最多累積 1~2 次」上限的高頻技能型吃不到，那是對的。</span>
+          </div>
+          <div class="evtrow">
+            <label class="evtck"><input type="checkbox" id="evtBerryOn">樹果能量</label>
+            <span class="evtnum">+<input type="number" id="evtBerryV" min="0" max="300" step="5" value="0">%</span>
+            <span class="hint">只算<b>幫忙撿來</b>的樹果；主技能發出的樹果（樹果遽增／流星群）不吃。</span>
+          </div>
+          <div class="evtrow">
+            <label class="evtck"><input type="checkbox" id="evtIngOn">食材獲得量</label>
+            <span class="evtnum">+<input type="number" id="evtIngV" min="0" max="300" step="5" value="0">%</span>
+            <span class="hint">只算<b>幫忙撿來</b>的食材；主技能灑的（食材獲取S 那類）不吃。背包會更快滿。</span>
+          </div>
+          <div class="evtrow">
+            <label class="evtck"><input type="checkbox" id="evtDishOn">料理能量</label>
+            <span class="evtnum">+<input type="number" id="evtDishV" min="0" max="300" step="5" value="0">%</span>
+            <span class="hint">整鍋一起放大，含填進鍋子空位的食材。樹果與主技能不受影響。</span>
+          </div>
+          <div class="evtrow">
+            <label class="evtck"><input type="checkbox" id="evtCritOn">大成功機率</label>
+            <span class="evtnum">+<input type="number" id="evtCritV" min="0" max="90" step="5" value="0"><span class="evtpp">個百分點</span></span>
+            <span class="hint">平日 10%&rarr;10+N%、週日 30%&rarr;30+N%。<b>單位是百分點，不是倍率</b>。</span>
+          </div>
+        </div>
+        <div class="notice" id="evtNote" hidden></div>
+      </details>
     </div>
     <label style="display:flex;gap:8px;align-items:flex-start;margin-top:14px;cursor:pointer">
       <input type="checkbox" id="strictBerry" checked style="margin-top:2px">
@@ -467,11 +507,23 @@
       白天的段長就是上面「白天多久收一次」，夜間則是一整段（睡眠時數）。
       <b>技能觸發率越高的越吃虧</b>：哥達鴨（觸發率 20.4%，全圖鑑第 2）在「隨時收取」下算出 18.5 次／日，每 4 小時收一次就只剩 <b>9.75 次（53%）</b>；而觸發率低的達克萊伊（3.8%）幾乎不受影響。
       實測同一支隊伍的總能量：每 3 小時收一次 −6.9%、4 小時 −15.4%、6 小時 −27.1%。</li>
-    <li><b>料理</b>：以「本週能煮成幾次目標食譜」計分，一週上限 21 餐，暴擊採週平均 <code class="num">1.171</code>。星期日的鍋子 ×2 與暴擊 ×3 已含在平均裡，但<b>沒有</b>單獨最佳化週日那一餐。</li>
+    <li><b>料理</b>：以「本週能煮成幾次目標食譜」計分，一週上限 21 餐。<b>大成功</b>採週平均 <code class="num">1.171</code>
+      ——「平日 10% 機率／能量 ×2、週日 30%／×3」，21 餐 ＝ 18 平日 ＋ 3 週日 加權而來。星期日的鍋子 ×2 與大成功 ×3 已含在平均裡，但<b>沒有</b>單獨最佳化週日那一餐。
+      <b>「料理機率提升」系主技能（美味機會S、怪力鉗）的修正（2026-09-11）</b>：這類技能讓<b>下一餐</b>的大成功機率 +4~10 個百分點，
+      以前把「每日發動次數」直接當成「每一餐的加成」（少除了一天 3 餐），配上一個對不上平日／週日加權的係數，
+      淨效果是把這一系的貢獻<b>高估約 2.1 倍</b> —— 也就是把牠們往推薦名單裡推。現在換算成每餐期望值。
+      實測帶美味機會S 的隊伍料理分數因此降 8.6%、週能量降 2.3%（帶兩隻則降 12.9%／5.3%），<b>沒帶這類技能的隊伍逐位不變</b>。
+      ⚠ 這是期望值近似：遊戲沒有公布「一餐之前發動兩次能不能疊」以及發動時機與煮飯時機的關係。</li>
     <li><b>鍋子的剩餘空位會填入其他食材（有算）</b>：湊齊食譜需要的食材之後，鍋子還有空位就繼續塞別的食材進去。每一鍋的空位 ＝ 鍋子容量 − 該食譜的食材數，21 餐加起來就是能額外塞的總量。<b>兩種食材的計分方式不同</b>：
-      <table style="margin:6px 0;font-size:12.5px"><thead><tr><th style="text-align:left">食材</th><th>食譜等級倍率</th><th>食譜加成</th><th>大成功</th><th>島嶼加成</th></tr></thead>
+      <!-- .scroll（overflow-x:auto）是必要的，不是裝飾：這張表的 min-content 是 401px，
+           而 390px 手機上這一欄只有 336px —— 沒有捲動容器就會撐出**整頁**橫向捲動。
+           表格可以比畫面寬，但要在自己的捲動容器裡（不可以改成 overflow:hidden，
+           那會把內容裁掉，而這個 repo 的立場是「裁掉等於沒有」）。 -->
+      <div class="scroll" style="margin:6px 0">
+      <table style="font-size:12.5px"><thead><tr><th style="text-align:left">食材</th><th>食譜等級倍率</th><th>食譜加成</th><th>大成功</th><th>島嶼加成</th></tr></thead>
       <tbody><tr><td>食譜規定的基礎食材</td><td style="text-align:center">✓</td><td style="text-align:center">✓</td><td style="text-align:center">✓</td><td style="text-align:center">✓</td></tr>
       <tr><td>額外塞進去填鍋的</td><td style="text-align:center">✗</td><td style="text-align:center">✗</td><td style="text-align:center">✓</td><td style="text-align:center">✓</td></tr></tbody></table>
+      </div>
       額外食材<b>只算它的原始基礎單價</b>（130 分的火辣香草丟進 Lv1 的蘋果汁或 Lv60 的馬卡龍，都一樣是 130），但大成功與島嶼加成作用在整鍋總和上，所以那兩個照吃。因此<b>填鍋要優先用基礎單價高的食材</b>（呆呆獸尾巴 342、南瓜 250、大蔥 185…），這裡就是這樣排的。21 餐排程表有一列「鍋子空位填入其他食材」，會寫出塞了幾個、值多少。</li>
     <li><b>已知近似</b>：挑食譜時按「單道能量」由高到低貪婪，<b>沒有把「這道會留下多少空位」算進去</b>。食材數少的食譜留的空位多，理論上可能反超。實測（591 組抽樣）：只有 2.4~4.6% 的隊伍會因此吃虧，平均低 0.26~1.71%、最多 5.74%。</li>
     <li><b>還沒做</b>：<b>拌拌料理不計分</b> —— 食材連一道正式食譜都湊不齊時，遊戲會退成拌拌料理（仍有能量），這裡當 0。排程表會寫出有幾餐排不進去。</li>
@@ -494,6 +546,26 @@
       <b>那是假設，不是查到的數字</b>。
       <b>②</b>萌綠之島EX 的數字有遊戲內說明畫面可以核對；<b>天青沙灘EX 只有上游程式碼當來源</b>，還沒用遊戲畫面核對過。
       <b>③</b>寶可夢箱的「個體產能／練滿／資質」<b>刻意不套 EX</b>（那組數字要跨週可比），而<b>截圖匯入也不吃 EX 修正</b> —— 請不要拿在 EX 營地拍的寶可夢詳細頁來匯入。</li>
+    <li><b>本週活動加成（自訂，有算）</b>：遊戲的期間限定活動，數值每次都不一樣，所以<b>沒有內建表</b> —— 在「本週條件」底下的
+      <b>本週活動加成</b>自己勾選並填數值。五個分項各自獨立：
+      <div class="scroll" style="margin:6px 0">
+      <table style="font-size:12.5px"><thead><tr><th style="text-align:left">項目</th><th style="text-align:left">單位</th><th style="text-align:left">打在哪裡</th><th style="text-align:left"><b>不</b>打哪裡</th></tr></thead>
+      <tbody>
+      <tr><td>主技能發動率</td><td>+N%</td><td>發動機率</td><td>—</td></tr>
+      <tr><td>樹果能量</td><td>+N%</td><td>幫忙撿來的樹果</td><td>主技能發出的樹果</td></tr>
+      <tr><td>食材獲得量</td><td>+N%</td><td>幫忙撿來的食材</td><td>主技能灑出來的食材</td></tr>
+      <tr><td>料理能量</td><td>+N%</td><td>整鍋（含填鍋的食材）</td><td>樹果、主技能</td></tr>
+      <tr><td>大成功機率</td><td><b>+N 個百分點</b></td><td>平日 10→10+N%、週日 30→30+N%</td><td>樹果、主技能</td></tr>
+      </tbody></table>
+      </div>
+      五件要知道的事：
+      <b>①</b><b>最後一項的單位是百分點，不是倍率</b> —— 前四項是「乘上 1+N%」，大成功那一項是「加在機率上」。
+      <b>②</b>樹果與食材<b>只算幫忙撿來的那一份</b>，主技能發出／灑出的不吃 —— 這是<b>刻意</b>指定的範圍，不是漏算。
+      <b>③</b>和 EX 營地效果<b>獨立相乘</b>（例如 EX 的樹果 ×2.4 再乘活動 +20% ＝ <b>×2.88</b>），合成後的倍率會寫在那一塊的說明與成員卡的「加成樹果」標籤上。
+      <b>④</b>和「地區加成」不是同一件事：地區加成是乘在樹果＋料理＋主技能<b>全部</b>上面的總乘數，表示不出「只有料理 +25%」這種活動。
+      <b>⑤</b>「主技能發動率」對<b>已經撞到「每段最多累積 1~2 次」上限</b>的高頻技能型幾乎沒有效果（見上面「收取區間」），那是對的 —— 存滿了再發動也拿不到。
+      另外，<b>食材變多會讓背包更快滿</b>，所以成員卡的「背包裝滿 N」與整隊的「建議收取間隔」會跟著縮短。
+      寶可夢箱的「個體產能／練滿／資質」<b>刻意不套活動加成</b>，和 EX 同一個理由：那組數字呈現的是個體的預設，與該週的任何條件無關。</li>
     <li><b>候選範圍（刻意的限制）</b>：預設<b>只有產本週加成樹果的樹果型</b>會進候選名單 —— 上面「樹果型只考慮本週加成樹果」那個勾選框控制。食材型／技能型／全能型不受影響。這會排除掉「專長是樹果、但價值來自主技能」的寶可夢（例如天然鳥專長樹果、主技能是食材磁鐵），關掉勾選後總能量會高約 4~7%，但那些隊伍不符合「樹果型該產本週樹果」的要求。<b>被排除的隻數會顯示在推演結果右上角，把滑鼠移上去可以看到名單。</b>📌 固定的成員不受此限。</li>
     <li><b>近似處理</b>：補能量以「每日總量平均攤到白天」計算，不是隨機時點的逐次事件 —— 能量超過 80 沒有加成這件事有算，所以補過頭會被視為浪費。揮指／技能複製／十項全能每次發動會變成別的技能，以<b>全部基礎主技能的平均值</b>近似。</li>
     <li><b>達克萊伊「夢魘（能量填充M）」的扣活力有算</b>：每次發動讓幫手隊伍中<b>惡屬性以外</b>的成員活力 −12（固定值，不隨技能等級變；惡屬性成員與牠自己免疫）。實測同一支隊伍，隊友全非惡屬性時週能量比不算扣活力低 <b>7.3%</b>、兩惡兩非惡低 <b>4.3%</b>、<b>全隊惡屬性則完全不扣</b>。但<b>「誰是惡屬性」不在上游資料裡</b> —— 上游的寶可夢資料沒有屬性欄位，那份清單（目前 13 隻）由本專案維護在 <code>tools/types.txt</code>，所以惡屬性的寶可夢在寶可夢箱裡會標「惡」，可以自己核對。清單漏了誰，那一隻就會被夢魘白扣一次。</li>
@@ -544,7 +616,7 @@ try {
      也放到 window 上：app.js 有一份自己的 APP_V，兩者不符就整頁擋下來。
      理由和 game.json 的 SCHEMA 一樣 —— 過期的 app.js 會靜靜地畫出舊版 UI，
      而使用者只會覺得「你根本沒改」，完全不知道是快取。 */
-  const ASSET_V = '20260911a';
+  const ASSET_V = '20260911b';
   window.ASSET_V = ASSET_V;
   for (const src of ['./src/engine.js', './src/import.js', './src/app.js']) {
     await new Promise((ok, bad) => {

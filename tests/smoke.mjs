@@ -3419,6 +3419,291 @@ console.log('\n[14b] EX 營地：UI 與「沒選主要樹果」的擋門');
      JSON.stringify(r.revived));
 }
 
+console.log('\n[15] 本週活動加成（自訂）：五個分項與各自的作用範圍');
+{
+  const r = await page.evaluate(() => {
+    const idx = n => D.dex.findIndex(x => x.n === n);
+    const mk = n => ({sp: idx(n), level:60, nature:'Bashful', ss:[null,null,null,null,null],
+      ingSet:[0,0,0], skillLv:6, ribbon:4, pin:false, ex:false, nick:''});
+    const RL = {}; D.recipes.forEach(x => { RL[x.n] = 20; });
+    /* `evt` 省略時就是「這個欄位不存在」—— 個體產能與截圖匯入就是這個狀態。 */
+    const W = (evt, extra) => ({...wk, island:'greengrass', favMain:null, exBonus:null,
+      fav:new Set(['DURIN','ORAN','LEPPA']), areaBonus:15, pot:57, sleepH:8.5, camp:0,
+      collectH:4, mode:'total', dishType:'curry', recipeName:null, recipeLv:20,
+      recipePick:'auto', recipeScope:'type', recipeLevels:RL, strictBerry:false,
+      evt, ...(extra || {})});
+    const ALLOFF = Object.fromEntries(EVT_KEYS.map(k => [k, {on:false, v:0}]));
+    const one = (k, v) => ({...ALLOFF, [k]: {on:true, v}});
+
+    const stat = (name, evt, extra) => {
+      const m = mk(name), w = W(evt, extra);
+      const bs = baseStats(m, w); m._bs = bs;
+      const o = memberOutput(m, w, SCORE_CTX);
+      return {interval: helpInterval(bs, m, w, 0), effSkill: bs.effSkill,
+              skillLv: bs.skillLv, avgIng: bs.avgIngAmt, fillH: o.sim.fillH,
+              berryE: o.berryStrength, ingTot: o.ing.reduce((a, b) => a + b, 0),
+              skillE: o.skillStrength, procs: o.sim.procs};
+    };
+    const team = (names, evt, extra) => {
+      const w = W(evt, extra);
+      buildPool(w);
+      roster = names.map(mk);
+      roster.forEach(m => (m._bs = baseStats(m, w)));
+      const t = scoreTeam([0,1,2,3,4], roster, w, new Map());
+      return {total: t.total, berryS: t.berryS, skillS: t.skillS, dishS: t.dishS,
+              critMul: t.critMul, out0: t.outs[0].berryStrength,
+              rank0: rankRecipesForTeam(t, w)[0].strength};
+    };
+    const BASE = ['VENUSAUR','GOLDUCK','ARCANINE','WIGGLYTUFF','GALLADE'];
+    const out = {};
+
+    /* ---- 1) 全關 ＝ 根本沒有這個欄位（舊資料、SCORE_WK、截圖匯入都是後者） ---- */
+    out.offJSON  = JSON.stringify(team(BASE, ALLOFF));
+    out.noneJSON = JSON.stringify(team(BASE, undefined));
+
+    /* ---- 2) 五個分項各自的作用 ---- */
+    out.base   = team(BASE, ALLOFF);
+    out.skill  = team(BASE, one('skill', 50));
+    out.berry  = team(BASE, one('berry', 30));
+    out.ing    = team(BASE, one('ing',   30));
+    out.dish   = team(BASE, one('dish',  25));
+    out.crit   = team(BASE, one('crit',  20));
+    out.zeroed = team(BASE, {...ALLOFF, skill:{on:true, v:0}, dish:{on:true, v:0}});
+    out.unchk  = team(BASE, {...ALLOFF, skill:{on:false, v:50}, dish:{on:false, v:25}});
+
+    /* ---- 3) 樹果加成「只打幫忙撿來的」（使用者 2026-09-11 指定） ----
+       單獨一隻（SCORE_CTX）時 selfBerry 那一份也在 berryStrength 裡，所以整份的
+       增幅一定**小於** 1.3；沒有這一條的話 selfBerry 也被放大，增幅剛好 1.3。 */
+    const bb = D.dex.find(x => x.ms === 'Berry Burst');
+    out.bbName = bb && bb.n;
+    out.bbOff  = bb ? stat(bb.n, ALLOFF).berryE : 0;
+    out.bbOn   = bb ? stat(bb.n, one('berry', 30)).berryE : 0;
+    /* 一隻**沒有**樹果技能的：整份都是撿來的，所以要剛好 1.3 倍。 */
+    out.plainOff = stat('VENUSAUR', ALLOFF).berryE;
+    out.plainOn  = stat('VENUSAUR', one('berry', 30)).berryE;
+
+    /* ---- 4) 食材加成「只打幫忙撿來的」 ---- */
+    const im = D.dex.find(x => x.ms === 'Ingredient Magnet S');
+    out.imName = im && im.n;
+    out.imOff  = im ? stat(im.n, ALLOFF).ingTot : 0;
+    out.imOn   = im ? stat(im.n, one('ing', 30)).ingTot : 0;
+    out.imAvgOff = im ? stat(im.n, ALLOFF).avgIng : 0;
+    out.imAvgOn  = im ? stat(im.n, one('ing', 30)).avgIng : 0;
+
+    /* ---- 5) 食材加成要在 EX 的 +1 **之後**再乘（9.6 而不是 9.4） ---- */
+    const EXW = {island:'GGEX', favMain:'DURIN', exBonus:'ingredient'};
+    out.exIngOnly  = stat('VICTREEBEL', ALLOFF,        EXW).avgIng;
+    out.exIngBoth  = stat('VICTREEBEL', one('ing',20), EXW).avgIng;
+    out.plainIng   = stat('VICTREEBEL', ALLOFF).avgIng;
+
+    /* ---- 6) 食材變多 → 背包更快滿 ---- */
+    out.fillOff = stat('VICTREEBEL', ALLOFF).fillH;
+    out.fillOn  = stat('VICTREEBEL', one('ing', 50)).fillH;
+
+    /* ---- 7) 技能發動率：clamp 到 1，不可以變成 NaN ---- */
+    const hi = stat('GOLDUCK', one('skill', 300));
+    out.hiEff = hi.effSkill; out.hiProcs = hi.procs;
+    out.loEff = stat('GOLDUCK', ALLOFF).effSkill;
+
+    /* ---- 8) 大成功：critMultiplier 的兩端 ---- */
+    out.critAt0  = critMultiplier(0);
+    out.avgCrit  = AVG_CRIT;
+    out.critAt20 = critMultiplier(0.20);
+
+    /* ---- 9) 個體產能刻意不吃（使用者 2026-09-11：「箱子裡呈現的都是個體的預設，
+             與該週的任何條件無關」）。`SCORE_WK` 沒有 `evt` 欄位，所以是自動成立的。 ---- */
+    const mpBefore = monPower(mk('VICTREEBEL')).total;
+    wk.evt = Object.fromEntries(EVT_KEYS.map(k => [k, {on:true, v:50}]));
+    const mpAfter = monPower(mk('VICTREEBEL')).total;
+    wk.evt = blankEvt();
+    out.mpBefore = mpBefore; out.mpAfter = mpAfter;
+
+    /* ---- 10) critMul 修正：帶料理機率技能的隊伍才會動 ---- */
+    out.noCrit   = team(['VENUSAUR','GOLDUCK','ARCANINE','WIGGLYTUFF','GALLADE'], ALLOFF).critMul;
+    out.withCrit = team(['VENUSAUR','GOLDUCK','ARCANINE','WIGGLYTUFF','HERACROSS'], ALLOFF).critMul;
+    return out;
+  });
+
+  const rel = (a, b) => Math.abs(a / b - 1);
+  ok('全關 ＝ 完全沒有 evt 欄位（舊資料／個體產能／截圖匯入都是後者）',
+     r.offJSON === r.noneJSON, r.offJSON.slice(0, 70));
+  ok('勾起來但填 0 ＝ 不生效', r.zeroed.total === r.base.total,
+     `${r.zeroed.total} vs ${r.base.total}`);
+  ok('沒勾但留著數值 ＝ 不生效（下週同一個活動不必重打）',
+     r.unchk.total === r.base.total, `${r.unchk.total} vs ${r.base.total}`);
+
+  /* 樹果加成只乘在撿來的那一份上，所以沒有樹果技能的那一隻剛好 1.3 倍。 */
+  ok('樹果能量 +30%：沒有樹果技能的剛好 ×1.3',
+     rel(r.plainOn, r.plainOff * 1.3) < 1e-9,
+     `${r.plainOff.toFixed(2)} → ${r.plainOn.toFixed(2)}`);
+  /* 這一條是使用者指定的範圍。沒有它的話 selfBerry 也會被放大，比值會剛好 1.3。 */
+  ok('樹果能量加成**不打**主技能發出的樹果（' + r.bbName + '）',
+     r.bbOn > r.bbOff && rel(r.bbOn, r.bbOff * 1.3) > 1e-6,
+     `×${(r.bbOn / r.bbOff).toFixed(4)}（若打到就會是 ×1.3000）`);
+
+  /* 食材那一側的同一條規則。 */
+  ok('食材獲得量 +30%：幫忙撿來的那一份剛好 ×1.3',
+     rel(r.imAvgOn, r.imAvgOff * 1.3) < 1e-9,
+     `${r.imAvgOff.toFixed(4)} → ${r.imAvgOn.toFixed(4)}`);
+  ok('食材加成**不打**主技能灑出來的食材（' + r.imName + '）',
+     r.imOn > r.imOff && rel(r.imOn, r.imOff * 1.3) > 1e-6,
+     `×${(r.imOn / r.imOff).toFixed(4)}（若打到就會是 ×1.3000）`);
+
+  /* 順序：先加 EX 的 +1，再乘活動 —— 反過來會少算（9.6 vs 9.4）。 */
+  ok('食材加成乘在 EX 的 +1 **之後**（不是之前）',
+     rel(r.exIngBoth, r.exIngOnly * 1.2) < 1e-9
+     && rel(r.exIngBoth, r.plainIng * 1.2 + (r.exIngOnly - r.plainIng)) > 1e-6,
+     `EX 單獨 ${r.exIngOnly.toFixed(3)} → 加活動 ${r.exIngBoth.toFixed(3)}`);
+  /* 一次幫忙帶回來的東西真的變多了，所以背包會更快滿。那是對的，不是 bug。 */
+  ok('食材變多 → 背包更快滿（fillH 縮短）', r.fillOn < r.fillOff,
+     `${r.fillOff.toFixed(2)}h → ${r.fillOn.toFixed(2)}h`);
+
+  /* effSkill 的保底公式含 (1-chance)^(pity+1)：機率沒 clamp 就會算出垃圾而且不報錯。 */
+  ok('主技能發動率 +300% 要 clamp 到 1，不可以變成 NaN',
+     Number.isFinite(r.hiEff) && r.hiEff > r.loEff && r.hiEff <= 1
+     && Number.isFinite(r.hiProcs) && r.hiProcs > 0,
+     `effSkill ${r.loEff.toFixed(4)} → ${r.hiEff.toFixed(4)}`);
+
+  /* 料理能量只放大料理 —— 那正是它和「地區加成」的分別。 */
+  ok('料理能量 +25%：料理 ×1.25，樹果與主技能完全不動',
+     rel(r.dish.dishS, r.base.dishS * 1.25) < 1e-9
+     && r.dish.berryS === r.base.berryS && r.dish.skillS === r.base.skillS,
+     `${r.base.dishS.toFixed(2)} → ${r.dish.dishS.toFixed(2)}`);
+  /* 漏掉的話「這隊最能煮的食譜」表會和上面的料理分數對不上。 */
+  ok('「這隊最能煮的食譜」表也要吃料理能量加成',
+     rel(r.dish.rank0, r.base.rank0 * 1.25) < 1e-9,
+     `${r.base.rank0.toFixed(2)} → ${r.dish.rank0.toFixed(2)}`);
+
+  /* 平日 10→30%、週日 30→50%，加權 (18×0.3×1 + 3×0.5×2)/21 + 1 = 1.4。
+     ⚠ 差 4e-10 是**故意的**：`AVG_CRIT` 沿用上游那個截斷到 9 位小數的
+     `1.171428571`（而不是重算 24.6/21），因為「沒有活動時逐位不變」那條回歸靠它。
+     容差放在 1e-8 —— 再緊就是在測那個常數的小數位數，不是在測模型。 */
+  ok('大成功 +20 個百分點 → 一週平均倍率 1.4',
+     Math.abs(r.critAt20 - 1.4) < 1e-8, String(r.critAt20));
+  /* Δ=0 一定要逐位回到既有常數，否則「沒有活動時逐位不變」那條回歸就會紅。 */
+  ok('critMultiplier(0) 逐位等於 AVG_CRIT', r.critAt0 === r.avgCrit,
+     `${r.critAt0} vs ${r.avgCrit}`);
+  ok('大成功加成只動料理，不動樹果與主技能',
+     r.crit.dishS > r.base.dishS && r.crit.berryS === r.base.berryS
+     && r.crit.skillS === r.base.skillS,
+     `${r.base.dishS.toFixed(2)} → ${r.crit.dishS.toFixed(2)}`);
+
+  /* 沒有料理機率技能的隊伍，critMul 就是那個平均值 —— 修正前後都一樣。 */
+  ok('沒有料理機率技能的隊伍 critMul 就是 AVG_CRIT', r.noCrit === r.avgCrit,
+     String(r.noCrit));
+  ok('帶料理機率技能的隊伍 critMul 才會高於平均', r.withCrit > r.noCrit,
+     `${r.noCrit} → ${r.withCrit}`);
+
+  ok('個體產能不吃活動加成（箱子要跨週可比）', r.mpBefore === r.mpAfter,
+     `${r.mpBefore} vs ${r.mpAfter}`);
+}
+
+console.log('\n[15b] 本週活動加成：UI、單位與正規化');
+{
+  const r = await page.evaluate(async () => {
+    const out = {};
+    const mk = n => ({sp: D.dex.findIndex(x => x.n === n), level:55, nature:'Bashful',
+      ss:[null,null,null,null,null], ingSet:[0,0,0], skillLv:5, ribbon:0, pin:false, ex:false, nick:''});
+    deserialize({roster: ['VENUSAUR','GENGAR','BLASTOISE','VICTREEBEL','MAROWAK','DODRIO'].map(mk)});
+    D.recipes.forEach(x => { wk.recipeLevels[x.n] = 20; });
+    wk.recipeScope = 'all'; wk.recipePick = 'auto';
+    wk.fav = new Set(['DURIN','ORAN','LEPPA']);
+    /* 這一節要真的跑一次推演。`strictBerry`（預設開）會把樹果不符的樹果型排除，
+       6 隻的箱子少 1 隻就湊不滿 5 隻，run() 會擋在那裡 —— 那是另一節在測的事。 */
+    wk.strictBerry = false;
+    renderBox();
+
+    /* 活動加成**任何島都生效**，所以不像 EX 那兩個會整個藏起來；它只是預設摺疊。 */
+    wk.island = 'greengrass'; syncWeeklyUI();
+    out.shownOffEx = !$('evtBox').hidden;
+    out.collapsed  = !$('evtBox').open;
+    out.sumNone    = $('evtSum').textContent;
+
+    // 走真的 change 事件 —— 和使用者按下去同一條路
+    const set = (id, on, v) => {
+      const ck = $('evt' + id + 'On'), num = $('evt' + id + 'V');
+      num.value = String(v); num.dispatchEvent(new Event('change'));
+      ck.checked = on;       ck.dispatchEvent(new Event('change'));
+    };
+    set('Skill', true, 30);
+    set('Dish',  true, 25);
+    out.sumSome = $('evtSum').textContent;
+    out.wkSkill = wk.evt.skill.v; out.wkDish = wk.evt.dish.v;
+
+    /* 單位不同的那一項：其他四個是 %，大成功是「個百分點」。 */
+    set('Crit', true, 20);
+    out.sumCrit = $('evtSum').textContent;
+
+    /* 勾了卻填 0 ＝ 開著但完全不生效 —— 一定要出聲。 */
+    set('Skill', true, 0); set('Dish', false, 25); set('Crit', false, 20);
+    out.zeroNote = $('evtNote').hidden ? '' : $('evtNote').textContent;
+    out.sumZero  = $('evtSum').textContent;
+
+    /* 上限要夾住（真實來源是 EVT_ZH 的 max，不是 markup）。 */
+    set('Skill', true, 999); set('Crit', true, 999);
+    out.clamped = {skill: wk.evt.skill.v, crit: wk.evt.crit.v,
+                   skillAttr: $('evtSkillV').max, critAttr: $('evtCritV').max};
+
+    /* 合成倍率：EX 的樹果效果（2.4）× 活動的樹果加成（1.2）= 2.88。
+       兩個倍率各講一半最誤導 —— 使用者會以為 EX 的 2.4 就是全部。 */
+    set('Skill', false, 0); set('Crit', false, 0);
+    wk.island = 'GGEX'; wk.favMain = 'DURIN'; wk.exBonus = 'berry';
+    set('Berry', true, 20);
+    out.comboNote = $('evtNote').hidden ? '' : $('evtNote').textContent;
+
+    // 推演結果那一行要寫出活動加成，成員卡的 tag 要顯示合成倍率
+    lastResults = null;
+    await run();
+    out.combo = $('comboCount').textContent;
+    out.cards = $('results').innerHTML;
+    out.ran = !!lastResults;
+
+    /* deserialize 的正規化：Sheet 往返會把布林與數字變成字串，而 evtPct 回傳 +e.v
+       —— 垃圾值會讓整支隊伍的樹果能量變 NaN。 */
+    deserialize({wk: {...JSON.parse(JSON.stringify({...wk, fav:[...wk.fav]})),
+      evt: {skill:{on:'true', v:'50'}, berry:{on:1, v:'abc'}, ing:'nope',
+            dish:{on:true, v:-5}, crit:{on:true, v:999}}}});
+    out.revived = JSON.parse(JSON.stringify(wk.evt));
+
+    wk.island = 'greengrass'; wk.favMain = null; wk.exBonus = null;
+    wk.evt = blankEvt(); wk.fav = new Set(); syncWeeklyUI();
+    return out;
+  });
+
+  ok('活動加成任何島都顯示（不像 EX 那兩個會藏起來）', r.shownOffEx, String(r.shownOffEx));
+  ok('預設摺疊', r.collapsed, String(r.collapsed));
+  /* 摺起來時 summary 是唯一看得到生效項目的地方 —— 沒有它就是「靜靜地少算」。 */
+  ok('沒勾任何一項時 summary 要寫「無」', /無/.test(r.sumNone), r.sumNone);
+  ok('summary 要寫出生效項目與數值',
+     /主技能發動率 \+30%/.test(r.sumSome) && /料理能量 \+25%/.test(r.sumSome), r.sumSome);
+  /* 前四項是 %、大成功是百分點。混在一起就是「文案說謊」那一類。 */
+  ok('大成功那一項的單位要寫「個百分點」而不是 %',
+     /大成功機率 \+20 個百分點/.test(r.sumCrit), r.sumCrit);
+  ok('勾起來卻填 0 要出聲', /0/.test(r.zeroNote) && /不生效/.test(r.zeroNote),
+     r.zeroNote.slice(0, 70));
+  ok('填 0 的那一項不算進 summary', /無/.test(r.sumZero), r.sumZero);
+  ok('數值要夾在上限內（真實來源是 EVT_ZH.max）',
+     r.clamped.skill === 300 && r.clamped.crit === 90
+     && r.clamped.skillAttr === '300' && r.clamped.critAttr === '90',
+     JSON.stringify(r.clamped));
+  /* EX 2.4 × 活動 1.2 = 2.88。 */
+  ok('EX 與活動疊乘時要寫出合成倍率', /2\.88/.test(r.comboNote), r.comboNote.slice(0, 90));
+  ok('推演結果那一行要寫出活動加成',
+     /活動加成/.test(r.combo) && /樹果能量 \+20%/.test(r.combo), r.combo.slice(0, 140));
+  ok('成員卡的「加成樹果」tag 要顯示合成倍率', /×2\.88/.test(r.cards),
+     (r.cards.match(/加成樹果[^"]{0,40}/) || [''])[0]);
+  ok('設了活動加成也跑得動', r.ran, String(r.ran));
+  ok('deserialize 要正規化字串布林與字串數字',
+     r.revived.skill.on === true && r.revived.skill.v === 50,
+     JSON.stringify(r.revived.skill));
+  ok('deserialize 要把垃圾值歸零而不是變 NaN',
+     r.revived.berry.v === 0 && r.revived.berry.on === false
+     && r.revived.ing.on === false && r.revived.ing.v === 0
+     && r.revived.dish.v === 0,
+     JSON.stringify(r.revived));
+  ok('deserialize 也要夾上限', r.revived.crit.v === 90, JSON.stringify(r.revived.crit));
+}
+
 console.log('\n[12] 快取偏移：schema 不符必須明確擋下');
 {
   ok('資料帶著 schema 版本', await page.evaluate(() => typeof D.meta.schema === 'number'));
@@ -3460,6 +3745,14 @@ console.log('\n[13] 窄螢幕（390px）：任何分頁都不准整頁橫向捲�
     deserialize({roster: ['VENUSAUR','GENGAR','BLASTOISE','VICTREEBEL','MAROWAK','DODRIO'].map(mk)});
     D.recipes.forEach(r => { wk.recipeLevels[r.n] = 25; });
     wk.recipeScope = 'all'; wk.recipePick = 'auto'; renderBox();
+    /* **摺疊的東西量不到。** 「本週活動加成」預設摺起來，不展開的話裡面那個
+       `auto-fit minmax(232px,1fr)` 的 grid 根本沒排版，這一節就白測了。
+       （新增任何摺疊起來的版面時記得在這裡打開它。） */
+    $('evtBox').open = true;
+    /* 「計算方式與已知簡化」也一樣 —— 它預設收著，所以裡面兩張表以前從來沒被量過。
+       實測打開之後 390px 下 scrollWidth 567 vs clientWidth 390（兩張表都溢出），
+       那是這一節漏掉的既有 bug，不是新版面造成的。現在兩張表都在 `.scroll` 裡。 */
+    document.querySelector('details.notes').open = true;
   });
   await mob.evaluate(`(async () => { lastResults = null; await run(); })()`);
   await mob.waitForFunction(() => lastResults && lastResults.length, null, { timeout: 60000 });

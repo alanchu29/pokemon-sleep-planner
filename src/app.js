@@ -64,7 +64,7 @@ const SCHEMA = 4;   // 4: 新增 msExtra{}（上游沒有的主技能數值表�
    「新的 index.html ＋ 舊的 app.js」—— 畫面畫出舊版 UI，而使用者只會覺得
    「你根本沒改」，完全不知道是快取。有了這個斷言，過期的 app.js 會直接被擋下來
    並要求強制重新整理。tests/smoke.mjs 第 11 節會斷言三處一致。 */
-const APP_V = '20260911a';
+const APP_V = '20260911b';
 
 /** 致命錯誤：整頁換成一段說明。這種狀況下繼續跑只會產生錯的數字。 */
 function fatal(html){
@@ -105,6 +105,30 @@ const islName    = s => { const b = islBase(s); return (b ? isl(b.n) : s) + (EX_
 const islBerries = s => { const b = islBase(s); return b ? b.b : []; };
 const EX_BONUS_ZH = {berry:'樹果能量 2.4 倍', ingredient:'食材 +1 個', skill:'主技能發動率 ×1.25'};
 const exBonusLabel = () => wk.exBonus ? EX_BONUS_ZH[wk.exBonus] : '營地效果未計入';
+/* ---- 本週活動加成（自訂）的顯示層 ----
+   生效位置與數值語意在 engine.js 的 `evtPct` / `evtMul`；這裡只負責名字、單位與文案。
+   ⚠ `crit` 的單位是**百分點**，另外四項是**百分比**。兩種混在同一塊 UI 裡，所以
+   單位一律從這張表取 —— 寫死在 markup 裡就會有一天只改到一半。 */
+/*  `max` 是**這裡**說了算 —— `syncEvtUI()` 會把它寫回 input 的 max 屬性，
+    而 `deserialize` 用同一份夾值。markup 裡的 max 只是沒跑 JS 時的保險。
+    大成功那一項的上限是 90 而不是 300：它加在機率上（週日基礎 30%），90 就到頂了。 */
+const EVT_ZH = {
+  skill: {lab:'主技能發動率', unit:'%',       id:'Skill', max:300},
+  berry: {lab:'樹果能量',     unit:'%',       id:'Berry', max:300},
+  ing:   {lab:'食材獲得量',   unit:'%',       id:'Ing',   max:300},
+  dish:  {lab:'料理能量',     unit:'%',       id:'Dish',  max:300},
+  crit:  {lab:'大成功機率',   unit:' 個百分點', id:'Crit',  max:90},
+};
+const blankEvt = () => Object.fromEntries(EVT_KEYS.map(k=>[k,{on:false, v:0}]));
+/** 目前真的生效的項目（勾了但填 0 不算）。摺疊的 summary 與 comboCount 共用這一份
+ *  —— 兩處各寫一次就會有一處說謊。 */
+const evtActive = () => EVT_KEYS.filter(k => evtPct(wk,k) > 0)
+  .map(k => `${EVT_ZH[k].lab} +${evtPct(wk,k)}${EVT_ZH[k].unit}`);
+/** 倍率的顯示用格式：2.4×1.2 的浮點雜訊（2.8800000000000003）要收掉。 */
+const mulTxt = x => String(Math.round(x*1000)/1000);
+/** 幫忙撿來的加成樹果**實際**的能量倍率 ＝ 加成樹果倍率（EX 會把 2 抬到 2.4）
+ *  × 本週活動的樹果加成。畫面上一定要給合成後的值，兩個倍率各講一半最誤導。 */
+const berryMulShown = berry => favBerryMul(wk, berry) * evtMul(wk, 'berry');
 const msz = n => (Z.ms        && Z.ms[n])        || n;
 const ssz = n => (Z.subskills && Z.subskills[n]) || n;
 const sss = n => (Z.ssShort   && Z.ssShort[n])   || (SS[n] ? SS[n].s : n);
@@ -136,7 +160,7 @@ const f1 = n => (Math.round(n*10)/10).toFixed(1);
 const NICK_MAX = 24;
 const BLANK = () => ({sp: D.dex.findIndex(p=>p.n==='PIKACHU'), level:30, nature:'Bashful', ss:[null,null,null,null,null], ingSet:[0,0,0], skillLv:1, ribbon:0, nick:'', pin:false, ex:false});
 let roster = [];
-let wk = {island:'greengrass', fav:new Set(), favMain:null, exBonus:null, areaBonus:15, pot:57, sleepH:8.5, camp:0, collectH:DEFAULT_COLLECT_H, mode:'total', dishType:'curry', recipeName:null, recipeLv:20, recipePick:'auto', recipeScope:'type', recipeLevels:{}, strictBerry:true};
+let wk = {island:'greengrass', fav:new Set(), favMain:null, exBonus:null, evt:blankEvt(), areaBonus:15, pot:57, sleepH:8.5, camp:0, collectH:DEFAULT_COLLECT_H, mode:'total', dishType:'curry', recipeName:null, recipeLv:20, recipePick:'auto', recipeScope:'type', recipeLevels:{}, strictBerry:true};
 let lastResults = null, shownAlt = 0;
 /* 「上一次的推演結果已經對不上現在的箱子了」。
  *
@@ -218,6 +242,20 @@ function deserialize(o, opts){
     if (!D.islands.some(i => i.s === wk.island) && !EX_ISLANDS[wk.island]) wk.island = 'greengrass';
     if (!wk.favMain || !wk.fav.has(wk.favMain)) wk.favMain = null;
     if (!EX_BONUSES.includes(wk.exBonus)) wk.exBonus = null;
+    /* 本週活動加成的正規化。舊資料完全沒有 `evt`（`{...wk, ...o.wk}` 會保留預設），
+       但 Sheet 往返會把 `on` 變成字串 `"true"`、`v` 變成 `"50"`，而 `evtPct` 回傳的是
+       `+e.v` —— `"50"` 還算得出來，`"abc"` 會變 NaN 然後靜靜地把整支隊伍的樹果能量
+       算成 NaN。**入口就夾好**：`on` 轉布林、`v` 夾在 0~上限、認不得的整組歸零。
+       和 `reviveRecipeLevels` 同一條理由（髒值的後果比「不準」嚴重時就要正規化）。 */
+    const evtIn = wk.evt && typeof wk.evt === 'object' ? wk.evt : {};
+    wk.evt = blankEvt();
+    for (const k of EVT_KEYS){
+      const e = evtIn[k];
+      if (!e || typeof e !== 'object') continue;
+      const v = Number(e.v);
+      wk.evt[k] = {on: e.on === true || e.on === 'true',
+                   v: Number.isFinite(v) ? Math.max(0, Math.min(EVT_ZH[k].max, v)) : 0};
+    }
   }
   return {badSp};
 }
@@ -624,6 +662,16 @@ function buildWeekly(){
   $('mode').addEventListener('change', e=>{ wk.mode = e.target.value; weeklyChanged(); });
   $('recipePick').addEventListener('change', e=>{ wk.recipePick = e.target.value; syncWeeklyUI(); weeklyChanged(); });
   $('recipeScope').addEventListener('change', e=>{ wk.recipeScope = e.target.value; syncWeeklyUI(); weeklyChanged(); });
+  /* 本週活動加成：五組「勾選 ＋ 數值」。**不勾就完全不計入，但數值留著** ——
+     下週同一個活動不必重打（使用者 2026-09-11 指定的行為）。 */
+  for (const k of EVT_KEYS){
+    $('evt'+EVT_ZH[k].id+'On').addEventListener('change', e=>{
+      wk.evt[k].on = e.target.checked; syncWeeklyUI(); weeklyChanged(); });
+    $('evt'+EVT_ZH[k].id+'V').addEventListener('change', e=>{
+      const v = Number(e.target.value);
+      wk.evt[k].v = Number.isFinite(v) ? Math.max(0, Math.min(EVT_ZH[k].max, v)) : 0;
+      syncWeeklyUI(); weeklyChanged(); });
+  }
   $('strictBerry').addEventListener('change', e=>{ wk.strictBerry = e.target.checked; weeklyChanged(); });
   $('runBtn').addEventListener('click', run);
 }
@@ -668,6 +716,7 @@ function syncWeeklyUI(){
   for (const el of $('favBerries').querySelectorAll('[data-berry]'))
     el.setAttribute('aria-pressed', wk.fav.has(el.dataset.berry) ? 'true' : 'false');
   syncExUI();
+  syncEvtUI();
   fillRecipes();
 }
 /** EX 營地的兩個控制項。**非 EX 島時整個藏起來** —— 那兩個值在非 EX 島不生效，
@@ -698,6 +747,52 @@ function syncExUI(){
   note.hidden = !msg.length;
   /* 'span2' 要一起寫回去 —— 這個 div 在 .wk 的 grid 裡，掉了就只佔一欄。 */
   note.className = 'notice warn span2';
+  note.innerHTML = msg.join('<br>');
+}
+/** 本週活動加成的五組控制項。**任何島都生效**，所以不像 EX 那兩個會整個藏起來 ——
+ *  它只是預設摺疊，而 `<summary>` 上就寫著生效項目。
+ *
+ *  兩件一定要講出來的事：
+ *    1. 勾了卻填 0 ＝ 沒有加成。畫面上看起來「開著」，實際完全不生效 —— 不出聲就是
+ *       這個 repo 最不想要的那種靜默。
+ *    2. 和 EX 營地效果／加成樹果的**合成倍率**。兩個倍率各講一半最誤導（使用者會
+ *       以為 EX 的 2.4 就是全部）。 */
+function syncEvtUI(){
+  if (!wk.evt) wk.evt = blankEvt();
+  for (const k of EVT_KEYS){
+    const e = wk.evt[k] || (wk.evt[k] = {on:false, v:0});
+    const ck = $('evt'+EVT_ZH[k].id+'On'), num = $('evt'+EVT_ZH[k].id+'V');
+    ck.checked = !!e.on;
+    /* 上限的真實來源是 EVT_ZH，markup 裡那個 max 只是沒跑 JS 時的保險。 */
+    num.max = EVT_ZH[k].max;
+    num.value = e.v;
+    /* 沒勾的欄位變淡但**照樣可以改** —— 和箱子裡未解鎖的副技能格同一個處理方式：
+       disabled 的話「先填好數字再勾起來」就做不到。 */
+    num.style.opacity = e.on ? 1 : .5;
+  }
+  const act = evtActive();
+  const sum = $('evtSum');
+  sum.textContent = act.length ? '：' + act.join('・') : '：無';
+  sum.className = 'evtsum' + (act.length ? '' : ' off');
+
+  const msg = [];
+  const zero = EVT_KEYS.filter(k => wk.evt[k].on && !(evtPct(wk,k) > 0));
+  if (zero.length)
+    msg.push(`<b>${zero.map(k=>EVT_ZH[k].lab).join('・')}</b> 勾起來了但數值是 0 —— 完全不生效。`);
+  /* 合成倍率。只在真的有兩層疊在一起時才講，否則等於重複 summary。 */
+  const ex = EX_ISLANDS[wk.island], eb = evtPct(wk,'berry'), es = evtPct(wk,'skill');
+  if (eb > 0 && wk.fav.size)
+    msg.push(`加成樹果（幫忙撿來的）能量：${wk.exBonus==='berry'&&ex?`EX ×${EX_FAV_BERRY_MUL}`:`×${FAV_BERRY_MUL}`}`
+      + ` × 活動 ×${mulTxt(1+eb/100)} = <b>×${mulTxt(favBerryMul(wk, [...wk.fav][0]) * (1+eb/100))}</b>`);
+  if (es > 0 && ex && wk.exBonus === 'skill')
+    msg.push(`喜好樹果者的主技能發動率：EX ×${EX_SKILL_MUL} × 活動 ×${mulTxt(1+es/100)}`
+      + ` = <b>×${mulTxt(EX_SKILL_MUL*(1+es/100))}</b>`);
+  if (evtPct(wk,'ing') > 0 && ex && wk.exBonus === 'ingredient')
+    msg.push(`喜好樹果者撿來的食材：先加 EX 的 +${EX_ING_ADD} 個，再乘活動的 ×${mulTxt(1+evtPct(wk,'ing')/100)}`
+      + `（順序反過來會少算）。`);
+  const note = $('evtNote');
+  note.hidden = !msg.length;
+  note.className = 'notice' + (zero.length ? ' warn' : '');
   note.innerHTML = msg.join('<br>');
 }
 
@@ -2206,6 +2301,9 @@ async function run(){
     /* EX 的設定會整個改變答案（非喜好樹果被罰 15%／35%），所以**這一行一定要寫出來
        算的是哪一種狀態** —— 不然回頭看一份結果根本分不出它是不是 EX 下算的。 */
     + (EX_ISLANDS[wk.island] ? ` · ${islName(wk.island)}（主要 ${bz(wk.favMain)}・${exBonusLabel()}）` : '')
+    /* 活動加成同樣會整個改變答案，而且它**任何島都可能開著** —— 回頭看一份結果時
+       這一行是唯一分得出「這是活動週算的」的地方。 */
+    + (evtActive().length ? ` · 活動加成：${evtActive().join('・')}` : '')
     + (cut ? ` · 已排除 ${cut} 隻樹果不符的樹果型` : '')
     + (nWorkers ? ` · ${nWorkers} 執行緒` : ' · 主執行緒');
   // 排除名單要看得到 —— 靜靜地少算候選是這個 repo 最不想要的行為
@@ -2281,7 +2379,7 @@ function pickReason(k, r){
   /* 瓶頸食材是「為什麼非牠不可」最強的理由 —— 換掉牠，主食譜就少煮好幾次。 */
   if (r.bottleneck != null && o.ing[r.bottleneck] * 7 > 1)
     own.push(`供應瓶頸食材 <b>${iz(ING_NAME[r.bottleneck])}</b> ${f1(o.ing[r.bottleneck] * 7)}／週`);
-  if (wk.fav.has(p.b)) flag.push(`產本週加成樹果（能量 ×${favBerryMul(wk, p.b)}）`);
+  if (wk.fav.has(p.b)) flag.push(`產本週加成樹果（能量 ×${mulTxt(berryMulShown(p.b))}）`);
   if (bs.hasHB) flag.push(`帶「幫忙加成」：全隊幫手間隔 −5%`);
   if (bs.hasERB) flag.push(`帶「活力回復提升」：睡眠回復 +14%`);
   if (/^Helper Boost/.test(p.ms)) flag.push(`幫手加速：發動時讓全隊各多幫忙一次`);
@@ -2345,7 +2443,7 @@ function memberCard(rank, i, r, o){
         /* 推演結果是**最需要暱稱的地方**：箱子裡有兩隻妙蛙花時，選中的是哪一隻只有
            暱稱分得出來。但學名也一定要在（不然不知道要看哪一隻的數值），所以並列。 */
         (m.nick||'').trim() ? `<span class="nm-sci">${pz(p)}</span>` : ''
-      }<span class="tag ${SPEC_TAG[p.sp]}">${SPEC_ZH[p.sp]}</span>${wk.fav.has(p.b)?`<span class="tag fav" title="本週加成樹果：樹果能量 ×${favBerryMul(wk, p.b)}">加成樹果</span>`:''}${exTag(bs)}${m.pin?`<span class="tag pin">固定</span>`:''}</div>
+      }<span class="tag ${SPEC_TAG[p.sp]}">${SPEC_ZH[p.sp]}</span>${wk.fav.has(p.b)?`<span class="tag fav" title="本週加成樹果：幫忙撿來的樹果能量 ×${mulTxt(berryMulShown(p.b))}">加成樹果</span>`:''}${exTag(bs)}${m.pin?`<span class="tag pin">固定</span>`:''}</div>
       <div class="meta">Lv${m.level} · ${natZ(NAT[m.nature]||NAT.Bashful)} · ${act.length?act.join('／'):'無副技能'} · 頻率 ${Math.round(o.sim.freqBase/60*10)/10}分</div>\n      <div class="meta">${msz(p.ms)} Lv${bs.skillLv} · 每日發動 ${f1(o.sim.procs)} 次 ${msCaveat(p.ms)}</div>
       <div class="meta" style="color:var(--ing)">${ingList.length?ingList.join('　'):'（無食材產出）'}</div>
       <div class="why">${pickReason(rank-1, r)}</div>
