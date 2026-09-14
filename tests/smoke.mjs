@@ -3704,6 +3704,316 @@ console.log('\n[15b] 本週活動加成：UI、單位與正規化');
   ok('deserialize 也要夾上限', r.revived.crit.v === 90, JSON.stringify(r.revived.crit));
 }
 
+console.log('\n[15c] 屬性資料：18 屬性 × 246 隻，以及上游的交叉驗證');
+{
+  const r = await page.evaluate(() => {
+    const TY = ['normal','fire','water','electric','grass','ice','fighting','poison','ground',
+                'flying','psychic','bug','rock','ghost','dragon','dark','steel','fairy'];
+    const missing = D.dex.filter(p => typesOf(p).length === 0).map(p => p.n);
+    const strange = [];
+    for (const p of D.dex) for (const t of typesOf(p)) if (!TY.includes(t)) strange.push(p.n + ':' + t);
+    return {
+      keys: Object.keys(D.types).sort(),
+      want: TY.slice().sort(),
+      missing, strange,
+      /* 惡／龍是改動之前就有的兩份清單，數量不可以變 —— 夢魘與流星群靠它們。 */
+      nDark: D.types.dark.length, nDragon: D.types.dragon.length,
+      darkHasUmbreon: D.types.dark.includes('UMBREON'),
+      /* 雙屬性：沙漠蜻蜓是地面/龍，樹果卻是 FIGY(ground) —— 用樹果推屬性會漏掉牠。
+         這一條就是「為什麼不能拿 berry.type 取代 types.txt」的回歸守門。 */
+      flygon: typesOf(D.dex.find(p => p.n === 'FLYGON')),
+      gardevoir: typesOf(D.dex.find(p => p.n === 'GARDEVOIR')),
+      /* zh：18 個屬性都要有中文名，否則 UI 會露出內部名 */
+      zhMissing: TY.filter(t => !(D.zh.types && D.zh.types[t])),
+      zhPsychic: D.zh.types && D.zh.types.psychic,
+      /* hasType 的「全部屬性」語意 */
+      nullIsAll: hasType(D.dex[0], null) === true,
+      wrongType: hasType(D.dex.find(p => p.n === 'GARDEVOIR'), 'fire') === false,
+    };
+  });
+  ok('D.types 剛好 18 個屬性鍵', JSON.stringify(r.keys) === JSON.stringify(r.want), r.keys.join(','));
+  ok('246 隻每一隻都至少有一個屬性', r.missing.length === 0, r.missing.slice(0, 5).join(','));
+  ok('沒有不認識的屬性名', r.strange.length === 0, r.strange.slice(0, 5).join(','));
+  ok('惡屬性 13 隻（不可以因為補齊 18 屬性而弄丟）', r.nDark === 13, String(r.nDark));
+  ok('龍屬性 16 隻', r.nDragon === 16, String(r.nDragon));
+  ok('月亮伊布仍在惡屬性清單裡', r.darkHasUmbreon);
+  ok('雙屬性解得出來：沙漠蜻蜓＝地面/龍（樹果只說 ground）',
+     JSON.stringify(r.flygon) === JSON.stringify(['ground', 'dragon']), JSON.stringify(r.flygon));
+  ok('雙屬性解得出來：沙奈朵＝超能力/妖精',
+     JSON.stringify(r.gardevoir) === JSON.stringify(['psychic', 'fairy']), JSON.stringify(r.gardevoir));
+  ok('18 個屬性都有繁中名', r.zhMissing.length === 0, r.zhMissing.join(','));
+  ok('屬性中文名對得上（psychic＝超能力）', r.zhPsychic === '超能力', String(r.zhPsychic));
+  ok('hasType(p, null) ＝ 全部屬性', r.nullIsAll);
+  ok('hasType 對不符的屬性回 false', r.wrongType);
+}
+
+console.log('\n[15d] 屬性限定的活動加成：只打對的那幾隻');
+{
+  const r = await page.evaluate(() => {
+    const idx = n => D.dex.findIndex(x => x.n === n);
+    const mk = n => ({sp: idx(n), level:60, nature:'Bashful', ss:[null,null,null,null,null],
+      ingSet:[0,0,0], skillLv:3, ribbon:4, pin:false, ex:false, nick:''});
+    const RL = {}; D.recipes.forEach(x => { RL[x.n] = 20; });
+    const W = evt => ({...wk, island:'greengrass', favMain:null, exBonus:null,
+      fav:new Set(['DURIN','ORAN','LEPPA']), areaBonus:15, pot:57, sleepH:8.5, camp:0,
+      collectH:4, mode:'total', dishType:'curry', recipeName:null, recipeLv:20,
+      recipePick:'auto', recipeScope:'type', recipeLevels:RL, strictBerry:false, evt});
+    const ALLOFF = Object.fromEntries(EVT_KEYS.map(k => [k, {on:false, v:0, ty:null}]));
+    const one = (k, v, ty) => ({...ALLOFF, [k]: {on:true, v, ty: ty === undefined ? null : ty}});
+    const bsOf = (n, evt) => baseStats(mk(n), W(evt));
+
+    /* GARDEVOIR = psychic/fairy（命中）、VENUSAUR = grass/poison（不命中）
+       LATIAS = dragon/psychic（雙屬性的第二個也要命中） */
+    const off = n => bsOf(n, ALLOFF);
+    const tyIng = n => bsOf(n, one('tyIng', 1, 'psychic'));
+    const tySk  = n => bsOf(n, one('tySkill', 50, 'psychic'));
+    const tyLv  = n => bsOf(n, one('tySkillLv', 2, 'psychic'));
+    const allTy = n => bsOf(n, one('tyIng', 1, null));      // 全部屬性
+
+    return {
+      /* 1. 食材 +1 */
+      ingHit:  [off('GARDEVOIR').avgIngAmt, tyIng('GARDEVOIR').avgIngAmt],
+      ingMiss: [off('VENUSAUR').avgIngAmt,  tyIng('VENUSAUR').avgIngAmt],
+      ingLatias: [off('LATIAS').avgIngAmt,  tyIng('LATIAS').avgIngAmt],
+      ingAll:  [off('VENUSAUR').avgIngAmt,  allTy('VENUSAUR').avgIngAmt],
+      /* 2. 發動率 +50% */
+      skHit:  [off('GARDEVOIR').effSkill, tySk('GARDEVOIR').effSkill],
+      skMiss: [off('VENUSAUR').effSkill,  tySk('VENUSAUR').effSkill],
+      /* 3. 技能等級 +2，以及 clamp 在該技能上限 */
+      lvHit:  [off('GARDEVOIR').skillLv, tyLv('GARDEVOIR').skillLv],
+      lvMiss: [off('VENUSAUR').skillLv,  tyLv('VENUSAUR').skillLv],
+      lvCap: (() => {
+        const m = {...mk('GARDEVOIR'), skillLv: 6};
+        const max = (D.ms[D.dex[m.sp].ms] || {max:6}).max;
+        return [baseStats(m, W(one('tySkillLv', 7, 'psychic'))).skillLv, max];
+      })(),
+      /* 4. 持有上限 +8：全員都吃，而且在好露營券的 ×1.2 括號之內 */
+      carryPlain: [off('GOLDUCK').carry, bsOf('GOLDUCK', one('carry', 8)).carry],
+      carryCamp: (() => {
+        const w0 = W(ALLOFF), w1 = W(one('carry', 8));
+        w0.camp = 1; w1.camp = 1;
+        return [baseStats(mk('GOLDUCK'), w0).carry, baseStats(mk('GOLDUCK'), w1).carry];
+      })(),
+      /* 5. 個體產能與截圖匯入完全不受影響（wk 裡根本沒有 evt） */
+      scoreWk: baseStats(mk('GARDEVOIR'), SCORE_WK).carry,
+      impWk:   baseStats(mk('GARDEVOIR'), {camp:false}).carry,
+      /* 6. 全關 ＝ 沒有 evt 欄位（逐位） */
+      allOffSame: (() => {
+        const a = baseStats(mk('GARDEVOIR'), W(ALLOFF));
+        const w = W(ALLOFF); delete w.evt;
+        const b = baseStats(mk('GARDEVOIR'), w);
+        return a.carry === b.carry && a.effSkill === b.effSkill
+            && a.skillLv === b.skillLv && a.avgIngAmt === b.avgIngAmt;
+      })(),
+      /* 7. deserialize：認不得的屬性要整項歸零，不可以退成「全部屬性」 */
+      revived: (() => {
+        deserialize({roster: [], wk: {evt: {
+          tyIng:     {on:true, v:1,  ty:'psychik'},   // 拼錯
+          tySkill:   {on:true, v:50, ty:'psychic'},   // 正常
+          tySkillLv: {on:true, v:2,  ty:''},          // 空 ＝ 全部屬性
+        }}});
+        return {bad: wk.evt.tyIng, good: wk.evt.tySkill, empty: wk.evt.tySkillLv};
+      })(),
+    };
+  });
+  const moved = a => a[1] !== a[0], same = a => a[1] === a[0];
+  ok('食材 +1 打中超能力（沙奈朵）', moved(r.ingHit) && Math.abs(r.ingHit[1] - r.ingHit[0] - 1) < 1e-9,
+     r.ingHit.join(' -> '));
+  ok('食材 +1 不打非超能力（妙蛙花）', same(r.ingMiss), r.ingMiss.join(' -> '));
+  ok('雙屬性的第二個屬性也算數（拉帝亞斯 龍/超能力）', moved(r.ingLatias), r.ingLatias.join(' -> '));
+  ok('選「全部屬性」時所有人都吃得到', moved(r.ingAll), r.ingAll.join(' -> '));
+  ok('發動率 +50% 打中超能力', moved(r.skHit), r.skHit.join(' -> '));
+  ok('發動率 +50% 不打非超能力', same(r.skMiss), r.skMiss.join(' -> '));
+  ok('技能等級 +2 打中超能力', r.lvHit[1] === r.lvHit[0] + 2, r.lvHit.join(' -> '));
+  ok('技能等級 +2 不打非超能力', same(r.lvMiss), r.lvMiss.join(' -> '));
+  ok('技能等級不可以超出該技能的上限', r.lvCap[0] === r.lvCap[1], r.lvCap.join(' vs max '));
+  ok('持有上限 +8：沒有露營券時正好 +8', r.carryPlain[1] - r.carryPlain[0] === 8, r.carryPlain.join(' -> '));
+  /* 放在 ×1.2 的括號**之內**（使用者指定），所以有券時會被放大成 +9.6 再 ceil。 */
+  ok('持有上限 +8：有好露營券時會被 ×1.2 一起放大（＞8）',
+     r.carryCamp[1] - r.carryCamp[0] > 8, r.carryCamp.join(' -> '));
+  ok('個體產能（SCORE_WK）不吃屬性加成', typeof r.scoreWk === 'number');
+  ok('截圖匯入的 wk 不吃屬性加成', typeof r.impWk === 'number');
+  ok('全部關閉 ＝ 完全沒有 evt 欄位（逐位相同）', r.allOffSame);
+  ok('deserialize：認不得的屬性要整項歸零',
+     r.revived.bad.on === false && r.revived.bad.v === 0 && r.revived.bad.ty === null,
+     JSON.stringify(r.revived.bad));
+  ok('deserialize：認得的屬性要留著',
+     r.revived.good.ty === 'psychic' && r.revived.good.v === 50, JSON.stringify(r.revived.good));
+  ok('deserialize：空字串 ＝ 全部屬性（合法）',
+     r.revived.empty.ty === null && r.revived.empty.on === true, JSON.stringify(r.revived.empty));
+}
+
+console.log('\n[15e] 屬性限定加成的 UI：摘要、標籤、截圖匯入的攔截');
+{
+  const r = await page.evaluate(() => {
+    const idx = n => D.dex.findIndex(x => x.n === n);
+    const mk = n => ({sp: idx(n), level:60, nature:'Bashful', ss:[null,null,null,null,null],
+      ingSet:[0,0,0], skillLv:3, ribbon:4, pin:false, ex:false, nick:''});
+    roster = ['GARDEVOIR', 'VENUSAUR'].map(mk);
+    wk.evt = blankEvt();
+    wk.evt.tySkill = {on:true, v:50, ty:'psychic'};
+    syncWeeklyUI(); renderBox();
+    const sumTy = $('evtSum').textContent;
+    const cards = $('boxList').innerHTML;
+
+    /* 箱子裡沒有那個屬性 -> 要出聲（算得到但不會改變任何結果） */
+    wk.evt.tySkill = {on:true, v:50, ty:'ice'};
+    syncWeeklyUI();
+    const noHit = $('evtNote').hidden ? '' : $('evtNote').textContent;
+
+    /* 截圖匯入的攔截：兩項的文案必須分岔 */
+    wk.evt = blankEvt();
+    wk.evt.carry = {on:true, v:8, ty:null};
+    syncWeeklyUI();
+    const impCarry = $('impEvtWarn').hidden ? '' : $('impEvtWarn').textContent;
+    wk.evt = blankEvt();
+    wk.evt.tySkillLv = {on:true, v:2, ty:'psychic'};
+    syncWeeklyUI();
+    const impLv = $('impEvtWarn').hidden ? '' : $('impEvtWarn').textContent;
+    wk.evt = blankEvt();
+    syncWeeklyUI();
+    const impOff = $('impEvtWarn').hidden;
+
+    /* 屬性下拉：選項要有「全部屬性」＋18 個屬性，而且寫出箱中隻數 */
+    const opts = [...$('evtTySkillTy').options].map(o => o.value + '|' + o.textContent);
+    wk.evt = blankEvt();
+    return {sumTy, cards, noHit, impCarry, impLv, impOff, opts};
+  });
+  ok('摘要要寫出是哪一個屬性', /超能力/.test(r.sumTy) && /主技能發動率 \+50%/.test(r.sumTy), r.sumTy);
+  ok('箱子的摺疊列要顯示屬性標籤', /tag ty/.test(r.cards) && /超能力/.test(r.cards) && /妖精/.test(r.cards),
+     (r.cards.match(/tag ty[^>]*>[^<]*/g) || []).slice(0, 4).join(' '));
+  ok('吃得到加成的那個屬性要標出來（.hit）', /tag ty psychic hit/.test(r.cards),
+     (r.cards.match(/tag ty [a-z]+ hit/g) || []).join(','));
+  ok('沒吃到的屬性不標 .hit', !/tag ty grass hit/.test(r.cards));
+  ok('屬性標籤的 title 要寫出資料出處', /上游資料沒有屬性欄位/.test(r.cards));
+  ok('箱子裡沒有那個屬性時要出聲', /沒有/.test(r.noHit) && /不會改變任何結果/.test(r.noHit),
+     r.noHit.slice(0, 80));
+  ok('持有上限 +N 開著時，截圖匯入要擋並說「全部無解」',
+     /全部無解/.test(r.impCarry), r.impCarry.slice(0, 80));
+  /* 兩者的後果不同，文案一定要分岔 —— 技能等級那個不會無解，是靜靜地解出錯的值。 */
+  ok('技能等級 +N 的措辭要更重（會解出錯的值，不是無解）',
+     /靜靜地解出/.test(r.impLv) && !/全部無解/.test(r.impLv), r.impLv.slice(0, 110));
+  ok('兩項都關掉時不顯示攔截條', r.impOff);
+  ok('屬性下拉第一個是「全部屬性」（空值）', r.opts[0] === '|全部屬性', r.opts[0]);
+  ok('屬性下拉共 19 個選項（全部屬性 ＋ 18 屬性）', r.opts.length === 19, String(r.opts.length));
+  ok('屬性下拉要寫出箱中隻數', /psychic\|超能力（箱中 1）/.test(r.opts.join('\n')),
+     r.opts.find(o => o.startsWith('psychic')));
+}
+
+console.log('\n[16] 全能型同隊最多一隻（wk.oneAll）');
+{
+  const r = await page.evaluate(() => {
+    const idx = n => D.dex.findIndex(x => x.n === n);
+    const mk = (n, o) => ({sp: idx(n), level:60, nature:'Bashful', ss:[null,null,null,null,null],
+      ingSet:[0,0,0], skillLv:3, ribbon:4, pin:false, ex:false, nick:'', ...(o||{})});
+    const RL = {}; D.recipes.forEach(x => { RL[x.n] = 20; });
+    const W = over => ({...wk, island:'greengrass', favMain:null, exBonus:null,
+      fav:new Set(['ORAN']), areaBonus:15, pot:57, sleepH:8.5, camp:0, collectH:4,
+      mode:'total', dishType:'curry', recipeName:null, recipeLv:20, recipePick:'auto',
+      recipeScope:'type', recipeLevels:RL, strictBerry:false, evt:blankEvt(), ...(over||{})});
+
+    const alls = D.dex.filter(p => p.sp === 'all').map(p => p.n);
+    const others = D.dex.filter(p => p.sp !== 'all').map(p => p.n).slice(0, 8);
+    const box = [...alls, ...others].map(n => mk(n));
+    const nAll = alls.length;
+    const nCk = (n,k)=>{ let r=1; for(let i=0;i<k;i++) r=r*(n-i)/(i+1); return Math.round(r); };
+
+    const on = prepareSearch(box, W({oneAll:true}));
+    const off = prepareSearch(box, W({oneAll:false}));
+    const resOn = searchTeams(box, W({oneAll:true}), {finalists:50});
+    const resOff = searchTeams(box, W({oneAll:false}), {finalists:50});
+    const nAllIn = res => Math.max(...res.best.map(t =>
+      t.idxs.filter(i => D.dex[box[i].sp].sp === 'all').length));
+
+    /* 📌 固定兩隻全能 -> 使用者的指定優先，maxAll 變 2，不報錯 */
+    const pinned = box.map((m, i) => ({...m, pin: i < nAll}));
+    const prepPin = prepareSearch(pinned, W({oneAll:true}));
+    const resPin = searchTeams(pinned, W({oneAll:true}), {finalists:10});
+
+    /* 全能太多湊不出 5 隻 -> 要指名是哪一條規則（用重複個體湊，全 dex 只有 2 隻全能） */
+    const tiny = [alls[0], alls[0], alls[0], alls[1], alls[1], others[0]].map(n => mk(n));
+    const prepTiny = prepareSearch(tiny, W({oneAll:true}));
+
+    /* 箱子裡沒有全能型 -> 開關不可以造成任何差異 */
+    const noAll = others.slice(0, 8).map(n => mk(n));
+    const a = searchTeams(noAll, W({oneAll:true}), {finalists:20});
+    const b = searchTeams(noAll, W({oneAll:false}), {finalists:20});
+    const sig = res => JSON.stringify(res.best.slice(0, 8).map(x => [x.idxs, x.total]));
+
+    return {
+      nAll, poolN: on.pool.length,
+      totalOn: on.total, totalOff: off.total,
+      expectOn: nCk(on.pool.length - nAll, 5) + nAll * nCk(on.pool.length - nAll, 4),
+      cutAll: on.cutAll, cutAllOff: off.cutAll, maxAll: on.maxAll,
+      worstOn: nAllIn(resOn), worstOff: nAllIn(resOff),
+      topOn: resOn.best[0].total, topOff: resOff.best[0].total,
+      countOn: resOn.count,
+      pinMaxAll: prepPin.maxAll, pinErr: prepPin.error || '',
+      pinHas: resPin.best[0].idxs.filter(i => D.dex[pinned[i].sp].sp === 'all').length,
+      tinyErr: prepTiny.error, tinyNAll: prepTiny.nAll,
+      noAllSame: sig(a) === sig(b),
+    };
+  });
+  ok('全 dex 的全能型隻數（夢幻與達克萊伊）', r.nAll === 2, String(r.nAll));
+  ok('total 算的是「通過限制的組合數」，不是全部',
+     r.totalOn === r.expectOn && r.totalOn < r.totalOff,
+     `${r.totalOn}（預期 ${r.expectOn}）vs 全部 ${r.totalOff}`);
+  ok('count 跑完剛好等於 total（進度條的分母才不會歪）', r.countOn === r.totalOn,
+     `${r.countOn} vs ${r.totalOn}`);
+  ok('cutAll ＝ 被略過的組合數', r.cutAll === r.totalOff - r.totalOn, String(r.cutAll));
+  ok('關掉時 cutAll ＝ 0', r.cutAllOff === 0, String(r.cutAllOff));
+  ok('maxAll 預設是 1', r.maxAll === 1, String(r.maxAll));
+  ok('結果裡每一組最多一隻全能', r.worstOn <= 1, `最多 ${r.worstOn} 隻`);
+  ok('關掉之後真的會出現多隻全能（證明規則有在作用）', r.worstOff >= 2, `最多 ${r.worstOff} 隻`);
+  /* 它是限制不是最佳化 —— 開著只會讓分數變低或持平，絕不會變高。 */
+  ok('開著的第 1 名不會高於關著的', r.topOn <= r.topOff + 1e-6,
+     `${Math.round(r.topOn)} vs ${Math.round(r.topOff)}`);
+  ok('📌 固定的全能超過一隻時，使用者的指定優先（maxAll 變 2、不報錯）',
+     r.pinMaxAll === 2 && !r.pinErr, `maxAll=${r.pinMaxAll} err=${r.pinErr}`);
+  ok('固定的兩隻全能都留在隊上', r.pinHas === 2, String(r.pinHas));
+  ok('湊不出 5 隻時要指名是這條規則（fewAll，不是泛用錯誤）',
+     r.tinyErr === 'fewAll' && r.tinyNAll === 5, `${r.tinyErr}/${r.tinyNAll}`);
+  ok('箱子裡沒有全能型時，開關不造成任何差異（逐位相同）', r.noAllSame);
+}
+
+console.log('\n[16b] 全能限一隻的 UI：要講出來，而且手動隊不擋但要出聲');
+{
+  /* doRun 是 Node 端的輔助（它要 await page.waitForFunction），不能在 page.evaluate
+     裡呼叫 —— 所以「佈置狀態 / 跑推演 / 讀畫面」要拆成三段。 */
+  const checked = await page.evaluate(() => {
+    const idx = n => D.dex.findIndex(x => x.n === n);
+    const mk = n => ({sp: idx(n), level:60, nature:'Bashful', ss:[null,null,null,null,null],
+      ingSet:[0,0,0], skillLv:3, ribbon:4, pin:false, ex:false, nick:''});
+    const alls = D.dex.filter(p => p.sp === 'all').map(p => p.n);
+    const others = D.dex.filter(p => p.sp !== 'all').map(p => p.n).slice(0, 8);
+    roster = [...alls, ...others].map(mk);
+    wk.oneAll = true; wk.strictBerry = false;
+    syncWeeklyUI();
+    return $('oneAll').checked;
+  });
+  await doRun();
+  const r = await page.evaluate(() => {
+    const combo = $('comboCount').textContent;
+    /* 手動隊：前兩隻就是那兩隻全能型 -> 照算，但要講出推演不會選它 */
+    teams[0].members = [0, 1, 2, 3, 4];
+    renderTeamsView();
+    const tmHTML = $('view-team').innerHTML;
+    wk.oneAll = false;
+    renderTeamsView();
+    const tmOff = $('view-team').innerHTML;
+    wk.oneAll = true;
+    return {combo, tmHTML, tmOff};
+  });
+  ok('預設是勾起來的', checked);
+  ok('推演結果那一行要講出略過了幾種組合',
+     /全能限一隻/.test(r.combo) && /略過/.test(r.combo), r.combo.slice(0, 160));
+  /* 和 strictBerry 完全同一條：手動隊權力最大，但矛盾要講出來。 */
+  ok('自組隊伍照算，但要講出推演不會選這個組合',
+     /全能型同隊最多一隻/.test(r.tmHTML) && /別拿它跟推演的名次對照/.test(r.tmHTML),
+     (r.tmHTML.match(/這裡照算：[^<]{0,70}/) || [''])[0]);
+  ok('規則關掉之後就不再出聲', !/全能型同隊最多一隻/.test(r.tmOff));
+}
+
 console.log('\n[12] 快取偏移：schema 不符必須明確擋下');
 {
   ok('資料帶著 schema 版本', await page.evaluate(() => typeof D.meta.schema === 'number'));

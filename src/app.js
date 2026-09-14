@@ -55,7 +55,8 @@ const esc = s => String(s == null ? '' : s)
    GitHub Pages 送 max-age=600，所以更新後有最多 10 分鐘的窗口，瀏覽器可能
    拿到「新 app.js ＋ 舊 game.json」。純數值過期還好，結構變了就會算出錯的
    數字或直接壞掉 —— 而使用者只會看到壞頁面，不知道重新整理就好。 */
-const SCHEMA = 4;   // 4: 新增 msExtra{}（上游沒有的主技能數值表，目前是流星群的基礎樹果表）
+const SCHEMA = 5;   // 4: 新增 msExtra{}（上游沒有的主技能數值表，目前是流星群的基礎樹果表）
+                    // 5: types{} 從 {dark,dragon} 補滿成 18 個屬性鍵（屬性限定的活動加成要用）
 
 /* 這一份 app.js 的資源版本。必須等於 index.html 裡的 ASSET_V（以及 app.css 的 ?v=）。
    動到 app.css 或 src/*.js 就三個地方一起往前推。
@@ -64,7 +65,7 @@ const SCHEMA = 4;   // 4: 新增 msExtra{}（上游沒有的主技能數值表�
    「新的 index.html ＋ 舊的 app.js」—— 畫面畫出舊版 UI，而使用者只會覺得
    「你根本沒改」，完全不知道是快取。有了這個斷言，過期的 app.js 會直接被擋下來
    並要求強制重新整理。tests/smoke.mjs 第 11 節會斷言三處一致。 */
-const APP_V = '20260911b';
+const APP_V = '20260914a';
 
 /** 致命錯誤：整頁換成一段說明。這種狀況下繼續跑只會產生錯的數字。 */
 function fatal(html){
@@ -112,18 +113,34 @@ const exBonusLabel = () => wk.exBonus ? EX_BONUS_ZH[wk.exBonus] : '營地效果�
 /*  `max` 是**這裡**說了算 —— `syncEvtUI()` 會把它寫回 input 的 max 屬性，
     而 `deserialize` 用同一份夾值。markup 裡的 max 只是沒跑 JS 時的保險。
     大成功那一項的上限是 90 而不是 300：它加在機率上（週日基礎 30%），90 就到頂了。 */
+/*  `step` 也在這裡：百分比型是 5，「個／級」型是 1（填 +8 個持有上限時 step 5 很難用）。
+    `ty:true` 代表這一項是**屬性限定**的，多一個 `#evt<Id>Ty` 下拉。 */
 const EVT_ZH = {
-  skill: {lab:'主技能發動率', unit:'%',       id:'Skill', max:300},
-  berry: {lab:'樹果能量',     unit:'%',       id:'Berry', max:300},
-  ing:   {lab:'食材獲得量',   unit:'%',       id:'Ing',   max:300},
-  dish:  {lab:'料理能量',     unit:'%',       id:'Dish',  max:300},
-  crit:  {lab:'大成功機率',   unit:' 個百分點', id:'Crit',  max:90},
+  skill:     {lab:'主技能發動率', unit:'%',       id:'Skill', max:300, step:5},
+  berry:     {lab:'樹果能量',     unit:'%',       id:'Berry', max:300, step:5},
+  ing:       {lab:'食材獲得量',   unit:'%',       id:'Ing',   max:300, step:5},
+  dish:      {lab:'料理能量',     unit:'%',       id:'Dish',  max:300, step:5},
+  crit:      {lab:'大成功機率',   unit:' 個百分點', id:'Crit',  max:90,  step:5},
+  carry:     {lab:'持有上限',     unit:' 個',     id:'Carry', max:50,  step:1},
+  tyIng:     {lab:'撿來的食材',   unit:' 個',     id:'TyIng', max:3,   step:1, ty:true},
+  tySkill:   {lab:'主技能發動率', unit:'%',       id:'TySkill', max:300, step:5, ty:true},
+  tySkillLv: {lab:'主技能等級',   unit:' 級',     id:'TySkillLv', max:7, step:1, ty:true},
 };
-const blankEvt = () => Object.fromEntries(EVT_KEYS.map(k=>[k,{on:false, v:0}]));
+const blankEvt = () => Object.fromEntries(EVT_KEYS.map(k=>[k,{on:false, v:0, ty:null}]));
+/** `deserialize` 因為「屬性認不得」而整項歸零的活動加成，由 `syncEvtUI()` 講出來。
+ *  宣告在這裡（而不是 deserialize 附近）是 TDZ 的考量 —— 見 CLAUDE.md 陷阱 1：
+ *  `const`／`let` 不提升，而 deserialize 在載入流程裡很早就會被呼叫。 */
+let evtBadTy = [];
+/** 屬性的繁中名。`zh.types` 來自 tools/zh.txt 的 ##TYPES（本專案維護，18 個固定譯名）。 */
+const tyz = t => (Z.types && Z.types[t]) || t;
+/** 屬性限定項在文案裡的前綴。`null` ＝ 全部屬性。 */
+const evtTyLabel = k => { const t = evtTy(wk, k); return t ? tyz(t) : '全部屬性'; };
 /** 目前真的生效的項目（勾了但填 0 不算）。摺疊的 summary 與 comboCount 共用這一份
- *  —— 兩處各寫一次就會有一處說謊。 */
+ *  —— 兩處各寫一次就會有一處說謊。
+ *  屬性限定的項目**一定要把屬性寫進去**：「主技能發動率 +50%」和
+ *  「超能力 主技能發動率 +50%」是完全不同的兩件事，而摘要是使用者唯一會掃到的地方。 */
 const evtActive = () => EVT_KEYS.filter(k => evtPct(wk,k) > 0)
-  .map(k => `${EVT_ZH[k].lab} +${evtPct(wk,k)}${EVT_ZH[k].unit}`);
+  .map(k => `${EVT_ZH[k].ty ? evtTyLabel(k)+' ' : ''}${EVT_ZH[k].lab} +${evtPct(wk,k)}${EVT_ZH[k].unit}`);
 /** 倍率的顯示用格式：2.4×1.2 的浮點雜訊（2.8800000000000003）要收掉。 */
 const mulTxt = x => String(Math.round(x*1000)/1000);
 /** 幫忙撿來的加成樹果**實際**的能量倍率 ＝ 加成樹果倍率（EX 會把 2 抬到 2.4）
@@ -160,7 +177,7 @@ const f1 = n => (Math.round(n*10)/10).toFixed(1);
 const NICK_MAX = 24;
 const BLANK = () => ({sp: D.dex.findIndex(p=>p.n==='PIKACHU'), level:30, nature:'Bashful', ss:[null,null,null,null,null], ingSet:[0,0,0], skillLv:1, ribbon:0, nick:'', pin:false, ex:false});
 let roster = [];
-let wk = {island:'greengrass', fav:new Set(), favMain:null, exBonus:null, evt:blankEvt(), areaBonus:15, pot:57, sleepH:8.5, camp:0, collectH:DEFAULT_COLLECT_H, mode:'total', dishType:'curry', recipeName:null, recipeLv:20, recipePick:'auto', recipeScope:'type', recipeLevels:{}, strictBerry:true};
+let wk = {island:'greengrass', fav:new Set(), favMain:null, exBonus:null, evt:blankEvt(), areaBonus:15, pot:57, sleepH:8.5, camp:0, collectH:DEFAULT_COLLECT_H, mode:'total', dishType:'curry', recipeName:null, recipeLv:20, recipePick:'auto', recipeScope:'type', recipeLevels:{}, strictBerry:true, oneAll:true};
 let lastResults = null, shownAlt = 0;
 /* 「上一次的推演結果已經對不上現在的箱子了」。
  *
@@ -249,12 +266,23 @@ function deserialize(o, opts){
        和 `reviveRecipeLevels` 同一條理由（髒值的後果比「不準」嚴重時就要正規化）。 */
     const evtIn = wk.evt && typeof wk.evt === 'object' ? wk.evt : {};
     wk.evt = blankEvt();
+    evtBadTy = [];
     for (const k of EVT_KEYS){
       const e = evtIn[k];
       if (!e || typeof e !== 'object') continue;
       const v = Number(e.v);
+      /* 屬性限定項的 `ty`：`null`／空字串 ＝ 全部屬性（合法）。
+         **認不得的屬性一定要整項歸零**（使用者 2026-09-14 指定）—— 退回「全部屬性」
+         會把一個只打超能力的加成憑空發給全隊，那是靜靜地放大範圍，比不生效更糟。
+         歸零的那幾項記進 `evtBadTy`，由 `syncEvtUI()` 講出來：靜靜地關掉也是一種說謊。 */
+      let ty = null;
+      if (EVT_ZH[k].ty && e.ty != null && e.ty !== ''){
+        if (TYPE_NAMES.includes(e.ty)) ty = e.ty;
+        else { evtBadTy.push({k, ty: String(e.ty)}); continue; }   // 留在 blankEvt 的全 0 狀態
+      }
       wk.evt[k] = {on: e.on === true || e.on === 'true',
-                   v: Number.isFinite(v) ? Math.max(0, Math.min(EVT_ZH[k].max, v)) : 0};
+                   v: Number.isFinite(v) ? Math.max(0, Math.min(EVT_ZH[k].max, v)) : 0,
+                   ty};
     }
   }
   return {badSp};
@@ -628,6 +656,16 @@ function weeklyChanged(){
   save();
   if (!$('view-team').hidden) renderTeamsView();
 }
+/** 屬性下拉的 option。空字串 ＝ 全部屬性（對應 `wk.evt[k].ty === null`）。
+ *  每個屬性後面附上**箱子裡有幾隻** —— 選了一個箱子裡一隻都沒有的屬性，那個加成
+ *  等於沒開，而那件事應該在**選之前**就看得到，不是等結果出來才發現沒差。
+ *  （`syncEvtUI()` 還有一道事後的 `.notice`，兩層都要：選單只在展開時看得到。） */
+function evtTypeOptions(){
+  const cnt = {};
+  for (const m of roster) for (const t of typesOf(D.dex[m.sp])) cnt[t] = (cnt[t]||0) + 1;
+  return `<option value="">全部屬性</option>`
+    + TYPE_NAMES.map(t=>`<option value="${t}">${tyz(t)}（箱中 ${cnt[t]||0}）</option>`).join('');
+}
 function buildWeekly(){
   /* EX 島接在普通島後面。**不另外做一個「現在是 EX」的勾選框** —— `wk.island` 的值
      就決定了是不是 EX 以及套哪一組數字，同一件事有兩個來源就會有一個在說謊。 */
@@ -662,8 +700,8 @@ function buildWeekly(){
   $('mode').addEventListener('change', e=>{ wk.mode = e.target.value; weeklyChanged(); });
   $('recipePick').addEventListener('change', e=>{ wk.recipePick = e.target.value; syncWeeklyUI(); weeklyChanged(); });
   $('recipeScope').addEventListener('change', e=>{ wk.recipeScope = e.target.value; syncWeeklyUI(); weeklyChanged(); });
-  /* 本週活動加成：五組「勾選 ＋ 數值」。**不勾就完全不計入，但數值留著** ——
-     下週同一個活動不必重打（使用者 2026-09-11 指定的行為）。 */
+  /* 本週活動加成：九組「勾選 ＋ 數值」，其中三組多一個屬性下拉。
+     **不勾就完全不計入，但數值留著** —— 下週同一個活動不必重打（使用者 2026-09-11 指定）。 */
   for (const k of EVT_KEYS){
     $('evt'+EVT_ZH[k].id+'On').addEventListener('change', e=>{
       wk.evt[k].on = e.target.checked; syncWeeklyUI(); weeklyChanged(); });
@@ -671,8 +709,18 @@ function buildWeekly(){
       const v = Number(e.target.value);
       wk.evt[k].v = Number.isFinite(v) ? Math.max(0, Math.min(EVT_ZH[k].max, v)) : 0;
       syncWeeklyUI(); weeklyChanged(); });
+    if (EVT_ZH[k].ty)
+      $('evt'+EVT_ZH[k].id+'Ty').addEventListener('change', e=>{
+        /* 空字串 ＝ 全部屬性。認不得的值在這裡不可能出現（選項是我們畫的），
+           但還是走同一道檢查 —— 真實來源是 wk.evt，不是 DOM。 */
+        const t = e.target.value;
+        wk.evt[k].ty = TYPE_NAMES.includes(t) ? t : null;
+        /* 使用者自己重選過就把那筆「認不得」的警告清掉，否則它會一直掛在那裡。 */
+        evtBadTy = evtBadTy.filter(b => b.k !== k);
+        syncWeeklyUI(); weeklyChanged(); });
   }
   $('strictBerry').addEventListener('change', e=>{ wk.strictBerry = e.target.checked; weeklyChanged(); });
+  $('oneAll').addEventListener('change', e=>{ wk.oneAll = e.target.checked; weeklyChanged(); });
   $('runBtn').addEventListener('click', run);
 }
 /* option 只放名稱與食材數。完整食材清單放在 select 下方的 #recipeIngs ——
@@ -706,6 +754,7 @@ function syncWeeklyUI(){
   $('dishType').value = wk.dishType; $('recipeLv').value = wk.recipeLv;
   $('recipePick').value = wk.recipePick; $('recipeScope').value = wk.recipeScope;
   $('strictBerry').checked = wk.strictBerry !== false;
+  $('oneAll').checked = wk.oneAll !== false;
   syncRecipeCount();
   const auto = wk.recipePick === 'auto';
   $('recipe').disabled = auto;
@@ -760,15 +809,27 @@ function syncExUI(){
 function syncEvtUI(){
   if (!wk.evt) wk.evt = blankEvt();
   for (const k of EVT_KEYS){
-    const e = wk.evt[k] || (wk.evt[k] = {on:false, v:0});
+    const e = wk.evt[k] || (wk.evt[k] = {on:false, v:0, ty:null});
     const ck = $('evt'+EVT_ZH[k].id+'On'), num = $('evt'+EVT_ZH[k].id+'V');
     ck.checked = !!e.on;
-    /* 上限的真實來源是 EVT_ZH，markup 裡那個 max 只是沒跑 JS 時的保險。 */
+    /* 上限與 step 的真實來源是 EVT_ZH，markup 裡那兩個只是沒跑 JS 時的保險。
+       ⚠ step 一定要一起寫回去：`carry`／`tyIng`／`tySkillLv` 是「個／級」，
+       沿用百分比的 step=5 會讓「+8 個」得用打的（上下鍵只給 0/5/10）。 */
     num.max = EVT_ZH[k].max;
+    num.step = EVT_ZH[k].step;
     num.value = e.v;
     /* 沒勾的欄位變淡但**照樣可以改** —— 和箱子裡未解鎖的副技能格同一個處理方式：
        disabled 的話「先填好數字再勾起來」就做不到。 */
     num.style.opacity = e.on ? 1 : .5;
+    if (EVT_ZH[k].ty){
+      const sel = $('evt'+EVT_ZH[k].id+'Ty');
+      /* **每次都重建 option**，因為選項上寫著「箱中 N 隻」而箱子隨時會變 ——
+         留著舊的數字就是那種「畫面上寫的不是實際的值」的 bug。重建之後才寫回
+         `value`（真實來源是 `wk.evt`，不是 DOM 的選取狀態）。 */
+      sel.innerHTML = evtTypeOptions();
+      sel.value = e.ty || '';
+      sel.style.opacity = e.on ? 1 : .5;
+    }
   }
   const act = evtActive();
   const sum = $('evtSum');
@@ -779,6 +840,18 @@ function syncEvtUI(){
   const zero = EVT_KEYS.filter(k => wk.evt[k].on && !(evtPct(wk,k) > 0));
   if (zero.length)
     msg.push(`<b>${zero.map(k=>EVT_ZH[k].lab).join('・')}</b> 勾起來了但數值是 0 —— 完全不生效。`);
+  /* 讀進來的資料裡有認不得的屬性 -> 那一項已經被 deserialize 歸零。**一定要講出來**：
+     使用者設定過的東西自己消失、畫面卻一片安靜，那和「靜靜地算錯」是同一類的問題。 */
+  if (evtBadTy.length)
+    msg.push(`<b>${evtBadTy.map(b=>`${EVT_ZH[b.k].lab}（屬性「${esc(b.ty)}」認不得）`).join('・')}</b>`
+      + ` 已經整項關掉並歸零 —— 認不得的屬性不會退成「全部屬性」，那會把加成發給不該拿的隊友。請重新選一次。`);
+  /* 屬性限定項有沒有真的打到箱子裡的任何一隻。全部屬性（ty=null）不必查。
+     0 隻符合 ＝ 那個加成完全不生效，而摘要上仍然寫著它「生效中」—— 那就是說謊。 */
+  const noHit = EVT_KEYS.filter(k => EVT_ZH[k].ty && evtPct(wk,k) > 0 && evtTy(wk,k)
+                                  && !roster.some(m => hasType(D.dex[m.sp], evtTy(wk,k))));
+  if (noHit.length)
+    msg.push(`${noHit.map(k=>`<b>${evtTyLabel(k)} ${EVT_ZH[k].lab}</b>`).join('・')}`
+      + `：你的箱子裡目前<b>沒有</b>這個屬性的寶可夢，所以這一項算得到、但不會改變任何結果。`);
   /* 合成倍率。只在真的有兩層疊在一起時才講，否則等於重複 summary。 */
   const ex = EX_ISLANDS[wk.island], eb = evtPct(wk,'berry'), es = evtPct(wk,'skill');
   if (eb > 0 && wk.fav.size)
@@ -792,8 +865,11 @@ function syncEvtUI(){
       + `（順序反過來會少算）。`);
   const note = $('evtNote');
   note.hidden = !msg.length;
-  note.className = 'notice' + (zero.length ? ' warn' : '');
+  note.className = 'notice' + (zero.length || evtBadTy.length || noHit.length ? ' warn' : '');
   note.innerHTML = msg.join('<br>');
+  /* 截圖匯入頁的攔截條也在這裡同步 —— 它讀的是同一份 `wk.evt`，
+     兩處各自判斷就會有一處說謊（而說謊的那一處會讓人存進錯的資料）。 */
+  syncImpEvtWarn();
 }
 
 /* ================= UI: box ================= */
@@ -1219,6 +1295,25 @@ const MS_CAVEAT = {
   'Aura Sphere (Dream Shard Magnet S)':{dir:'under', why:'夢之碎片不計分 —— 這個工具只算能量。'},
   'Super Luck (Ingredient Draw S)':   {dir:'under', why:'夢之碎片不計分（食材那一面有算）。'},
 };
+/** 這一隻的屬性標籤。**寶可夢箱與推演／自組隊伍的成員卡共用這一份**（和 `monCard`
+ *  同時服務箱子與截圖校對區同一個理由：兩處各寫一份就會有一處先走鐘）。
+ *
+ *  為什麼要顯示：屬性現在決定三個活動加成打不打得到牠，而**這份屬性清單是 repo 自己
+ *  維護的**（上游沒有屬性欄位）。顯示出來才會被使用者核對到 —— 重建時的 `berry.type`
+ *  交叉驗證只擋得住雙屬性的第一個，第二個靠的就是這裡。
+ *
+ *  吃得到本週活動加成的那一個屬性會標 `.hit`：「為什麼推演突然選了這一隻」必須在
+ *  卡片上看得到答案，否則就是靜靜地改了結果。 */
+function typeTags(p){
+  const hits = new Set(EVT_KEYS.filter(k => EVT_ZH[k].ty && evtPct(wk,k) > 0 && evtTy(wk,k))
+                               .map(k => evtTy(wk,k)).filter(t => hasType(p, t)));
+  return typesOf(p).map(t=>{
+    const hit = hits.has(t);
+    const why = t === 'dark' ? '　惡屬性另外決定達克萊伊「夢魘」扣不扣得到（惡屬性免疫）。' : '';
+    return `<span class="tag ty ${t}${hit?' hit':''}" title="${tyz(t)}屬性${
+      hit ? '　←　本週活動的屬性限定加成打得到牠' : ''}${why}&#10;屬性清單由本專案維護在 ${P.types}（上游資料沒有屬性欄位），每一隻都與上游的樹果屬性交叉驗證過">${tyz(t)}</span>`;
+  }).join('');
+}
 /** 主技能旁邊的警告徽章。沒有 caveat 就回空字串。 */
 function msCaveat(ms){
   const c = MS_CAVEAT[ms]; if (!c) return '';
@@ -1277,7 +1372,7 @@ function monHead(m, idx, open){
         <span class="mon-lv">Lv${m.level}</span>
       </span>
       <span class="mon-rest">
-        <span class="tag ${SPEC_TAG[p.sp]}" title="專長">${SPEC_ZH[p.sp]}</span>${DARK.has(p.n)?`<span class="tag dark" title="惡屬性 —— 只影響達克萊伊「夢魘」的扣活力（惡屬性免疫）。這份清單由 repo 維護在 ${P.types}，上游資料沒有屬性欄位">惡</span>`:``}
+        <span class="tag ${SPEC_TAG[p.sp]}" title="專長">${SPEC_ZH[p.sp]}</span>${typeTags(p)}
         <span class="mon-ms" title="主技能（由種類決定）">${msz(p.ms)}</span>${msCaveat(p.ms)}
         <span class="mon-nat">${natBrief(m)}</span>
         <span class="mon-sum">${ss}</span>
@@ -1960,6 +2055,32 @@ function impReDeriveSkillLv(){
 }
 
 /* ---- 校對區 ---- */
+/* 截圖反解吃的是**遊戲畫面上顯示的數字**，而有兩個活動加成會改變那些數字：
+     carry     持有上限 +N   -> 畫面上的持有上限含那 +N，而 impCarry 走的 wk 只有 camp
+     tySkillLv 主技能等級 +N -> 畫面上技能說明的數字是加成後的等級
+
+   `impInterval` / `impCarry` 刻意**不吃**週設定（CLAUDE.md：EX 也是同樣的處理，
+   而且七隻 golden case 的期望值必須與週設定無關）。所以這兩項開著時要**擋在前面講清楚**。
+
+   ⚠ 兩者的後果完全不同，文案一定要分岔：
+     carry     -> 校驗碼對不上 -> **全部無解**。惱人，但不會存進錯的值。
+     tySkillLv -> 技能等級不進任何校驗碼 -> **靜靜地解出少 N 級的基礎值並存進箱子**。
+   把兩者收斂成同一句「活動期間請勿匯入」，就會讓後者那個真正危險的情形看起來只是不方便。 */
+function syncImpEvtWarn(){
+  const el = $('impEvtWarn'); if (!el) return;
+  const msg = [];
+  if (evtPct(wk, 'carry') > 0)
+    msg.push(`本週活動「<b>持有上限 +${evtPct(wk,'carry')} 個</b>」開著：遊戲畫面上顯示的持有上限已經含這 +${evtPct(wk,'carry')}，`
+      + `而反解**不吃週設定**，所以這些截圖會<b>全部無解</b>。`);
+  if (evtPct(wk, 'tySkillLv') > 0)
+    msg.push(`本週活動「<b>${evtTyLabel('tySkillLv')} 主技能等級 +${evtPct(wk,'tySkillLv')} 級</b>」開著：`
+      + `畫面上技能說明的數字是<b>加成後</b>的等級，而技能等級<b>不進任何校驗碼</b> —— `
+      + `所以它不會變成無解，而是<b>靜靜地解出少 ${evtPct(wk,'tySkillLv')} 級的基礎值並存進箱子</b>。這比無解危險得多。`);
+  el.hidden = !msg.length;
+  if (msg.length)
+    el.innerHTML = msg.join('<br><br>')
+      + `<br><br>要匯入的話：用<b>活動開始前</b>拍的截圖，或先到「每週推演」把那一項取消勾選、匯入完再打開。`;
+}
 function renderImpReview(){ renderImpChecks(); renderImpDraft(); renderImpNotes(); renderImpAlts(); }
 
 /** 重新校驗用的觀測值：露營券一律用「這組解實際採用的那一種」。 */
@@ -2161,6 +2282,8 @@ function searchViaPool(payload, onProgress){
       cands: parts.flatMap(p => p.cands),
       count: parts.reduce((s, p) => s + p.count, 0),
       excluded: parts[0].excluded,   // 每個分片算出來的排除名單相同
+      // cutAll / maxAll 同理：它們只取決於 (roster, wk)，每個分片算出來都一樣
+      cutAll: parts[0].cutAll, maxAll: parts[0].maxAll,
       total: parts[0].total,
       workers: n,
       shardMs: parts.map(p => p.ms),   // 診斷用：worker 自己量的耗時
@@ -2198,7 +2321,13 @@ const RUN_ERR = {
     + `EX 營地的「幫忙間隔縮短、發動的主技能等級 +1」只有主要那一種吃得到，`
     + `沒指定等於整個加成沒有對象。請在上面的<b>「主要樹果」</b>選一種`
     + `（要先在「本週加成樹果」把它勾起來）。`,
-  fewBerry: n => `套用「樹果型只考慮本週加成樹果」之後只剩 ${n} 隻可用（需要 5 隻）。`
+  fewBerry: n => `套用「樹果型只考慮本週加成樹果」之後只剩 ${n} 隻可用（需要 5 隻）。`,
+  /* 「全能同隊最多一隻」湊不出任何一組 5 隻。和 `fewBerry` 同一類：**被規則擋住時
+     要指名是哪一條規則**，不可以只說「找不到隊伍」。實際會走到這裡的情形是
+     「可用的 N 隻裡有 N-3 隻以上是全能」—— 罕見但不是不可能。 */
+  fewAll: (n, nAll) => `套用「<b>全能型同隊最多一隻</b>」之後湊不出任何一組 5 隻 —— `
+    + `目前可用的 ${n} 隻裡有 <b>${nAll} 隻是全能型</b>，扣掉之後剩下的不足 4 隻。`
+    + `把下面的「全能型同隊最多一隻」取消勾選，或在箱子裡多加幾隻非全能型的。`
               + `請調整本週加成樹果、把需要的成員用 📌 固定（固定的不受此限），或關掉那個選項。`,
 };
 
@@ -2245,6 +2374,7 @@ async function run(){
       const top = merged.cands.slice().sort(byScore).slice(0, FINALISTS);
       res = { best: finalizeTeams(rehydrate(top, roster, wk), roster, wk),
               count: merged.count, shardMs: merged.shardMs,
+              cutAll: merged.cutAll, maxAll: merged.maxAll,
               excluded: merged.excluded.map(i => D.dex[roster[i].sp].n) };
     }
   } catch (err){
@@ -2268,7 +2398,7 @@ async function run(){
       killPool();
       setRunning(false);
       const m = err.shardError, f = RUN_ERR[m.error];
-      $('results').innerHTML = `<div class="notice warn">${f ? f(m.n) : '推演失敗，請重試。'}</div>`;
+      $("results").innerHTML = `<div class="notice warn">${f ? f(m.n, m.nAll) : "推演失敗，請重試。"}</div>`;
       return;
     }
     console.warn('worker 推演失敗，退回主執行緒：', err.message);
@@ -2289,7 +2419,7 @@ async function run(){
   if (!res || res.error){
     const f = res && RUN_ERR[res.error];
     if (res && res.error === 'stopped') return;
-    $('results').innerHTML = `<div class="notice warn">${f ? f(res.n) : '推演失敗，請重試。'}</div>`;
+    $("results").innerHTML = `<div class="notice warn">${f ? f(res.n, res.nAll) : "推演失敗，請重試。"}</div>`;
     return;
   }
   lastResults = res.best; shownAlt = 0; resultsStale = false;
@@ -2305,6 +2435,11 @@ async function run(){
        這一行是唯一分得出「這是活動週算的」的地方。 */
     + (evtActive().length ? ` · 活動加成：${evtActive().join('・')}` : '')
     + (cut ? ` · 已排除 ${cut} 隻樹果不符的樹果型` : '')
+    /* 「全能同隊最多一隻」砍掉的**組合數**。和上面那個「排除 N 隻」是不同的量
+       （那是候選、這是組合），所以分開講 —— 合成一句會讓人以為有幾隻被剔掉了。
+       `maxAll > 1` 代表 📌 固定的全能超過一隻、規則被使用者的指定覆蓋，那也要講。 */
+    + (res.cutAll > 0 ? ` · 全能限一隻，已略過 ${res.cutAll.toLocaleString()} 種組合` : '')
+    + (res.maxAll > 1 ? ` · ⚠ 你固定了 ${res.maxAll} 隻全能，「全能限一隻」這一週不生效` : '')
     + (nWorkers ? ` · ${nWorkers} 執行緒` : ' · 主執行緒');
   // 排除名單要看得到 —— 靜靜地少算候選是這個 repo 最不想要的行為
   const shardTip = res.shardMs ? '\n\n各分片耗時：' + res.shardMs.map(x => x + 'ms').join(' / ') : '';
@@ -2443,7 +2578,7 @@ function memberCard(rank, i, r, o){
         /* 推演結果是**最需要暱稱的地方**：箱子裡有兩隻妙蛙花時，選中的是哪一隻只有
            暱稱分得出來。但學名也一定要在（不然不知道要看哪一隻的數值），所以並列。 */
         (m.nick||'').trim() ? `<span class="nm-sci">${pz(p)}</span>` : ''
-      }<span class="tag ${SPEC_TAG[p.sp]}">${SPEC_ZH[p.sp]}</span>${wk.fav.has(p.b)?`<span class="tag fav" title="本週加成樹果：幫忙撿來的樹果能量 ×${mulTxt(berryMulShown(p.b))}">加成樹果</span>`:''}${exTag(bs)}${m.pin?`<span class="tag pin">固定</span>`:''}</div>
+      }<span class="tag ${SPEC_TAG[p.sp]}">${SPEC_ZH[p.sp]}</span>${wk.fav.has(p.b)?`<span class="tag fav" title="本週加成樹果：幫忙撿來的樹果能量 ×${mulTxt(berryMulShown(p.b))}">加成樹果</span>`:''}${exTag(bs)}${typeTags(p)}${m.pin?`<span class="tag pin">固定</span>`:''}</div>
       <div class="meta">Lv${m.level} · ${natZ(NAT[m.nature]||NAT.Bashful)} · ${act.length?act.join('／'):'無副技能'} · 頻率 ${Math.round(o.sim.freqBase/60*10)/10}分</div>\n      <div class="meta">${msz(p.ms)} Lv${bs.skillLv} · 每日發動 ${f1(o.sim.procs)} 次 ${msCaveat(p.ms)}</div>
       <div class="meta" style="color:var(--ing)">${ingList.length?ingList.join('　'):'（無食材產出）'}</div>
       <div class="why">${pickReason(rank-1, r)}</div>
@@ -2862,6 +2997,19 @@ function teamBerryWarn(t){
        + `只是別拿它跟推演的名次對照。</div>`;
 }
 
+/* 「全能型同隊最多一隻」和 `strictBerry` 完全同一條規則：它是**組合過濾**，手動隊
+   已經親手指定了 5 隻所以自然不生效（手動權力最大）。但同樣會造成「這裡算得好好的、
+   推演卻永遠不推薦」的矛盾，所以要講出來是哪幾隻。 */
+function teamAllWarn(t){
+  if (wk.oneAll === false) return '';
+  const all = t.members.filter(i => i != null).filter(i => D.dex[roster[i].sp].sp === 'all');
+  if (all.length < 2) return '';
+  const who = all.map(i => esc(monName(roster[i]))).join('、');
+  return `<div class="notice" style="margin:8px 0 0">這裡照算：${who} 都是全能型（同隊 ${all.length} 隻）。`
+       + `推演分頁因為「全能型同隊最多一隻」不會選出這個組合 —— 數字本身沒問題，`
+       + `只是別拿它跟推演的名次對照。</div>`;
+}
+
 function teamSlotHTML(ti, si){
   const i = teams[ti].members[si];
   if (i == null)
@@ -2890,7 +3038,7 @@ function teamCardHTML(t, ti){
         title="${teams.length>1?'刪除這支隊伍':'清空這支隊伍'}">✕</button>
     </div>
     <div class="tmslots">${[0,1,2,3,4].map(s=>teamSlotHTML(ti,s)).join('')}</div>
-    ${teamBerryWarn(t)}
+    ${teamBerryWarn(t)}${teamAllWarn(t)}
   </div>`;
 }
 

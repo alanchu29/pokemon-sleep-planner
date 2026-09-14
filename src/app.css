@@ -111,6 +111,13 @@ input[type=range]{width:100%;accent-color:var(--accent)}
 .evtpp{font-size:11px;color:var(--muted)}
 .evtrow .hint{font-weight:400;font-size:11px;color:var(--muted);opacity:.85;line-height:1.35}
 .evtbox .notice{margin-top:10px}
+/* 「只有特定屬性吃得到」那一段的小標。有分隔線是刻意的：上面那六項打全員、
+   下面三項只打某屬性，而那是讀這塊 UI 時第一個要知道的事。 */
+.evtseg{margin-top:14px;padding-top:10px;border-top:1px dashed var(--line);
+  font-size:11.5px;font-weight:700;color:var(--ink-2);letter-spacing:.02em}
+/* 屬性下拉。`min-width:0` 是必要的 —— 沒有的話 grid item 縮不到 min-content 以下，
+   390px 下整個 .evtgrid 會被它撐出去（見 CLAUDE.md 那個 1fr 的陷阱）。 */
+.evtty{width:100%;min-width:0;font-size:12px}
 
 /* ---- result hero ---- */
 .hero{display:grid;grid-template-columns:minmax(0,1fr) 280px;gap:0}
@@ -147,8 +154,14 @@ input[type=range]{width:100%;accent-color:var(--accent)}
    它既不加速也不被罰，標了只是雜訊。 */
 .tag.exmain{background:color-mix(in srgb,var(--pos) 88%,var(--ink));color:#fff}
 .tag.exoff{background:color-mix(in srgb,var(--neg) 82%,var(--ink));color:#fff}
-/* 惡屬性 —— 只跟達克萊伊「夢魘」的扣活力有關，所以用中性色，不搶專長標籤的位置 */
-.tag.dark{background:color-mix(in srgb,var(--ink) 72%,transparent);color:var(--surface)}
+/* 屬性標籤（18 種）。**一律中性色** —— 屬性本身不是價值判斷，給 18 種各配一個顏色
+   只會跟左邊的專長標籤搶注意力，而專長才是決定這隻怎麼用的東西。
+   `.hit` 是「這一隻吃得到本週活動的屬性限定加成」—— 那一件事才需要跳出來。
+   惡屬性另外加深一點，因為它還額外決定達克萊伊「夢魘」扣不扣得到。 */
+.tag.ty{background:var(--surface-3);color:var(--muted);font-weight:600}
+.tag.ty.dark{background:color-mix(in srgb,var(--ink) 72%,transparent);color:var(--surface)}
+.tag.ty.hit{background:color-mix(in srgb,var(--accent) 22%,transparent);color:var(--accent);font-weight:700;
+  outline:1px solid color-mix(in srgb,var(--accent) 45%,transparent)}
 
 /* ---- bars ---- */
 .barrow{display:grid;grid-template-columns:88px minmax(0,1fr) 74px;gap:10px;align-items:center;font-size:12px;padding:3px 0}

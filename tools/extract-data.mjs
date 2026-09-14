@@ -2,7 +2,9 @@
 /**
  * 從上游 Neroli's Lab 重建 data/game.json。
  *
- *   node tools/extract-data.mjs [--out data/game.json]
+ *   node tools/extract-data.mjs [--out data/game.json] [--offline]
+ *
+ *   --offline  不 fetch 上游，沿用現有的 .tmp/nl（只改了 tools/*.txt 想重建時用）
  *
  * 流程：
  *   1. clone 上游到 .tmp/nl（已存在則 fetch）
@@ -32,9 +34,16 @@ const shq = (cmd, cwd) => execSync(cmd, { cwd, encoding: 'utf8' }).trim();
 
 mkdirSync(TMP, { recursive: true });
 
+/* `--offline`：不要動 .tmp/nl，就用現在那份 clone 重建。
+   用途是「只改了 tools/*.txt（繁中、屬性、主技能表）想重建，但**不想順便把上游拉到新的
+   commit**」—— 那會讓一次 diff 同時包含兩件事，而 CLAUDE.md 要求重建後逐位比對數值，
+   混在一起就分不出哪一項造成的差異。沒有 clone 時仍然會 clone。 */
+const offline = args.includes('--offline');
 if (!existsSync(NL)) {
   console.log('clone 上游…');
   sh(`git clone --depth=1 ${UPSTREAM} nl`, TMP);
+} else if (offline) {
+  console.log('--offline：沿用現有的 .tmp/nl，不 fetch');
 } else {
   console.log('fetch 上游…');
   sh('git fetch --depth=1 origin main && git reset --hard FETCH_HEAD', NL);
@@ -76,6 +85,9 @@ for (const s of A.MAINSKILLS) {
 const data = {
   ings: A.ingredient.INGREDIENTS.map((i: any) => [i.name, i.value]),
   berries: A.berry.BERRIES.map((b: any) => [b.name, b.value]),
+  // 只給 tools/types.txt 的交叉驗證用，驗完就從 data 拿掉、不寫進 game.json。
+  // 18 顆樹果剛好一顆對一個屬性，所以它是「每一隻至少一個屬性有上游來源」的唯一憑據。
+  bt: A.berry.BERRIES.map((b: any) => [b.name, b.type]),
   dex, recipes, ms,
   natures: A.nature.NATURES.map((n: any) => ({ n: n.name, p: n.positiveModifier, m: n.negativeModifier, f: n.frequency, i: n.ingredient, s: n.skill, e: n.energy })),
   subskills: A.subskill.SUBSKILLS.map((s: any) => ({ n: s.name, s: s.shortName, a: s.amount, r: s.rarity })),
@@ -123,27 +135,57 @@ data.zh = {
   islands: sec.ISLANDS, berries: sec.BERRIES, ings: sec.INGS, natures: sec.NATURES,
   subskills: sec.SUBSKILLS, ssShort: sec.SUBSKILL_SHORT, ms: sec.MAINSKILLS,
   recipes: zhRecipes, pk: zhPk,
+  /* 屬性名。上游的 i18n 也沒有這一組（因為上游根本沒有屬性資料），所以和 types.txt
+     一樣是本專案維護。18 個固定的官方譯名，使用者一眼可以全部核對完 —— 這是
+     「不要自創中文名」那條規則的例外理由：它擋的是寶可夢與食譜名，那些譯錯了看不出來。 */
+  types: sec.TYPES,
 };
-/* ---- 合併惡屬性清單（上游沒有屬性欄位，這份 repo 自己維護）----
-   夢魘的扣活力只打在惡屬性以外的成員身上、流星群看隊上的龍屬性種類數 —— 沒有這份清單就寫不出那些判斷。
-   和 zh.txt 同一個性質：**重建時絕對不能弄丟。** 名字對不上 dex 就直接報錯，
-   因為錯的名字不會有任何症狀 —— 只會讓那一隻被夢魘白扣一次。 */
+/* ---- 合併屬性清單（上游沒有屬性欄位，這份 repo 自己維護）----
+   夢魘的扣活力只打在惡屬性以外的成員身上、流星群看隊上的龍屬性種類數、本週活動的三個
+   屬性限定項要知道每一隻是什麼屬性 —— 沒有這份清單就寫不出那些判斷。
+   和 zh.txt 同一個性質：**重建時絕對不能弄丟。**
+
+   格式是一隻一行 `內部名=屬性1,屬性2`（2026-09-14 從 `## DARK` 分區改過來，理由見該檔頭）。
+   輸出仍然是**依屬性分組**的 `{dark:[...], dragon:[...], ...}` —— engine 的
+   `DARK` / `DRAGON` 兩個 Set 因此完全不用改。
+
+   四道守門，任何一道不過就 throw。這些錯**在執行期完全沒有症狀**（那一隻只是靜靜地
+   不符合任何屬性條件），所以唯一擋得住的地方就是這裡。 */
+const TYPE_NAMES = ['normal','fire','water','electric','grass','ice','fighting','poison','ground',
+                    'flying','psychic','bug','rock','ghost','dragon','dark','steel','fairy'];
 const typesTxt = readFileSync(resolve(ROOT, 'tools/types.txt'), 'utf8');
-data.types = {};
+data.types = Object.fromEntries(TYPE_NAMES.map((t) => [t, []]));
 {
-  let cur = null;
+  const own = {};
   for (const raw of typesTxt.split(/\r?\n/)) {
     const l = raw.trim();
-    if (l.startsWith('##')) { cur = l.slice(2).trim().toLowerCase(); data.types[cur] = []; continue; }
-    if (!l || l.startsWith('#') || !cur) continue;
-    data.types[cur].push(l);
+    if (!l || l.startsWith('#')) continue;
+    const i = l.indexOf('=');
+    if (i < 0) throw new Error('tools/types.txt 格式不對（需要 `名字=屬性1,屬性2`）：' + l);
+    const name = l.slice(0, i).trim();
+    const ts = l.slice(i + 1).split(',').map((s) => s.trim()).filter(Boolean);
+    if (own[name]) throw new Error('tools/types.txt 有重複的名字：' + name);
+    own[name] = ts;
   }
   const known = new Set(data.dex.map((p) => p.n));
-  for (const [k, v] of Object.entries(data.types)) {
-    const bad = v.filter((n) => !known.has(n));
-    if (bad.length) throw new Error('tools/types.txt 的 ' + k + ' 有不在 dex 裡的名字：' + bad.join(', '));
-  }
+  // 1. 名字必須在 dex 裡
+  const stray = Object.keys(own).filter((n) => !known.has(n));
+  if (stray.length) throw new Error('tools/types.txt 有不在 dex 裡的名字：' + stray.join(', '));
+  // 2. 每一隻都必須至少有一個屬性 —— 漏一隻＝那隻永遠不符合任何屬性活動，而且沒有症狀
+  const missing = data.dex.map((p) => p.n).filter((n) => !own[n] || !own[n].length);
+  if (missing.length) throw new Error(`tools/types.txt 漏了 ${missing.length} 隻：` + missing.join(', '));
+  // 3. 屬性名必須是那 18 個（內部名來自上游 berries.ts 的 Berry.type）
+  for (const [n, ts] of Object.entries(own))
+    for (const t of ts) if (!TYPE_NAMES.includes(t)) throw new Error(`tools/types.txt 的 ${n} 有不認識的屬性「${t}」`);
+  // 4. 交叉驗證：每一隻的樹果所對應的屬性，必須出現在它的屬性清單裡。
+  //    這是唯一有上游來源的一層。擋不到的是雙屬性的第二個屬性（樹果只反映單一屬性）。
+  const berryType = Object.fromEntries(data.bt);
+  const clash = data.dex.filter((p) => !own[p.n].includes(berryType[p.b]))
+    .map((p) => `${p.n}（樹果 ${p.b}=${berryType[p.b]}，清單寫 ${own[p.n].join('/')}）`);
+  if (clash.length) throw new Error(`tools/types.txt 與上游 berry.type 對不上 ${clash.length} 隻：\n  ` + clash.join('\n  '));
+  for (const p of data.dex) for (const t of own[p.n]) data.types[t].push(p.n);
 }
+delete data.bt; // 驗證用，不進 game.json
 
 /* ---- 合併上游沒有的主技能數值表（tools/skills-extra.json）----
    例如流星群（樹果遽增）依「隊上不同種類的龍屬性數」決定樹果數的那張表 ——
@@ -161,11 +203,12 @@ data.meta = {
   // 資料結構版本。app.js 有一份 SCHEMA 常數會斷言它相等 —— 兩者不合就顯示「請重新整理」，
   // 避免瀏覽器拿到「新 app.js ＋ 舊 game.json」這種偏移組合而算出錯的數字。
   // 動到欄位結構（改名／改型別／移除）時，這裡和 app.js 的 SCHEMA 要一起 +1。
-  schema: 4,
+  schema: 5,
   src: 'nerolis-lab/nerolis-lab', commit, commitDate,
   builtAt: new Date().toISOString().slice(0, 10),
   zhSrc: 'RaenonX i18n + 52poke zh-hant',
-  typesSrc: 'tools/types.txt（本專案維護 —— 上游的寶可夢資料沒有屬性欄位）',
+  typesSrc: 'tools/types.txt（本專案維護 18 屬性 × 246 隻 —— 上游的寶可夢資料沒有屬性欄位；'
+          + '每一隻的樹果屬性都與上游 berry.type 交叉驗證過）',
   msExtraSrc: 'tools/skills-extra.json（本專案維護 —— 上游快照沒有這些表）',
 };
 
@@ -176,6 +219,7 @@ const gaps = {
   mainskills: Object.keys(data.ms).filter((k) => !data.zh.ms[k]),
   subskills: data.subskills.map((s) => s.n).filter((n) => !data.zh.subskills[n]),
   islands: data.islands.map((i) => i.n).filter((n) => !data.zh.islands[n]),
+  types: TYPE_NAMES.filter((t) => !data.zh.types || !data.zh.types[t]),
 };
 const json = JSON.stringify(data, null, 2) + '\n';
 mkdirSync(dirname(outPath), { recursive: true });

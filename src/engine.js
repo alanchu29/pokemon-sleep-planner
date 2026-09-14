@@ -21,7 +21,7 @@ if (!D || !D.ings || !D.dex || !D.recipes || !D.ms) {
    ASSET_V 擋到的路徑** —— 主執行緒載新引擎、worker 載到快取的舊引擎時，
    搜尋（worker）與 rehydrate／決賽（主執行緒）會用兩套不同的公式，
    不會報錯，只會靜靜地算出對不起來的分數。app.js 會比對這個值。 */
-const ENGINE_V = '20260911b';
+const ENGINE_V = '20260914a';
 
 const ING_NAME = D.ings.map(x=>x[0]);
 const ING_VAL  = D.ings.map(x=>x[1]);
@@ -63,9 +63,32 @@ const MEALS_DAY = 3;
 const HB_TABLE = [[2,3,3,4,4,5],[2,3,3,4,5,6],[3,4,5,6,7,8],[4,5,6,7,8,9],[6,7,8,9,10,11]];
 /* 屬性清單（內部名）。上游的 dex **沒有屬性欄位**，這份來自 tools/types.txt ——
    和 zh 對照表同一個性質：repo 自己維護、重建時不能弄丟。
-   兩個主技能吃屬性：夢魘看惡屬性（BAD_DREAMS_DRAIN）、流星群看隊上的龍屬性種類數。 */
+   吃屬性的有三處：夢魘看惡屬性（BAD_DREAMS_DRAIN）、流星群看隊上的龍屬性種類數，
+   以及本週活動加成的三個屬性限定項（見 EVT_KEYS）。
+
+   ⚠ 這 18 個內部名的**出處是上游** `berries.ts` 的 `Berry.type`（18 顆樹果剛好一顆
+   一個屬性），不是隨手取的字串 —— 所以 UI 的下拉、types.txt 的守門、這裡三份都對得上。 */
+const TYPE_NAMES = ['normal','fire','water','electric','grass','ice','fighting','poison','ground',
+                    'flying','psychic','bug','rock','ghost','dragon','dark','steel','fairy'];
 const DARK   = new Set((D.types && D.types.dark)   || []);
 const DRAGON = new Set((D.types && D.types.dragon) || []);
+/* 反查表：物種內部名 -> Set(屬性)。`D.types` 是依屬性分組的（讓 DARK / DRAGON 那兩個
+   Set 不用改），但屬性限定加成問的是反方向的「這一隻是不是 X 屬性」，所以載入時翻一次。 */
+const TYPES_OF = (() => {
+  const m = new Map();
+  for (const t of TYPE_NAMES)
+    for (const n of ((D.types && D.types[t]) || [])) {
+      let s = m.get(n); if (!s) m.set(n, s = new Set());
+      s.add(t);
+    }
+  return m;
+})();
+/** 這一隻（dex 條目）是不是 `ty` 屬性。`ty` 為 null／undefined 一律回 true ——
+ *  那是「全部屬性」的意思，三個屬性限定項都用得到。 */
+const hasType = (p, ty) => !ty || !!(TYPES_OF.get(p.n) && TYPES_OF.get(p.n).has(ty));
+/** 這一隻的屬性陣列，順序固定為 TYPE_NAMES 的順序（＝本傳的屬性排序）。
+ *  UI 的標籤用它 —— 順序穩定，同一隻在箱子與成員卡上才不會一下「草/毒」一下「毒/草」。 */
+const typesOf = p => TYPE_NAMES.filter(t => hasType(p, t));
 /* 上游快照沒有、但遊戲技能頁有的主技能數值表（來自 tools/skills-extra.json）。
    目前只有流星群的基礎樹果表：外層 = 主技能等級 1..6，內層 = 隊上不同種類的龍屬性數 1..5。 */
 const MS_EXTRA = D.msExtra || {};
@@ -143,17 +166,47 @@ function favBerryMul(wk, berry){
    `evtPct` 一律回 0 —— 和 `exOf` 同一個手法，那兩條路徑不必加任何判斷。
    個體產能刻意不吃（使用者 2026-09-11：「箱子裡呈現的都是個體的預設，與該週的任何
    條件無關」）。 */
-const EVT_KEYS = ['skill', 'berry', 'ing', 'dish', 'crit'];
+/* 九個分項，分兩組：
+
+   **全員**（不看屬性，`evtPct` / `evtMul` 直接讀）
+     skill  主技能發動機率 +N%      berry 樹果能量 +N%    ing  食材獲得量 +N%
+     dish   料理能量 +N%            crit  大成功機率 +N 個百分點
+     carry  持有上限 +N 個
+
+   **屬性限定**（多一個 `ty` 欄位，`ty === null` ＝ 全部屬性，走 `evtTyPct`）
+     tyIng     該屬性平常幫忙撿來的食材 +N 個
+     tySkill   該屬性的主技能發動機率 +N%
+     tySkillLv 該屬性發動的主技能等級 +N
+
+   ⚠ `carry` 放在「全員」是因為使用者的需求就是「**所有**寶可夢持有上限增加 N 個」。
+   要做成屬性限定的話是加一個新鍵，不是給 carry 加 `ty` —— 一個鍵一種語意。 */
+const EVT_KEYS = ['skill', 'berry', 'ing', 'dish', 'crit', 'carry', 'tyIng', 'tySkill', 'tySkillLv'];
+/** 帶屬性欄位的那幾項。app.js 的 UI 與 deserialize 正規化都讀這一份。 */
+const EVT_TYPED = ['tyIng', 'tySkill', 'tySkillLv'];
 /** 勾起來時的數值，沒勾或沒有這個欄位一律 0。
- *  前四項的單位是**百分比**（+N% -> 乘 1+N/100），`crit` 是**百分點**（加在機率上）。 */
+ *  單位不統一，各項見 EVT_KEYS 上面那張表（`crit` 是百分點、三個「個／級」是絕對量）。 */
 function evtPct(wk, key){
   const e = wk && wk.evt && wk.evt[key];
   if (!e || !e.on) return 0;
   const v = +e.v;
   return v > 0 ? v : 0;
 }
-/** 前四項用的乘數。 */
+/** 百分比型用的乘數。 */
 const evtMul = (wk, key) => 1 + evtPct(wk, key)/100;
+/** 屬性限定項指定的屬性；`null` ＝ 全部屬性。
+ *  **認不得的屬性回傳 `undefined` 以外的東西是危險的** —— 那會讓 `hasType` 當成
+ *  「全部屬性」而把一個只打超能力的加成發給全隊。所以 app.js 的 `deserialize` 會在
+ *  入口就把認不得的值整項歸零，這裡只負責讀。 */
+const evtTy = (wk, key) => {
+  const e = wk && wk.evt && wk.evt[key];
+  return (e && e.ty) || null;
+};
+/** 屬性限定項對**這一隻**的有效值：屬性不符就是 0。
+ *  `p` 是 dex 條目（要 `p.n`）。`SCORE_WK`／截圖匯入的 `wk` 沒有 `evt`，`evtPct` 回 0，
+ *  所以那兩條路徑**自動**不受影響 —— 和 `exOf` 同一個手法，不必加任何判斷。 */
+const evtTyPct = (wk, key, p) => hasType(p, evtTy(wk, key)) ? evtPct(wk, key) : 0;
+/** 屬性限定的百分比型用的乘數。 */
+const evtTyMul = (wk, key, p) => 1 + evtTyPct(wk, key, p)/100;
 
 const MAGNET_POOL = ING_NAME.map((n,i)=>i).filter(i=>ING_NAME[i]!=='Tail');
 const MEALS_WEEK = 21;
@@ -197,8 +250,14 @@ function baseStats(m, wk){
   const invAdd = (h('Inventory Up S')?6:0)+(h('Inventory Up M')?12:0)+(h('Inventory Up L')?18:0);
   /* 天青沙灘EX 的主要樹果持有上限 +5。和 `invAdd`／`RIBBON_CARRY` 同一層（種族值那一
      層），所以會一起吃到好露營券的 ×1.2 —— 上游也是加在 `pokemon.carrySize` 上。 */
+  /* 本週活動「所有寶可夢持有上限 +N 個」。**放在括號裡面**（使用者 2026-09-14 指定）——
+     這一層就是「種族值層」，`invAdd`／`RIBBON_CARRY`／EX 的 +5 全都在裡面，所以它也會
+     一起吃到好露營券的 x1.2（活動的 +8 在有露營券時實際是 +9.6，再 ceil）。
+     ⚠ 這會讓背包更慢滿 -> `helpsTillFull` 變大 -> 成員卡的「背包裝滿 N」與整隊的
+     「建議收取間隔」跟著變長。那是對的，袋子真的變大了。 */
   const carry = Math.ceil((p.cs + 5*p.pe + invAdd + RIBBON_CARRY[m.ribbon||0]
-                           + (exT === 'main' ? ex.mainCarry : 0)) * (wk.camp?1.2:1));
+                           + (exT === 'main' ? ex.mainCarry : 0)
+                           + evtPct(wk, 'carry')) * (wk.camp?1.2:1));
   const ingChance = Math.min(1, (p.ip/100) * nat.i * (1 + (h('Ingredient Finder S')?0.18:0) + (h('Ingredient Finder M')?0.36:0)));
   const berriesPerDrop = ((p.sp==='berry'||p.sp==='all')?2:1) + (h('Berry Finding S')?1:0);
   const slots = Math.min(Math.floor(m.level/30)+1, 3);
@@ -219,17 +278,25 @@ function baseStats(m, wk){
      ⚠ **只打幫忙撿來的這一條路徑**（使用者指定：「技能跟撿的是不同的」）——
      主技能灑出來的食材（`pay.ingSpread`，食材獲取S／怪力鉗那類）不吃這個加成。 */
   const evtIngMul = evtMul(wk, 'ing');
+  /* 本週活動「某屬性撿來的食材 +N 個」。**和 EX 的 +1 完全同一個插入點與語意**
+     （使用者 2026-09-14 指定「比照」）：每次幫忙撿到的量 +N，然後一起吃上面那個 `ing %`，
+     也一樣會讓 `avgIngAmt` 變大 -> 背包更快滿。
+     同一個機制不該有兩份公式 —— 所以這裡是加進 `exIngAdd` 旁邊，不是另外算一輪。 */
+  const evtIngAdd = evtTyPct(wk, 'tyIng', p);
+  const ingAdd = exIngAdd + evtIngAdd;
   for (let s=0;s<slots;s++){
     const list = opts[s] || [];
     const pick = list[Math.min(m.ingSet[s]||0, list.length-1)];
     if (!pick) continue;
-    ingVec[pick[0]] += (pick[1]+exIngAdd)*evtIngMul/slots;
-    avgIngAmt += (pick[1]+exIngAdd)*evtIngMul/slots;
+    ingVec[pick[0]] += (pick[1]+ingAdd)*evtIngMul/slots;
+    avgIngAmt += (pick[1]+ingAdd)*evtIngMul/slots;
   }
   const skillLvMax = (D.ms[p.ms]||{max:6}).max;
-  /* 主要樹果的「發動的主技能等級提升 1」。放在 clamp 之內 —— 已經滿級的不會超出。 */
+  /* 主要樹果的「發動的主技能等級提升 1」，以及本週活動的「某屬性發動的主技能等級 +N」。
+     兩者都放在 clamp 之內 —— 已經滿級的不會超出（最高階的技能是 Lv8）。 */
   const skillLv = Math.max(1, Math.min(skillLvMax, (m.skillLv||1) + (h('Skill Level Up M')?2:0) + (h('Skill Level Up S')?1:0)
-                                                   + (exT === 'main' ? ex.mainSkillLv : 0)));
+                                                   + (exT === 'main' ? ex.mainSkillLv : 0)
+                                                   + evtTyPct(wk, 'tySkillLv', p)));
   /* 本週活動「主技能發動機率 +N%」。和 EX 的 x1.25 同一處、獨立相乘。
      **一定要 clamp 到 1**：底下 `effSkill` 的保底公式含 `(1-skillChance)^(pity+1)`，
      機率超過 1 會讓底數變負數，偶次方又變正，算出來的是垃圾而且不會報錯。
@@ -237,7 +304,8 @@ function baseStats(m, wk){
      活動加成可以輸到 +300%，所以這道門現在是必要的。 */
   const skillChance = Math.min(1, (p.sk/100) * (1 + (h('Skill Trigger S')?0.18:0) + (h('Skill Trigger M')?0.36:0)) * nat.s
                       * (ex && wk.exBonus === 'skill' && exFav ? EX_SKILL_MUL : 1)
-                      * evtMul(wk, 'skill'));
+                      * evtMul(wk, 'skill')
+                      * evtTyMul(wk, 'tySkill', p));
   const pity = p.sp==='skill' ? Math.floor(144000/freq) : 78;
   const effSkill = skillChance<=0 ? 0 : skillChance/(1 - Math.pow(1-skillChance, pity+1));
   const natureFreqMul = 2 - nat.f;
@@ -1313,7 +1381,40 @@ function prepareSearch(roster, wk){
     if (pool.length + pinned.length < 5)
       return { error:'fewBerry', n: pool.length + pinned.length, cut: excluded.length };
   }
-  return { pool, pinned, excluded, total: Math.round(nCk(pool.length, 5-pinned.length)) };
+
+  /* 全能型同隊最多一隻（`wk.oneAll`，預設開）。
+
+     **和 `strictBerry` 一樣是產品需求，不是最佳化**（使用者 2026-09-14：「全能寶可夢
+     太強了」）。它會讓總能量變低，那是刻意的取捨。
+
+     ⚠ 它和 `strictBerry` 的形狀**不同**：`strictBerry` 看單一隻，可以在候選階段就把
+     人剔掉；這一條是**組合層級的限制**（兩隻各自都合法，湊在一起才不合法），所以
+     只能在列舉時擋。剔候選是做不到的 —— 剔掉哪一隻都是錯的。
+
+     📌 固定的成員優先於通則（和 `strictBerry` 第 2 個例外同一條）：所以上限是
+     `max(1, 固定的全能數)`。固定了兩隻全能就是兩隻，不報錯 —— 使用者的個別指定
+     本來就該贏，而 UI 會把這件事講出來。 */
+  const isAll = i => D.dex[roster[i].sp].sp === 'all';
+  const pinnedAll = pinned.filter(isAll).length;
+  const oneAll = wk.oneAll !== false;
+  const maxAll = oneAll ? Math.max(1, pinnedAll) : 5;
+
+  /* `total` 要算**通過限制的**組合數，不是全部 —— 它同時是進度條的分母與 UI 上
+     顯示的「N 組」。算全部的話進度永遠走不到 100%，而那看起來像卡住了。
+       need = 還要從 pool 選幾隻、nA = pool 裡的全能數、room = 還能再放幾隻全能 */
+  const need = 5 - pinned.length;
+  const nA = pool.filter(isAll).length, nO = pool.length - nA;
+  const room = Math.max(0, maxAll - pinnedAll);
+  let total = 0;
+  for (let j = 0; j <= Math.min(room, nA, need); j++) total += nCk(nA, j) * nCk(nO, need - j);
+  total = Math.round(total);
+  if (oneAll && total < 1)
+    return { error:'fewAll', n: pool.length + pinned.length, nAll: nA + pinnedAll };
+
+  return { pool, pinned, excluded, total, maxAll, isAll,
+           /* 排除掉的組合數，給 UI 講出來 —— 「靜靜地少算候選」就是 CLAUDE.md 說的
+              那種文案說謊，而這一條砍掉的組合數往往不小。 */
+           cutAll: oneAll ? Math.round(nCk(pool.length, need)) - total : 0 };
 }
 
 /**
@@ -1346,6 +1447,14 @@ function searchShard(roster, wk, opts){
   // 所以用旗標讓 callback 變成 no-op —— 列舉本身很便宜，貴的是 scoreTeam。
   combinations(prep.pool, 5, prep.pinned, idxs=>{
     if (stopped) return;
+    /* 全能同隊上限。**擋在 `count++` 之前** —— `prep.total` 算的是通過限制的組合數，
+       兩邊要用同一個定義，否則進度條會停在 100% 以下（或提早衝到 100%）。
+       列舉本身很便宜（貴的是 scoreTeam），所以「全部列舉、不合法的跳過」是對的做法。 */
+    if (prep.maxAll < 5){
+      let nAll = 0;
+      for (const i of idxs) if (prep.isAll(i)) nAll++;
+      if (nAll > prep.maxAll) return;
+    }
     count++;
     if ((count & 0xFFF) === 0){
       if (o.shouldStop && o.shouldStop()){ stopped = true; return; }
@@ -1357,7 +1466,8 @@ function searchShard(roster, wk, opts){
   }, shard);
   if (stopped) return { error:'stopped', count };
   const cands = o.lean ? best.map(b => ({ idxs: b.idxs, score: b.score })) : best;
-  return { cands, count, excluded: prep.excluded, total: prep.total };
+  return { cands, count, excluded: prep.excluded, total: prep.total,
+           cutAll: prep.cutAll, maxAll: prep.maxAll };
 }
 
 /**
@@ -1428,7 +1538,7 @@ function searchTeams(roster, wk, opts){
   if (r.error) return r;
   const best = finalizeTeams(r.cands, roster, wk, (opts && opts.finalists) || FINALISTS);
   if (opts && opts.onProgress) opts.onProgress(r.count, r.total);
-  return { best, count: r.count, ms: Date.now()-t0,
+  return { best, count: r.count, ms: Date.now()-t0, cutAll: r.cutAll, maxAll: r.maxAll,
            excluded: r.excluded.map(i => D.dex[roster[i].sp].n) };
 }
 
