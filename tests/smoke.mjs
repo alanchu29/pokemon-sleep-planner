@@ -1566,8 +1566,27 @@ console.log('\n[11d] 寶可夢箱 UI：篩選、真實索引、完整顯示');
     // 搜尋副技能也要能命中
     $('fltName').value = '幫忙速度M'; fire('fltName', 'input');
     const bySs = vis().length;
+
+    /* 屬性篩選。和「專長」同一條路徑（只切 hidden，不必重畫）——
+       它不會改變摺疊列上的數字，也不影響排序。 */
+    $('fltName').value = ''; fire('fltName', 'input');
+    const ty = typesOf(D.dex[roster[0].sp])[0];
+    $('fltType').value = ty; fire('fltType', 'change');
+    const byType = vis().join(',');
+    const wantType = roster.map((m,i)=>i)
+      .filter(i => hasType(D.dex[roster[i].sp], ty)).join(',');
+    const opts = [...$('fltType').options];
+    const typeUI = {
+      /* 18 個屬性 ＋「全部」。**0 隻的照樣列出來** —— 藏起來使用者會以為那個屬性
+         不存在（和活動加成、整隊限定屬性兩個下拉同一條規則）。 */
+      n: opts.length,
+      zero: opts.filter(o => /箱中 0 隻/.test(o.text)).length,
+      mine: opts.find(o => o.value === ty).text,
+      countText: $('boxCount').textContent,
+    };
     $('fltClear').click();
     const cleared = vis();
+    const typeCleared = {sel: $('fltType').value, state: boxFlt.type};
 
     /* 新增一隻要清掉篩選並自動展開，否則新的那隻（皮卡丘＝樹果型）會被篩掉、
        看起來像沒反應。**但排序不能一起清** —— 先設成「圖鑑編號」再新增。 */
@@ -1676,7 +1695,8 @@ console.log('\n[11d] 寶可夢箱 UI：篩選、真實索引、完整顯示');
     };
 
     return {openAfterLoad, all, collapsedControls, summary, ingOnly, countText, targetIdx, openedControls,
-            levels, reclosed, searched, bySs, cleared, afterAdd, afterCollapse, afterCancel, afterDel,
+            levels, reclosed, searched, bySs, byType, wantType, typeUI, typeCleared,
+            cleared, afterAdd, afterCollapse, afterCancel, afterDel,
             toggleAsked, ssText, ingText, amount, mewSlot3, locked, natTexts};
   });
   ok('整批載入 roster 會清掉展開狀態（否則展開到別隻身上）', r.openAfterLoad === 0, String(r.openAfterLoad));
@@ -1697,6 +1717,15 @@ console.log('\n[11d] 寶可夢箱 UI：篩選、真實索引、完整顯示');
   ok('再點一次會收起來', r.reclosed === 0, String(r.reclosed));
   ok('文字搜尋中文名', r.searched.join(',') === '3', r.searched.join(','));
   ok('文字搜尋也能搜副技能', r.bySs === 4, String(r.bySs));
+  ok('依屬性篩選（篩的是牠撿的樹果那個屬性）', r.byType === r.wantType && !!r.byType,
+     `${r.byType} vs ${r.wantType}`);
+  ok('屬性下拉列滿 18 個 ＋「全部」', r.typeUI.n === 19, String(r.typeUI.n));
+  ok('每個選項都寫「箱中 N 隻」，0 隻的照樣列出來（不藏、不 disable）',
+     r.typeUI.zero > 0 && /（箱中 \d+ 隻）/.test(r.typeUI.mine), r.typeUI.mine);
+  ok('屬性篩選也算「有篩選」（數量要換成 N / 全部）', /顯示 \d+ \/ 4/.test(r.typeUI.countText),
+     r.typeUI.countText);
+  ok('清除篩選會一起清掉屬性（下拉與狀態兩邊都要）',
+     r.typeCleared.sel === '' && r.typeCleared.state === '', JSON.stringify(r.typeCleared));
   ok('清除篩選會全部顯示', r.cleared.join(',') === '0,1,2,3', r.cleared.join(','));
   ok('新增一隻會清篩選、看得到、而且自動展開',
      r.afterAdd.n === 5 && r.afterAdd.spec === '' && r.afterAdd.newVisible && r.afterAdd.newOpen,

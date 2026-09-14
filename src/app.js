@@ -66,7 +66,7 @@ const SCHEMA = 5;   // 4: 新增 msExtra{}（上游沒有的主技能數值表�
    「新的 index.html ＋ 舊的 app.js」—— 畫面畫出舊版 UI，而使用者只會覺得
    「你根本沒改」，完全不知道是快取。有了這個斷言，過期的 app.js 會直接被擋下來
    並要求強制重新整理。tests/smoke.mjs 第 11 節會斷言三處一致。 */
-const APP_V = '20260915a';
+const APP_V = '20260915b';
 
 /** 致命錯誤：整頁換成一段說明。這種狀況下繼續跑只會產生錯的數字。 */
 function fatal(html){
@@ -1534,7 +1534,7 @@ function setMonValues(el, m){
 
    實作用 `hidden` 切換而不是重建 innerHTML：一張卡有 246 個種類選項，60 隻就是
    一萬多個 <option>，每次打字都重建會卡。 */
-let boxFlt = {spec:'', state:'', q:'', ing:new Set(), ingMode:'any', sort:'added', dir:1};
+let boxFlt = {spec:'', type:'', state:'', q:'', ing:new Set(), ingMode:'any', sort:'added', dir:1};
 
 /* ---- 重複偵測 ----
    簽章用**每一個會影響計算的欄位**。兩隻同物種同等級但副技能不同是完全合法的
@@ -1692,9 +1692,30 @@ function syncIngFilterUI(){
     : boxFlt.ingMode === 'all' ? `選了 ${n} 種 —— 只顯示${n > 1 ? '全部都產' : '有產'}的`
     : `選了 ${n} 種 —— 產其中任一種就顯示`;
 }
+/** 屬性下拉：每個選項都寫「箱中 N 隻」，而且隻數會跟著 roster 變 —— 所以由
+ *  `renderBox()` 重建，和 `syncIngFilterUI` 同一個定位：
+ *  **篩選狀態的真實來源是 `boxFlt.type`，這裡只是把它畫出來。**
+ *
+ *  這裡的隻數和推演分頁那一個（`syncTeamTypeUI`）**定義不同，而且本來就該不同**：
+ *  那邊問的是「推演湊不湊得出 5 隻」（要排掉排除的、算進固定的豁免與 strictBerry），
+ *  這邊問的是「選了會顯示幾張卡」—— 箱子本來就把排除的也畫出來，所以這裡數的是
+ *  **全部** roster。兩邊硬去共用同一個數字，反而會有一邊在說謊。 */
+function syncTypeFilterUI(){
+  const sel = $('fltType');
+  const cnt = {};
+  for (const m of roster) for (const t of typesOf(D.dex[m.sp])) cnt[t] = (cnt[t] || 0) + 1;
+  /* 0 隻的照樣列（不藏、不 disable）—— 和活動加成、整隊限定屬性兩個下拉同一條規則。 */
+  sel.innerHTML = `<option value="">全部</option>`
+    + TYPE_NAMES.map(t => `<option value="${t}">${tyz(t)}（箱中 ${cnt[t] || 0} 隻）</option>`).join('');
+  sel.value = boxFlt.type;
+  /* 讀回來不相等 ＝ 那個屬性不在選單裡（理論上不會，TYPE_NAMES 是固定的 18 個）——
+     還原成「全部」，而不是靜靜地篩成一片空白。 */
+  if (sel.value !== boxFlt.type) boxFlt.type = '';
+}
 function monMatch(m, idx){
   const p = D.dex[m.sp];
   if (boxFlt.spec && p.sp !== boxFlt.spec) return false;
+  if (boxFlt.type && !hasType(p, boxFlt.type)) return false;
   if (boxFlt.ing.size){
     const hit = [...boxFlt.ing];
     const ok = boxFlt.ingMode === 'all'
@@ -1742,7 +1763,7 @@ function applyBoxFilter(){
     el.hidden = !ok;
     if (ok) shown++;
   }
-  const on = !!(boxFlt.spec || boxFlt.state || boxFlt.q || boxFlt.ing.size);
+  const on = !!(boxFlt.spec || boxFlt.type || boxFlt.state || boxFlt.q || boxFlt.ing.size);
   $('boxNone').hidden = !(roster.length && !shown);
   const dup = monDup.size ? `　⚠ ${monDup.size} 隻重複` : '';
   /* 「選定食材的產量」排序在沒選食材時等於沒作用 —— 靜靜地不排序就是「文案說謊」
@@ -1771,6 +1792,7 @@ function renderBox(){
   const allowIdeal = monOpen.size <= IDEAL_AUTO_MAX;
   host.innerHTML = boxOrder().map(idx => monCard(roster[idx], idx, {allowIdeal})).join('');
   for (const el of host.querySelectorAll('[data-i]')) setMonValues(el, roster[+el.dataset.i]);
+  syncTypeFilterUI();         // 選項上的「箱中 N 隻」要跟著 roster 走
   applyBoxFilter();
   /* 摺疊列的「資質／練滿／技能成長」是背景算的 —— 一定要放在 applyBoxFilter 之後，
      它算的是**目前看得到的那些**（`visibleIdx()` 只看 monMatch，和 hidden 無關，
@@ -1798,7 +1820,7 @@ $('boxList').addEventListener('change', e=>{
   save();
 });
 /* ---- 篩選列 ---- */
-for (const [id, key] of [['fltSpec','spec'], ['fltState','state']])
+for (const [id, key] of [['fltSpec','spec'], ['fltType','type'], ['fltState','state']])
   $(id).addEventListener('change', e=>{ boxFlt[key] = e.target.value; applyBoxFilter(); });
 /* 食材篩選要**重畫**，不能只切 hidden —— 選了之後摺疊列的數字會換成「選中那幾種
    的總產量」（見 scoreChip），只切 hidden 的話顯示的還是各專長的主指標。 */
@@ -1837,8 +1859,9 @@ $('fltDir').addEventListener('click', ()=>{
  *  整個列表就跳回加入順序 —— 看起來像排序自己壞掉。清除篩選、截圖存入、JSON
  *  匯入三條路徑全都有這個問題，因為它們都走這個函式。 */
 function clearBoxFilter(){
-  boxFlt = {...boxFlt, spec:'', state:'', q:'', ing:new Set()};
-  $('fltSpec').value = ''; $('fltState').value = ''; $('fltName').value = '';
+  boxFlt = {...boxFlt, spec:'', type:'', state:'', q:'', ing:new Set()};
+  $('fltSpec').value = ''; $('fltType').value = ''; $('fltState').value = '';
+  $('fltName').value = '';
   syncIngFilterUI();
 }
 $('fltClear').addEventListener('click', ()=>{ clearBoxFilter(); renderBox(); });
@@ -3550,7 +3573,7 @@ $('themeBtn').addEventListener('click', ()=>{
 /* ================= INIT ================= */
 function renderAll(){ syncWeeklyUI(); renderBox(); renderResults(); renderVersion(); if (!$('view-recipes').hidden) renderRecipeLevels(); if (!$('view-team').hidden) renderTeamsView(); }
 buildWeekly();
-buildBoxBar(); syncIngFilterUI(); syncSortDirUI();
+buildBoxBar(); syncIngFilterUI(); syncTypeFilterUI(); syncSortDirUI();
 buildImport();
 if (!wk.fav.size) wk.fav = new Set(['ORAN','PAMTRE','PECHA']);
 boot().then(()=>{ if (roster.length>=5) run(); });
