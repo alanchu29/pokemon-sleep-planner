@@ -8,7 +8,8 @@
      （回傳的候選是精簡的 {idxs, score}；主執行緒用 engine.js 的 rehydrate() 還原）
      worker → 主  { type:'ready', v }                       v = 這個 worker 實際載到的 ENGINE_V
      worker → 主  { type:'progress', done, total }          done 是「這個分片」的進度
-     worker → 主  { type:'shard', cands, count, excluded, total, cutAll, maxAll, ms }
+     worker → 主  { type:'shard', cands, count, excluded, total, cutAll, maxAll,
+                                  excludedTy, pinnedOffType, ms }
      worker → 主  { type:'error', message }
 
    **worker 只做列舉與評分，不跑決賽。** 決賽（bestPlan，21 餐排程）由主執行緒
@@ -55,7 +56,12 @@ self.onmessage = (e) => {
       });
       if (r.error) { self.postMessage({ type: 'shard', error: r.error, n: r.n, cut: r.cut }); return; }
       self.postMessage({ type: 'shard', cands: r.cands, count: r.count,
-                         excluded: r.excluded, total: r.total, cutAll: r.cutAll, maxAll: r.maxAll, ms: Date.now() - t0 });
+                         excluded: r.excluded, total: r.total, cutAll: r.cutAll, maxAll: r.maxAll,
+                         /* 屬性限定的排除名單與 📌 破例名單。**加任何新的「被規則濾掉
+                            了什麼」都要記得穿過這裡** —— 漏掉不會報錯，只會讓 UI 顯示
+                            0 隻被排除，而那正是這個 repo 最不想要的「靜靜地少算候選」。 */
+                         excludedTy: r.excludedTy, pinnedOffType: r.pinnedOffType,
+                         ms: Date.now() - t0 });
       return;
     }
     self.postMessage({ type: 'error', message: '未知的訊息型別：' + msg.type });

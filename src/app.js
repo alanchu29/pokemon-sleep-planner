@@ -65,7 +65,7 @@ const SCHEMA = 5;   // 4: 新增 msExtra{}（上游沒有的主技能數值表�
    「新的 index.html ＋ 舊的 app.js」—— 畫面畫出舊版 UI，而使用者只會覺得
    「你根本沒改」，完全不知道是快取。有了這個斷言，過期的 app.js 會直接被擋下來
    並要求強制重新整理。tests/smoke.mjs 第 11 節會斷言三處一致。 */
-const APP_V = '20260914a';
+const APP_V = '20260914b';
 
 /** 致命錯誤：整頁換成一段說明。這種狀況下繼續跑只會產生錯的數字。 */
 function fatal(html){
@@ -131,6 +131,10 @@ const blankEvt = () => Object.fromEntries(EVT_KEYS.map(k=>[k,{on:false, v:0, ty:
  *  宣告在這裡（而不是 deserialize 附近）是 TDZ 的考量 —— 見 CLAUDE.md 陷阱 1：
  *  `const`／`let` 不提升，而 deserialize 在載入流程裡很早就會被呼叫。 */
 let evtBadTy = [];
+/** `deserialize` 因為「屬性認不得」而退回「不限」的隊伍屬性限定（`wk.teamType`），
+ *  由 `syncWeeklyUI()` 講出來。**退回不限是放寬範圍**，比活動加成那邊的「整項歸零」
+ *  更需要出聲 —— 靜靜地放寬會給出一支完全不符合期待的隊伍。宣告在這裡同樣是 TDZ 考量。 */
+let teamTypeBad = null;
 /** 屬性的繁中名。`zh.types` 來自 tools/zh.txt 的 ##TYPES（本專案維護，18 個固定譯名）。 */
 const tyz = t => (Z.types && Z.types[t]) || t;
 /** 屬性限定項在文案裡的前綴。`null` ＝ 全部屬性。 */
@@ -177,7 +181,7 @@ const f1 = n => (Math.round(n*10)/10).toFixed(1);
 const NICK_MAX = 24;
 const BLANK = () => ({sp: D.dex.findIndex(p=>p.n==='PIKACHU'), level:30, nature:'Bashful', ss:[null,null,null,null,null], ingSet:[0,0,0], skillLv:1, ribbon:0, nick:'', pin:false, ex:false});
 let roster = [];
-let wk = {island:'greengrass', fav:new Set(), favMain:null, exBonus:null, evt:blankEvt(), areaBonus:15, pot:57, sleepH:8.5, camp:0, collectH:DEFAULT_COLLECT_H, mode:'total', dishType:'curry', recipeName:null, recipeLv:20, recipePick:'auto', recipeScope:'type', recipeLevels:{}, strictBerry:true, oneAll:true};
+let wk = {island:'greengrass', fav:new Set(), favMain:null, exBonus:null, evt:blankEvt(), areaBonus:15, pot:57, sleepH:8.5, camp:0, collectH:DEFAULT_COLLECT_H, mode:'total', dishType:'curry', recipeName:null, recipeLv:20, recipePick:'auto', recipeScope:'type', recipeLevels:{}, strictBerry:true, oneAll:true, teamType:null};
 let lastResults = null, shownAlt = 0;
 /* 「上一次的推演結果已經對不上現在的箱子了」。
  *
@@ -259,6 +263,15 @@ function deserialize(o, opts){
     if (!D.islands.some(i => i.s === wk.island) && !EX_ISLANDS[wk.island]) wk.island = 'greengrass';
     if (!wk.favMain || !wk.fav.has(wk.favMain)) wk.favMain = null;
     if (!EX_BONUSES.includes(wk.exBonus)) wk.exBonus = null;
+    /* 隊伍屬性限定的正規化。空字串／null ＝ 不限（合法）；認不得的屬性**退回不限
+       並記下來講出來** —— 這裡和活動加成那三項的處理刻意不同：那邊是「整項歸零」
+       （因為退回「全部屬性」會把只打超能力的加成憑空發給全隊，是放大範圍）；這裡
+       沒有「歸零」可言，留著一個認不得的值會讓推演永遠湊不出隊伍，所以只能放寬 ——
+       正因為是放寬，更要由 `syncWeeklyUI()` 明講。 */
+    teamTypeBad = null;
+    if (wk.teamType != null && wk.teamType !== ''){
+      if (!TYPE_NAMES.includes(wk.teamType)){ teamTypeBad = String(wk.teamType); wk.teamType = null; }
+    } else wk.teamType = null;
     /* 本週活動加成的正規化。舊資料完全沒有 `evt`（`{...wk, ...o.wk}` 會保留預設），
        但 Sheet 往返會把 `on` 變成字串 `"true"`、`v` 變成 `"50"`，而 `evtPct` 回傳的是
        `+e.v` —— `"50"` 還算得出來，`"abc"` 會變 NaN 然後靜靜地把整支隊伍的樹果能量
@@ -721,6 +734,9 @@ function buildWeekly(){
   }
   $('strictBerry').addEventListener('change', e=>{ wk.strictBerry = e.target.checked; weeklyChanged(); });
   $('oneAll').addEventListener('change', e=>{ wk.oneAll = e.target.checked; weeklyChanged(); });
+  /* 選了屬性就把「認不得」的警告清掉 —— 那是在講**讀進來的舊值**，使用者手動改過
+     之後它就不再成立，留著就是文案說謊。 */
+  $('teamType').addEventListener('change', e=>{ wk.teamType = e.target.value || null; teamTypeBad = null; syncWeeklyUI(); weeklyChanged(); });
   $('runBtn').addEventListener('click', run);
 }
 /* option 只放名稱與食材數。完整食材清單放在 select 下方的 #recipeIngs ——
@@ -764,9 +780,58 @@ function syncWeeklyUI(){
   $('dishType').disabled = auto && wk.recipeScope === 'all';
   for (const el of $('favBerries').querySelectorAll('[data-berry]'))
     el.setAttribute('aria-pressed', wk.fav.has(el.dataset.berry) ? 'true' : 'false');
+  syncTeamTypeUI();
   syncExUI();
   syncEvtUI();
   fillRecipes();
+}
+/** 整隊限定屬性的下拉與說明。
+ *
+ *  **每個選項都寫出「箱中 N 隻」**，理由和活動加成的屬性下拉完全一樣：湊不滿 5 隻
+ *  的屬性要在**選之前**就看得出來，而不是選了按下推演才被擋。`<5` 的還是列出來
+ *  （不是 disabled）—— 藏起來使用者會以為那個屬性不存在。 */
+function syncTeamTypeUI(){
+  const sel = $('teamType');
+  /* 兩個不同的數字，**不可以混用**：
+       `hit`    ＝ 符合這個屬性的隻數 —— 使用者想看的事實，寫在選項裡。
+       `usable` ＝ 推演實際湊得出幾隻，**和 `prepareSearch` 的判定同一條式子**
+                  （非 📌 且符合 ＋ 全部 📌，因為 📌 豁免這條規則）。
+     踩過：只用 `hit` 的話，箱子裡只有 4 隻鋼 ＋ 1 隻 📌 固定的夢幻時，選項會寫
+     「不足 5 隻」、警告會說「按推演會被擋下來」，而推演其實跑得起來（夢幻補第 5 格）。
+     那就是「文案說謊」—— 判定式子只要和引擎那一份走鐘，畫面一定會有一邊在騙人。 */
+  const hit = t => roster.filter(m => !m.ex && hasType(D.dex[m.sp], t)).length;
+  const nPinned = roster.filter(m => !m.ex && m.pin).length;
+  const usable = t => roster.filter(m => !m.ex && !m.pin && hasType(D.dex[m.sp], t)).length + nPinned;
+  sel.innerHTML = `<option value="">不限（照常推演）</option>`
+    + TYPE_NAMES.map(t => {
+        const n = hit(t);
+        return `<option value="${t}"${wk.teamType === t ? ' selected' : ''}>`
+             + `${tyz(t)}（箱中 ${n} 隻${usable(t) < 5 ? '・湊不滿 5 隻' : ''}）</option>`;
+      }).join('');
+  sel.value = wk.teamType || '';
+  const n = wk.teamType ? hit(wk.teamType) : 0;
+  $('teamTypeNote').textContent = !wk.teamType
+    ? '不限＝照常推演'
+    : `只推薦每一隻都有${tyz(wk.teamType)}屬性的隊伍（雙屬性任一符合即可）・目前可用 ${n} 隻`;
+  /* 三件事要講，而且**要分岔**（收斂成同一句就是 2e 節那一類 bug 的溫床）：
+       ① 讀進來的值認不得 → 已經退回「不限」（放寬了，一定要出聲）
+       ② 選了但箱子湊不滿 5 隻 → 按下去會被擋，先講
+       ③ 📌 固定了非該屬性的 → 隊伍不會是純該屬性，指名是哪幾隻 */
+  const msg = [];
+  if (teamTypeBad)
+    msg.push(`<b>認不得的屬性「${esc(teamTypeBad)}」</b>已退回「不限」—— 這次推演<b>不會</b>限定屬性，請重新選一次。`);
+  if (wk.teamType && usable(wk.teamType) < 5)
+    msg.push(`箱子裡有 ${tyz(wk.teamType)}屬性的只有 <b>${n} 隻</b>，湊不滿 5 隻 —— 現在按推演會被擋下來。`);
+  if (wk.teamType){
+    const off = roster.filter(m => !m.ex && m.pin && !hasType(D.dex[m.sp], wk.teamType));
+    if (off.length)
+      msg.push(`📌 固定的 <b>${off.map(monLabel).join('、')}</b> 不是${tyz(wk.teamType)}屬性，`
+             + `但<b>固定優先於這條規則</b>，所以牠會留在隊伍裡 —— 這一隊不會是純${tyz(wk.teamType)}。`);
+  }
+  const box = $('teamTypeWarnBox');
+  box.hidden = !msg.length;
+  box.className = 'notice' + (teamTypeBad || (wk.teamType && n < 5) ? ' warn' : '');
+  box.innerHTML = msg.join('<br>');
 }
 /** EX 營地的兩個控制項。**非 EX 島時整個藏起來** —— 那兩個值在非 EX 島不生效，
  *  留在畫面上會讓人以為有作用（和「沒解鎖的食譜不列進食譜選單」同一條規則）。
@@ -2284,6 +2349,8 @@ function searchViaPool(payload, onProgress){
       excluded: parts[0].excluded,   // 每個分片算出來的排除名單相同
       // cutAll / maxAll 同理：它們只取決於 (roster, wk)，每個分片算出來都一樣
       cutAll: parts[0].cutAll, maxAll: parts[0].maxAll,
+      // 屬性限定的排除名單與 📌 破例名單，同理（只取決於 roster 與 wk）
+      excludedTy: parts[0].excludedTy, pinnedOffType: parts[0].pinnedOffType,
       total: parts[0].total,
       workers: n,
       shardMs: parts.map(p => p.ms),   // 診斷用：worker 自己量的耗時
@@ -2325,6 +2392,12 @@ const RUN_ERR = {
   /* 「全能同隊最多一隻」湊不出任何一組 5 隻。和 `fewBerry` 同一類：**被規則擋住時
      要指名是哪一條規則**，不可以只說「找不到隊伍」。實際會走到這裡的情形是
      「可用的 N 隻裡有 N-3 隻以上是全能」—— 罕見但不是不可能。 */
+  /* 屬性限定湊不滿 5 隻。和 `fewBerry` / `fewAll` 同一類：**被規則擋住時要指名是
+     哪一條規則**，而且要寫出「還差幾隻」與怎麼解決，不可以只說「找不到隊伍」。
+     這一條比另外兩條更容易撞到 —— 冰、鋼那種屬性在一般箱子裡本來就不到 5 隻。 */
+  fewType: n => `套用「<b>整隊限定 ${tyz(wk.teamType)}屬性</b>」之後只剩 <b>${n} 隻</b>可用（需要 5 隻）—— `
+    + `把「整隊限定屬性」改回<b>不限</b>、換一個屬性，或在箱子裡多加幾隻${tyz(wk.teamType)}屬性的。`
+    + `（下拉選單的每個屬性後面都寫著箱子裡有幾隻。）`,
   fewAll: (n, nAll) => `套用「<b>全能型同隊最多一隻</b>」之後湊不出任何一組 5 隻 —— `
     + `目前可用的 ${n} 隻裡有 <b>${nAll} 隻是全能型</b>，扣掉之後剩下的不足 4 隻。`
     + `把下面的「全能型同隊最多一隻」取消勾選，或在箱子裡多加幾隻非全能型的。`
@@ -2375,7 +2448,12 @@ async function run(){
       res = { best: finalizeTeams(rehydrate(top, roster, wk), roster, wk),
               count: merged.count, shardMs: merged.shardMs,
               cutAll: merged.cutAll, maxAll: merged.maxAll,
-              excluded: merged.excluded.map(i => D.dex[roster[i].sp].n) };
+              excluded: merged.excluded.map(i => D.dex[roster[i].sp].n),
+              /* 和 `excluded` 同一條路：worker 回的是 roster 索引，這裡轉成內部名，
+                 `searchTeams`（主執行緒退路）那一份也做同樣的轉換 —— 兩條路徑的
+                 回傳形狀必須一樣，否則 comboCount 會依「有沒有 worker」而說不同的話。 */
+              excludedTy: (merged.excludedTy || []).map(i => D.dex[roster[i].sp].n),
+              pinnedOffType: (merged.pinnedOffType || []).map(i => D.dex[roster[i].sp].n) };
     }
   } catch (err){
     if (err.message === CANCELLED) return;   // 使用者按了取消，狀態已由 cancelBtn 處理好
@@ -2424,6 +2502,8 @@ async function run(){
   }
   lastResults = res.best; shownAlt = 0; resultsStale = false;
   const cut = res.excluded ? res.excluded.length : 0;
+  const cutTy = res.excludedTy ? res.excludedTy.length : 0;
+  const offTy = res.pinnedOffType || [];
   /* **煮得出來的只有幾道，一定要寫在這裡。** 沒解鎖的食譜整個不進池子，那是候選
      過濾 —— 陷阱 4：靜靜地少算候選就是「文案說謊」那一類的 bug。 */
   $('comboCount').textContent = `${res.count.toLocaleString()} 種組合 · ${Math.round(performance.now()-t0)}ms`
@@ -2440,12 +2520,20 @@ async function run(){
        `maxAll > 1` 代表 📌 固定的全能超過一隻、規則被使用者的指定覆蓋，那也要講。 */
     + (res.cutAll > 0 ? ` · 全能限一隻，已略過 ${res.cutAll.toLocaleString()} 種組合` : '')
     + (res.maxAll > 1 ? ` · ⚠ 你固定了 ${res.maxAll} 隻全能，「全能限一隻」這一週不生效` : '')
+    /* 屬性限定。排除的**隻數**（和 strictBerry 同一個量，所以講法一致），以及
+       📌 破例的那幾隻 —— 後者一定要指名，否則畫面上會出現一隻不符屬性的成員而
+       沒有任何解釋，那就是「文案說謊」。 */
+    + (wk.teamType ? ` · 整隊限定 ${tyz(wk.teamType)}屬性`
+        + (cutTy ? `，已排除 ${cutTy} 隻不符的` : '')
+        + (offTy.length ? ` · ⚠ ${offTy.map(n => pz(D.dex.find(d=>d.n===n))).join('、')} 因 📌 固定而破例` : '')
+      : '')
     + (nWorkers ? ` · ${nWorkers} 執行緒` : ' · 主執行緒');
   // 排除名單要看得到 —— 靜靜地少算候選是這個 repo 最不想要的行為
   const shardTip = res.shardMs ? '\n\n各分片耗時：' + res.shardMs.map(x => x + 'ms').join(' / ') : '';
-  $('comboCount').title = (cut
-    ? '因「樹果型只考慮本週加成樹果」而未列入候選：\n' + res.excluded.map(n => pz(D.dex.find(d=>d.n===n))).join('、')
-    : '') + shardTip;
+  $('comboCount').title = [
+    cut ? '因「樹果型只考慮本週加成樹果」而未列入候選：\n' + res.excluded.map(n => pz(D.dex.find(d=>d.n===n))).join('、') : '',
+    cutTy ? `因「整隊限定 ${tyz(wk.teamType)}屬性」而未列入候選：\n` + res.excludedTy.map(n => pz(D.dex.find(d=>d.n===n))).join('、') : '',
+  ].filter(Boolean).join('\n\n') + shardTip;
   renderResults();
 }
 
@@ -3010,6 +3098,20 @@ function teamAllWarn(t){
        + `只是別拿它跟推演的名次對照。</div>`;
 }
 
+/* 「整隊限定屬性」和上面兩條完全同一條規則：**候選過濾**，手動隊已經親手指定了
+   5 隻所以自然不生效（手動權力最大）。同樣會造成「這裡算得好好的、推演卻永遠不推薦」
+   的矛盾，所以要指名是哪幾隻不符。 */
+function teamTypeWarn(t){
+  if (!wk.teamType) return '';
+  const bad = t.members.filter(i => i != null)
+                       .filter(i => !hasType(D.dex[roster[i].sp], wk.teamType));
+  if (!bad.length) return '';
+  const who = bad.map(i => `${esc(monName(roster[i]))}（${typesOf(D.dex[roster[i].sp]).map(tyz).join('/')}）`).join('、');
+  return `<div class="notice" style="margin:8px 0 0">這裡照算：${who} 不是${tyz(wk.teamType)}屬性。`
+       + `推演分頁因為「整隊限定${tyz(wk.teamType)}屬性」不會選出這個組合 —— 數字本身沒問題，`
+       + `只是別拿它跟推演的名次對照。</div>`;
+}
+
 function teamSlotHTML(ti, si){
   const i = teams[ti].members[si];
   if (i == null)
@@ -3038,7 +3140,7 @@ function teamCardHTML(t, ti){
         title="${teams.length>1?'刪除這支隊伍':'清空這支隊伍'}">✕</button>
     </div>
     <div class="tmslots">${[0,1,2,3,4].map(s=>teamSlotHTML(ti,s)).join('')}</div>
-    ${teamBerryWarn(t)}${teamAllWarn(t)}
+    ${teamBerryWarn(t)}${teamAllWarn(t)}${teamTypeWarn(t)}
   </div>`;
 }
 
@@ -3196,6 +3298,10 @@ function showView(name){
   if (name !== 'team') closePicker();     // 浮層是 fixed 的，切走了不關會浮在別的分頁上
   if (name === 'recipes') renderRecipeLevels();
   if (name === 'team') renderTeamsView();
+  /* 本週條件那一區有兩個「箱中 N 隻」的下拉（整隊限定屬性、活動加成的屬性限定項），
+     而在箱子裡增刪一隻只會 `renderBox()` —— 不補這一下，切回來看到的就是進箱子之前
+     的隻數，而那正是使用者用來判斷「這個屬性湊不湊得滿 5 隻」的依據。 */
+  if (name === 'plan') syncWeeklyUI();
   // 理想值只在看得到箱子的時候才背景算（見 idealFillAsync），所以切過來要補開一輪
   if (name === 'box') idealFillAsync();
   window.scrollTo({top:0, behavior:'instant'});

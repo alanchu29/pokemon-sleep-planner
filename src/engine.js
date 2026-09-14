@@ -21,7 +21,7 @@ if (!D || !D.ings || !D.dex || !D.recipes || !D.ms) {
    ASSET_V 擋到的路徑** —— 主執行緒載新引擎、worker 載到快取的舊引擎時，
    搜尋（worker）與 rehydrate／決賽（主執行緒）會用兩套不同的公式，
    不會報錯，只會靜靜地算出對不起來的分數。app.js 會比對這個值。 */
-const ENGINE_V = '20260914a';
+const ENGINE_V = '20260914b';
 
 const ING_NAME = D.ings.map(x=>x[0]);
 const ING_VAL  = D.ings.map(x=>x[1]);
@@ -1382,6 +1382,34 @@ function prepareSearch(roster, wk){
       return { error:'fewBerry', n: pool.length + pinned.length, cut: excluded.length };
   }
 
+  /* 整隊限定單一屬性（`wk.teamType`，預設 null ＝ 不限）。
+
+     **和 `strictBerry` 完全同一個形狀**：看單一隻就能判定，所以在候選階段剔除。
+     （對照 `oneAll` 是組合層級的，只能在列舉時擋。加新規則時先問這一題。）
+
+     ⚠ **判定用 `hasType`，雙屬性任一符合即可。** 只認第一屬性的話，實測 18 種屬性
+     裡只有 7 種湊得滿 5 隻（含雙屬性是 16 種），而且天然鳥（飛行/超能力）這種會被
+     自己的第二屬性排除掉 —— 那與活動加成的屬性限定項語意也不一致（那邊也是 hasType）。
+
+     📌 **固定的成員豁免**（使用者 2026-09-14 指定，和 `strictBerry` 第 2 個例外、
+     `oneAll` 的 `max(1, pinnedAll)` 同一條通則：個別指定優先於通則）。代價是隊伍
+     就不再是純該屬性，所以 `pinnedOffType` 要傳出去讓 UI **指名是哪一隻破例** ——
+     靜靜地留一隻非該屬性的在隊裡，就是「文案說謊」那一類。 */
+  const teamType = wk.teamType || null;
+  const excludedTy = [];
+  let pinnedOffType = [];
+  if (teamType){
+    const keep = [];
+    for (const i of pool){
+      if (hasType(D.dex[roster[i].sp], teamType)) keep.push(i);
+      else excludedTy.push(i);
+    }
+    pool = keep;
+    pinnedOffType = pinned.filter(i => !hasType(D.dex[roster[i].sp], teamType));
+    if (pool.length + pinned.length < 5)
+      return { error:'fewType', n: pool.length + pinned.length, ty: teamType, cut: excludedTy.length };
+  }
+
   /* 全能型同隊最多一隻（`wk.oneAll`，預設開）。
 
      **和 `strictBerry` 一樣是產品需求，不是最佳化**（使用者 2026-09-14：「全能寶可夢
@@ -1411,7 +1439,7 @@ function prepareSearch(roster, wk){
   if (oneAll && total < 1)
     return { error:'fewAll', n: pool.length + pinned.length, nAll: nA + pinnedAll };
 
-  return { pool, pinned, excluded, total, maxAll, isAll,
+  return { pool, pinned, excluded, total, maxAll, isAll, excludedTy, pinnedOffType, teamType,
            /* 排除掉的組合數，給 UI 講出來 —— 「靜靜地少算候選」就是 CLAUDE.md 說的
               那種文案說謊，而這一條砍掉的組合數往往不小。 */
            cutAll: oneAll ? Math.round(nCk(pool.length, need)) - total : 0 };
@@ -1467,7 +1495,11 @@ function searchShard(roster, wk, opts){
   if (stopped) return { error:'stopped', count };
   const cands = o.lean ? best.map(b => ({ idxs: b.idxs, score: b.score })) : best;
   return { cands, count, excluded: prep.excluded, total: prep.total,
-           cutAll: prep.cutAll, maxAll: prep.maxAll };
+           cutAll: prep.cutAll, maxAll: prep.maxAll,
+           /* 屬性限定：排除名單與「因 📌 而破例」的名單。兩個都要穿過 worker 的
+              shard 訊息與合併 —— 和 `excluded` / `cutAll` 同一條理由（靜靜地少算
+              候選就是文案說謊）。 */
+           excludedTy: prep.excludedTy, pinnedOffType: prep.pinnedOffType, teamType: prep.teamType };
 }
 
 /**
@@ -1539,6 +1571,9 @@ function searchTeams(roster, wk, opts){
   const best = finalizeTeams(r.cands, roster, wk, (opts && opts.finalists) || FINALISTS);
   if (opts && opts.onProgress) opts.onProgress(r.count, r.total);
   return { best, count: r.count, ms: Date.now()-t0, cutAll: r.cutAll, maxAll: r.maxAll,
-           excluded: r.excluded.map(i => D.dex[roster[i].sp].n) };
+           excluded: r.excluded.map(i => D.dex[roster[i].sp].n),
+           excludedTy: (r.excludedTy || []).map(i => D.dex[roster[i].sp].n),
+           pinnedOffType: (r.pinnedOffType || []).map(i => D.dex[roster[i].sp].n),
+           teamType: r.teamType || null };
 }
 

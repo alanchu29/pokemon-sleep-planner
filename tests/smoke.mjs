@@ -4036,6 +4036,193 @@ console.log('\n[12] 快取偏移：schema 不符必須明確擋下');
   await p3.close();
 }
 
+
+/* 整隊限定單一屬性（`wk.teamType`，預設 null ＝ 不限）。
+
+   **和 `strictBerry` 完全同一個形狀**：看單一隻就判定得出來，所以在候選階段剔除
+   （對照 `oneAll` 是組合層級的，只能在列舉時擋）。所以陷阱 4 的三條配套一樣要守：
+   排除的隻數要看得見、📌 固定的豁免、湊不出來時要**指名是這條規則**。
+
+   ⚠ 判定走 `hasType`，**雙屬性任一符合即可**。只認第一屬性的話 18 種屬性裡只有
+   7 種湊得滿 5 隻（含雙屬性是 16 種），而且天然鳥（飛行/超能力）會被自己的第二
+   屬性排掉 —— 那和活動加成的屬性限定項語意也不一致。 */
+console.log('\n[17] 整隊限定屬性');
+{
+  /* **這一節要自己造 roster。** 預設的 seed 只有 8 隻，任何屬性都湊不滿 5 隻 ——
+     那會讓下面最核心的三條（前 8 名都符合／排除隻數／📌 破例）整組被跳過，
+     測試看起來全綠卻什麼都沒守到。實際踩過：這一節第一次寫出來就是這樣，
+     625 passed 裡那三條根本沒執行。
+
+     `wk.strictBerry` 一併關掉：它在屬性過濾**之前**就先剔掉樹果不符的樹果型，
+     那樣「排除的隻數」就不等於「屬性不符的隻數」，斷言會對不上。這一節只測屬性。 */
+  const pick = await page.evaluate(() => {
+    const psy = (D.types.psychic || []).slice(0, 7);
+    const other = D.dex.filter(p => !hasType(p, 'psychic')).slice(0, 4).map(p => p.n);
+    const mk = n => ({sp: D.dex.findIndex(x => x.n === n), level: 50, nature: 'Bashful',
+      ss: ['Helping Speed M', 'Skill Trigger S', null, null, null], ingSet: [0,0,0],
+      skillLv: 3, ribbon: 0, pin: false, ex: false, nick: ''});
+    roster = [...psy, ...other].map(mk);
+    wk.strictBerry = false;
+    monOpen.clear(); dropResults();
+    const n = roster.filter(m => !m.ex && hasType(D.dex[m.sp], 'psychic')).length;
+    return n >= 5 ? {t: 'psychic', n, total: roster.length} : null;
+  });
+  ok('造出一個超能力系湊得滿 5 隻的箱子', !!pick, JSON.stringify(pick));
+
+  // ---- 不限時逐位相同（回歸守門）----
+  await doRun(`wk.teamType = null; syncWeeklyUI()`);
+  const base = await page.evaluate(() => lastResults.map(b => ({
+    idxs: b.idxs.slice().sort((a,c)=>a-c), total: b.total })));
+  await doRun(`wk.teamType = null; syncWeeklyUI()`);
+  const base2 = await page.evaluate(() => lastResults.map(b => ({
+    idxs: b.idxs.slice().sort((a,c)=>a-c), total: b.total })));
+  ok('不限屬性時結果穩定（逐位相同）', JSON.stringify(base) === JSON.stringify(base2));
+
+  if (pick){
+    // ---- 選了屬性：前 8 名的每一隻都要有那個屬性 ----
+    await doRun(`wk.teamType = ${JSON.stringify(pick.t)}; syncWeeklyUI()`);
+    const r = await page.evaluate(ty => {
+      const bad = [];
+      for (const b of lastResults)
+        for (const i of b.idxs)
+          if (!hasType(D.dex[roster[i].sp], ty)) bad.push(D.dex[roster[i].sp].n);
+      return {n: lastResults.length, bad, combo: $('comboCount').textContent};
+    }, pick.t);
+    ok('限定屬性後有推出結果', r.n > 0);
+    ok('前 8 名每一隻都符合該屬性', r.bad.length === 0, '不符的：' + r.bad.join('、'));
+    ok('comboCount 寫出「整隊限定 X 屬性」', /整隊限定.+屬性/.test(r.combo), r.combo);
+    ok('comboCount 寫出排除了幾隻', /已排除 \d+ 隻不符的/.test(r.combo) || !/已排除/.test(r.combo), r.combo);
+
+    // ---- 排除名單的數量要和實際不符的隻數相符 ----
+    const cnt = await page.evaluate(ty => {
+      const off = roster.filter(m => !m.ex && !m.pin && !hasType(D.dex[m.sp], ty)).length;
+      const m = ($('comboCount').textContent.match(/已排除 (\d+) 隻不符的/) || [])[1];
+      return {off, shown: m ? +m : 0};
+    }, pick.t);
+    ok('排除的隻數與實際不符的隻數一致', cnt.off === cnt.shown, `實際 ${cnt.off} vs 顯示 ${cnt.shown}`);
+
+    // ---- 📌 固定的非該屬性要豁免，而且要講出來 ----
+    const pinRes = await page.evaluate(async ty => {
+      const i = roster.findIndex(m => !m.ex && !hasType(D.dex[m.sp], ty));
+      if (i < 0) return {skip: true};
+      roster[i].pin = true;
+      lastResults = null; await run();
+      const kept = lastResults && lastResults.every(b => b.idxs.includes(i));
+      const combo = $('comboCount').textContent;
+      roster[i].pin = false;
+      return {skip: false, kept, combo, who: D.dex[roster[i].sp].n};
+    }, pick.t);
+    if (pinRes.skip) ok('（跳過 📌 破例：roster 裡每一隻都符合該屬性）', true);
+    else {
+      ok('📌 固定的非該屬性仍留在隊伍裡（豁免）', pinRes.kept === true);
+      ok('comboCount 指名是哪一隻因 📌 破例', /因 📌 固定而破例/.test(pinRes.combo), pinRes.combo);
+    }
+  }
+
+  // ---- 湊不滿 5 隻：要擋下來，而且訊息要指名這條規則 ----
+  const few = await page.evaluate(async () => {
+    // 找一個 roster 裡不到 5 隻的屬性
+    let ty = null;
+    for (const t of TYPE_NAMES){
+      const n = roster.filter(m => !m.ex && hasType(D.dex[m.sp], t)).length;
+      if (n > 0 && n < 5){ ty = t; break; }
+    }
+    if (!ty) return {skip: true};
+    wk.teamType = ty; syncWeeklyUI();
+    lastResults = null; await run();
+    const html = $('results').innerHTML;
+    wk.teamType = null; syncWeeklyUI();
+    return {skip: false, ty, html, results: lastResults};
+  });
+  if (few.skip) ok('（跳過「湊不滿 5 隻」：roster 裡沒有這種屬性）', true);
+  else {
+    ok('湊不滿 5 隻時不會產出結果', !few.results);
+    ok('訊息指名是「整隊限定屬性」這條規則', /整隊限定/.test(few.html), few.html.slice(0, 160));
+    ok('訊息寫出還剩幾隻', /只剩 <b>\d+ 隻<\/b>/.test(few.html), few.html.slice(0, 160));
+  }
+
+  // ---- 下拉的每個選項都要寫「箱中 N 隻」----
+  const opts = await page.evaluate(() => {
+    wk.teamType = null; syncWeeklyUI();
+    const o = [...$('teamType').options];
+    return {first: o[0].value, all: o.slice(1).every(x => /箱中 \d+ 隻/.test(x.textContent)),
+            n: o.length, short: o.slice(1).filter(x => /不足 5 隻/.test(x.textContent)).length};
+  });
+  ok('下拉第一個是「不限」', opts.first === '');
+  ok('每個屬性選項都寫出箱中隻數', opts.all);
+  ok('下拉列出全部 18 種屬性', opts.n === 19, `共 ${opts.n} 個 option（含不限）`);
+
+  /* ---- 📌 補滿第 5 格時，不可以說「湊不滿 5 隻」----
+     `prepareSearch` 判的是「非 📌 且符合 ＋ 全部 📌」（📌 豁免這條規則），所以
+     「符合的只有 4 隻 ＋ 1 隻 📌」是**跑得起來**的。UI 若只數「符合屬性的隻數」，
+     選項會標「湊不滿 5 隻」、警告會說「按推演會被擋下來」，而推演其實跑得動 ——
+     那就是文案說謊。實際在使用者的箱子上踩到（鋼 4 隻 ＋ 📌 夢幻）。 */
+  const pinFill = await page.evaluate(async ty => {
+    const hit = roster.map((m, i) => i).filter(i => !roster[i].ex && hasType(D.dex[roster[i].sp], ty));
+    const miss = roster.map((m, i) => i).filter(i => !roster[i].ex && !hasType(D.dex[roster[i].sp], ty));
+    if (hit.length < 4 || !miss.length) return {skip: true};
+    // 只留 4 隻符合的，再 📌 一隻不符的 → 剛好 5
+    const keep = new Set([...hit.slice(0, 4), miss[0]]);
+    roster.forEach((m, i) => { m.ex = !keep.has(i); });
+    roster[miss[0]].pin = true;
+    wk.teamType = ty; syncWeeklyUI();
+    const opt = [...$('teamType').options].find(o => o.value === ty).textContent;
+    const warnHtml = $('teamTypeWarnBox').innerHTML;
+    lastResults = null; await run();
+    const ran = !!(lastResults && lastResults.length);
+    roster.forEach(m => { m.ex = false; m.pin = false; });
+    wk.teamType = null; syncWeeklyUI();
+    return {skip: false, opt, warnHtml, ran};
+  }, pick ? pick.t : 'psychic');
+  if (pinFill.skip) ok('（跳過 📌 補滿第 5 格：箱子湊不出這個情境）', true);
+  else {
+    ok('📌 補滿第 5 格時推演跑得起來', pinFill.ran);
+    ok('選項不可以標「湊不滿 5 隻」', !/湊不滿 5 隻/.test(pinFill.opt), pinFill.opt);
+    ok('也不可以警告「按推演會被擋下來」', !/會被擋下來/.test(pinFill.warnHtml), pinFill.warnHtml);
+    ok('但仍要講出這一隻因 📌 而破例', /固定優先於這條規則/.test(pinFill.warnHtml), pinFill.warnHtml);
+  }
+
+  // ---- deserialize：認不得的屬性要退回「不限」並出聲 ----
+  const bad = await page.evaluate(() => {
+    const snap = serialize();
+    snap.wk.teamType = 'NOT_A_TYPE';
+    deserialize(snap);
+    syncWeeklyUI();
+    const box = $('teamTypeWarnBox');
+    return {ty: wk.teamType, hidden: box.hidden, html: box.innerHTML};
+  });
+  ok('認不得的屬性退回「不限」', bad.ty === null, String(bad.ty));
+  ok('而且畫面上要講出來（不可以靜靜地放寬）', bad.hidden === false && /認不得的屬性/.test(bad.html), bad.html);
+
+  // ---- 自組隊伍：不受限但要出聲 ----
+  const warn = await page.evaluate(ty => {
+    wk.teamType = ty; syncWeeklyUI();
+    /* **一定要刻意塞一隻不符的進去。** 照順序取前 5 隻的話它們剛好全是該屬性，
+       這條斷言就會被跳過 —— 測試綠著卻沒守到任何東西（這一節已經踩過一次）。 */
+    const hit = roster.map((m, i) => i).filter(i => !roster[i].ex && hasType(D.dex[roster[i].sp], ty));
+    const miss = roster.map((m, i) => i).filter(i => !roster[i].ex && !hasType(D.dex[roster[i].sp], ty));
+    if (hit.length < 4 || !miss.length) return {skip: true};
+    teams[0].members = [...hit.slice(0, 4), miss[0]];
+    renderTeamsView();
+    const html = $('teamList').innerHTML;
+    const who = D.dex[roster[miss[0]].sp].n;
+    const named = html.includes(pz(D.dex[roster[miss[0]].sp]));
+    // 有結果 = 手動隊不受這條規則限制（規則只擋推演的候選）
+    const computed = !!(teams[0].result && teams[0].result.total > 0);
+    wk.teamType = null; teams[0].members = [null,null,null,null,null]; syncWeeklyUI();
+    return {skip: false, warned: /不會選出這個組合/.test(html), named, computed, who};
+  }, pick ? pick.t : 'psychic');
+  if (warn.skip) ok('（跳過自組隊伍警告：箱子湊不出「4 符合 + 1 不符」）', true);
+  else {
+    ok('自組隊伍不受這條規則限制，照樣算得出結果', warn.computed);
+    ok('但要講出「推演不會選出這個組合」', warn.warned);
+    ok('而且要指名是哪一隻不符', warn.named, '應該提到 ' + warn.who);
+  }
+
+  // 收尾：還原這一節動過的全域狀態，免得污染後面的節
+  await page.evaluate(() => { wk.teamType = null; wk.strictBerry = true; syncWeeklyUI(); });
+}
+
 /* 手機上整頁橫向捲動 —— 純 CSS，但它讓每一個數字都要左右拖才看得完。
    根因是 grid item 的 `min-width` 預設是 `auto`，而 `1fr` ＝ `minmax(auto,1fr)`，
    所以欄位**縮不到 min-content 以下**。實際踩過（390px）：推演分頁的 `.panel`
