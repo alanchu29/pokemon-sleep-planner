@@ -24,10 +24,11 @@ const PATHS = {
     worker: 'src/engine.worker.js',
     import: 'src/import.js',
     html:   'index.html',
-    /* 屬性清單（惡／龍）。上游的 dex 沒有屬性欄位，這份是 repo 自己維護的。
-       文案有三個地方會提到它（已知簡化、主技能的 caveat、箱子裡的「惡」標籤）——
-       實際踩過：那三處都寫成 `tools/dark.txt`，而那個檔案根本不存在。 */
-    types:  'tools/types.txt',
+    /* 2026-09-14 起屬性不再有手維護的清單（`tools/types.txt` 已廢除）——
+       Pokémon Sleep 每隻只有一個屬性，而且就是牠撿的樹果的屬性，所以由
+       `tools/extract-data.mjs` 直接從上游的 `Berry.type` 推導出來。
+       文案因此改成指萃取腳本本身。 */
+    extract: 'tools/extract-data.mjs',
     // 同步面板的兩個檔名。它們寫在 index.html 的靜態文案裡，一樣要被守門掃到。
     setup:  'SETUP-google-sheet.md',
     gs:     'apps-script/Code.gs',
@@ -65,7 +66,7 @@ const SCHEMA = 5;   // 4: 新增 msExtra{}（上游沒有的主技能數值表�
    「新的 index.html ＋ 舊的 app.js」—— 畫面畫出舊版 UI，而使用者只會覺得
    「你根本沒改」，完全不知道是快取。有了這個斷言，過期的 app.js 會直接被擋下來
    並要求強制重新整理。tests/smoke.mjs 第 11 節會斷言三處一致。 */
-const APP_V = '20260914b';
+const APP_V = '20260915a';
 
 /** 致命錯誤：整頁換成一段說明。這種狀況下繼續跑只會產生錯的數字。 */
 function fatal(html){
@@ -800,8 +801,9 @@ function syncTeamTypeUI(){
      「不足 5 隻」、警告會說「按推演會被擋下來」，而推演其實跑得起來（夢幻補第 5 格）。
      那就是「文案說謊」—— 判定式子只要和引擎那一份走鐘，畫面一定會有一邊在騙人。 */
   const hit = t => roster.filter(m => !m.ex && hasType(D.dex[m.sp], t)).length;
-  const nPinned = roster.filter(m => !m.ex && m.pin).length;
-  const usable = t => roster.filter(m => !m.ex && !m.pin && hasType(D.dex[m.sp], t)).length + nPinned;
+  /* `usable` **一定要走引擎那一份**（`usableCount`）—— 它同時算進 📌 豁免與
+     `strictBerry`，和 `prepareSearch` 是同一條式子。自己在這裡數一遍已經錯過兩次。 */
+  const usable = t => usableCount(roster, wk, t);
   sel.innerHTML = `<option value="">不限（照常推演）</option>`
     + TYPE_NAMES.map(t => {
         const n = hit(t);
@@ -1349,13 +1351,26 @@ const monName = m => (m.nick || '').trim() || pz(D.dex[m.sp]);
 const MS_CAVEAT = {
   'Bad Dreams (Charge Strength M)': {dir:'data', why:
     '扣活力那一面**有算**（每次發動讓隊上惡屬性以外的成員 −12 活力），但「誰是惡屬性」'
-    + `不在上游資料裡 —— 那份清單由 repo 自己維護（${P.types}，目前 ${DARK.size} 隻）。`
-    + '清單錯了不會有任何錯誤訊息，只會讓分數偏掉，所以惡屬性的寶可夢在箱子裡會標「惡」，可以自己核對。'},
+    + `不在上游的寶可夢資料裡 —— 屬性是由**牠撿的樹果**推導出來的（${code(P.extract)}，目前惡屬性 ${DARK.size} 隻）。`
+    + 'Pokémon Sleep 每隻只有一個屬性，就是牠的樹果屬性；惡屬性的寶可夢在箱子裡會標「惡」，可以自己核對。'},
   'Moonlight (Charge Energy S)':      {dir:'under', why:'暴擊加成沒讀進來（主要的補活力效果有算）。'},
   'Hyper Cutter (Ingredient Draw S)': {dir:'under', why:'暴擊時的額外食材沒讀進來（主要的食材效果有算）。'},
   /* 治癒波動：三個欄位現在都有算（補活力、額外幫忙、隊上有拉帝歐斯時的加碼），
      所以不再列 caveat。 */
   /* 流星群：基礎表（MS_EXTRA）＋ 拉帝亞斯那一份都算了，所以不再列 caveat。 */
+  /* 精神擊破（超夢）。兩個效果**都有算**（2026-09-15）：一次性的卡比獸能量走一般路徑，
+     樹果領域由 `berryZoneWeekAvg` 換算成一週的時間平均，再乘上每個成員自己撿來的
+     芒芒果能量（見 engine 的 `berryZoneAdd`）。
+
+     留 `under` 的理由變了：模型假設**每週從 0 開始累積**（＝一週搬一次營地，使用者
+     2026-09-14 指定）。實際上不搬營地的話上週的 24% 會留著，那時這裡會低估 ——
+     技能滿級的差距約 24% vs 一週平均 17.7%。 */
+  'Psystrike (Berry Zone)':           {dir:'under', why:
+    '樹果領域**有算**：每次發動讓全隊撿來的<b>芒芒果</b>能量 +0.6~2 個百分點，累積上限 24%。'
+    + '這裡算的是**一週的時間平均**（假設每週搬一次營地、從 0 開始累積）—— '
+    + '技能滿級約 3.7 天到頂、一週平均 17.7%，技能 Lv1 則要 12.4 天，一週到不了頂只有 6.8%。'
+    + '<b>你如果整週不搬營地</b>，實際會比這裡算的高（上限 24%）。'
+    + '主技能發出來的樹果不吃這個加成（和本週活動的樹果加成同一條規則）。'},
   'Dream Shard Magnet S':             {dir:'under', why:'夢之碎片不計分 —— 這個工具只算能量。'},
   'Aura Sphere (Dream Shard Magnet S)':{dir:'under', why:'夢之碎片不計分 —— 這個工具只算能量。'},
   'Super Luck (Ingredient Draw S)':   {dir:'under', why:'夢之碎片不計分（食材那一面有算）。'},
@@ -1376,7 +1391,7 @@ function typeTags(p){
     const hit = hits.has(t);
     const why = t === 'dark' ? '　惡屬性另外決定達克萊伊「夢魘」扣不扣得到（惡屬性免疫）。' : '';
     return `<span class="tag ty ${t}${hit?' hit':''}" title="${tyz(t)}屬性${
-      hit ? '　←　本週活動的屬性限定加成打得到牠' : ''}${why}&#10;屬性清單由本專案維護在 ${P.types}（上游資料沒有屬性欄位），每一隻都與上游的樹果屬性交叉驗證過">${tyz(t)}</span>`;
+      hit ? '　←　本週活動的屬性限定加成打得到牠' : ''}${why}&#10;Pokémon Sleep 每隻只有一個屬性，就是牠撿的樹果的屬性（上游的寶可夢資料沒有屬性欄位，由 ${P.extract} 推導）">${tyz(t)}</span>`;
   }).join('');
 }
 /** 主技能旁邊的警告徽章。沒有 caveat 就回空字串。 */

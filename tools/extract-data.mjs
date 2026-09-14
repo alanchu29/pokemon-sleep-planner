@@ -11,7 +11,7 @@
  *   2. 用 esbuild 把 common/src/index.ts bundle 成 CJS
  *   3. 萃取成本專案用的精簡結構
  *   4. 合併 tools/zh.txt 的繁中對照表（上游沒有這份，務必保留）
- *   4b. 合併 tools/types.txt 的屬性清單、tools/skills-extra.json 的主技能表（上游都沒有，務必保留）
+ *   4b. 由樹果推導屬性（見下方說明）、合併 tools/skills-extra.json 的主技能表（上游沒有，務必保留）
  *   5. 以 indent-2 寫出（一個欄位一行，動到哪隻寶可夢的哪個數值 diff 會直接顯示）
  *
  * 需要：node 18+、git、網路。會在 .tmp 下 npm i esbuild uuid。
@@ -85,7 +85,7 @@ for (const s of A.MAINSKILLS) {
 const data = {
   ings: A.ingredient.INGREDIENTS.map((i: any) => [i.name, i.value]),
   berries: A.berry.BERRIES.map((b: any) => [b.name, b.value]),
-  // 只給 tools/types.txt 的交叉驗證用，驗完就從 data 拿掉、不寫進 game.json。
+  // 屬性就是從這裡推導出來的（每隻一個 ＝ 牠的樹果屬性），推完就從 data 拿掉、不寫進 game.json。
   // 18 顆樹果剛好一顆對一個屬性，所以它是「每一隻至少一個屬性有上游來源」的唯一憑據。
   bt: A.berry.BERRIES.map((b: any) => [b.name, b.type]),
   dex, recipes, ms,
@@ -140,52 +140,52 @@ data.zh = {
      「不要自創中文名」那條規則的例外理由：它擋的是寶可夢與食譜名，那些譯錯了看不出來。 */
   types: sec.TYPES,
 };
-/* ---- 合併屬性清單（上游沒有屬性欄位，這份 repo 自己維護）----
-   夢魘的扣活力只打在惡屬性以外的成員身上、流星群看隊上的龍屬性種類數、本週活動的三個
-   屬性限定項要知道每一隻是什麼屬性 —— 沒有這份清單就寫不出那些判斷。
-   和 zh.txt 同一個性質：**重建時絕對不能弄丟。**
+/* ---- 屬性：直接由樹果推導（2026-09-14 起，不再手動維護清單）----
 
-   格式是一隻一行 `內部名=屬性1,屬性2`（2026-09-14 從 `## DARK` 分區改過來，理由見該檔頭）。
-   輸出仍然是**依屬性分組**的 `{dark:[...], dragon:[...], ...}` —— engine 的
-   `DARK` / `DRAGON` 兩個 Set 因此完全不用改。
+   **Pokémon Sleep 的每一隻只有一個屬性，而且就是牠撿的那種樹果的屬性。**
+   18 顆樹果對 18 個屬性，剛好一對一（上游 `berries.ts` 的 `Berry.type`）。
 
-   四道守門，任何一道不過就 throw。這些錯**在執行期完全沒有症狀**（那一隻只是靜靜地
-   不符合任何屬性條件），所以唯一擋得住的地方就是這裡。 */
+   怎麼確定的：
+     · 使用者 2026-09-14 在遊戲裡核對出拉帝亞斯／拉帝歐斯**只有龍屬性**，
+       而本傳與官方圖鑑兩隻都是龍／超能力 —— 遊戲有自己的一套，且與樹果一致
+       （牠們的樹果是番荔果 YACHE，`type: 'dragon'`）。
+     · 對照當時那份手維護清單：122 隻單屬性的**全部**等於自己的樹果屬性（0 例外），
+       247 隻的樹果屬性也都在各自的清單裡。也就是說那份清單只是「樹果屬性 ＋ 本傳
+       多出來的第二屬性」，而第二屬性在 Sleep 裡並不存在。
+
+   **所以 `tools/types.txt` 廢除了。** 它有 247 行，而且和樹果欄位是同一份資料的兩個
+   副本 —— 重複的兩份總有一份會先走鐘，而走鐘的那一份**在執行期完全沒有症狀**
+   （那一隻只是靜靜地不符合任何屬性條件）。從樹果推導之後這整類 bug 就不存在了：
+   不會漏掉新寶可夢、不會打錯字、不會在重建時弄丟、也不再需要「第二屬性靠使用者
+   在畫面上核對」那道人工防線。
+
+   ⚠ **哪天遊戲真的出現雙屬性，就把 types.txt 復活成「覆寫檔」**（只列例外的那幾隻），
+   不要退回整份手維護 —— 那等於把上面那整類 bug 一起請回來。
+
+   輸出的形狀完全沒變：依屬性分組的 `{dark:[...], dragon:[...], ...}`，
+   所以 engine 的 `DARK` / `DRAGON` 兩個 Set 與 `TYPES_OF` 反查表都不用動。 */
 const TYPE_NAMES = ['normal','fire','water','electric','grass','ice','fighting','poison','ground',
                     'flying','psychic','bug','rock','ghost','dragon','dark','steel','fairy'];
-const typesTxt = readFileSync(resolve(ROOT, 'tools/types.txt'), 'utf8');
 data.types = Object.fromEntries(TYPE_NAMES.map((t) => [t, []]));
 {
-  const own = {};
-  for (const raw of typesTxt.split(/\r?\n/)) {
-    const l = raw.trim();
-    if (!l || l.startsWith('#')) continue;
-    const i = l.indexOf('=');
-    if (i < 0) throw new Error('tools/types.txt 格式不對（需要 `名字=屬性1,屬性2`）：' + l);
-    const name = l.slice(0, i).trim();
-    const ts = l.slice(i + 1).split(',').map((s) => s.trim()).filter(Boolean);
-    if (own[name]) throw new Error('tools/types.txt 有重複的名字：' + name);
-    own[name] = ts;
-  }
-  const known = new Set(data.dex.map((p) => p.n));
-  // 1. 名字必須在 dex 裡
-  const stray = Object.keys(own).filter((n) => !known.has(n));
-  if (stray.length) throw new Error('tools/types.txt 有不在 dex 裡的名字：' + stray.join(', '));
-  // 2. 每一隻都必須至少有一個屬性 —— 漏一隻＝那隻永遠不符合任何屬性活動，而且沒有症狀
-  const missing = data.dex.map((p) => p.n).filter((n) => !own[n] || !own[n].length);
-  if (missing.length) throw new Error(`tools/types.txt 漏了 ${missing.length} 隻：` + missing.join(', '));
-  // 3. 屬性名必須是那 18 個（內部名來自上游 berries.ts 的 Berry.type）
-  for (const [n, ts] of Object.entries(own))
-    for (const t of ts) if (!TYPE_NAMES.includes(t)) throw new Error(`tools/types.txt 的 ${n} 有不認識的屬性「${t}」`);
-  // 4. 交叉驗證：每一隻的樹果所對應的屬性，必須出現在它的屬性清單裡。
-  //    這是唯一有上游來源的一層。擋不到的是雙屬性的第二個屬性（樹果只反映單一屬性）。
   const berryType = Object.fromEntries(data.bt);
-  const clash = data.dex.filter((p) => !own[p.n].includes(berryType[p.b]))
-    .map((p) => `${p.n}（樹果 ${p.b}=${berryType[p.b]}，清單寫 ${own[p.n].join('/')}）`);
-  if (clash.length) throw new Error(`tools/types.txt 與上游 berry.type 對不上 ${clash.length} 隻：\n  ` + clash.join('\n  '));
-  for (const p of data.dex) for (const t of own[p.n]) data.types[t].push(p.n);
+  /* 三道守門。前兩道擋的是「上游改了樹果資料」，第三道擋的是「某一隻的樹果我們不認得」
+     —— 三者都會讓那一隻靜靜地沒有屬性，而那在執行期沒有任何症狀。 */
+  // 1. 18 顆樹果必須剛好覆蓋 18 個屬性，一對一。這是整個推導的前提。
+  const seen = new Set(Object.values(berryType));
+  if (seen.size !== TYPE_NAMES.length || TYPE_NAMES.some((t) => !seen.has(t)))
+    throw new Error(`上游 berry.type 不再與 18 個屬性一對一（看到 ${seen.size} 種：`
+      + `${[...seen].sort().join(',')}）—— 屬性推導的前提垮了，先確認上游改了什麼`);
+  // 2. 屬性名必須都是那 18 個
+  for (const [b, t] of Object.entries(berryType))
+    if (!TYPE_NAMES.includes(t)) throw new Error(`上游樹果 ${b} 的屬性「${t}」不在 18 個屬性裡`);
+  // 3. 每一隻的樹果都要查得到
+  const orphan = data.dex.filter((p) => !berryType[p.b]).map((p) => `${p.n}（樹果 ${p.b}）`);
+  if (orphan.length) throw new Error(`有 ${orphan.length} 隻的樹果查不到屬性：\n  ` + orphan.join('\n  '));
+
+  for (const p of data.dex) data.types[berryType[p.b]].push(p.n);
 }
-delete data.bt; // 驗證用，不進 game.json
+delete data.bt; // 推導用，不進 game.json
 
 /* ---- 合併上游沒有的主技能數值表（tools/skills-extra.json）----
    例如流星群（樹果遽增）依「隊上不同種類的龍屬性數」決定樹果數的那張表 ——
@@ -207,8 +207,8 @@ data.meta = {
   src: 'nerolis-lab/nerolis-lab', commit, commitDate,
   builtAt: new Date().toISOString().slice(0, 10),
   zhSrc: 'RaenonX i18n + 52poke zh-hant',
-  typesSrc: 'tools/types.txt（本專案維護 18 屬性 × 246 隻 —— 上游的寶可夢資料沒有屬性欄位；'
-          + '每一隻的樹果屬性都與上游 berry.type 交叉驗證過）',
+  typesSrc: '由樹果推導（Pokémon Sleep 每隻只有一個屬性，就是牠撿的樹果的屬性；'
+          + '18 顆樹果對 18 個屬性，來源是上游 berries.ts 的 Berry.type）',
   msExtraSrc: 'tools/skills-extra.json（本專案維護 —— 上游快照沒有這些表）',
 };
 

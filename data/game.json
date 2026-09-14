@@ -3385,6 +3385,50 @@
       ]
     },
     {
+      "n": "MEWTWO",
+      "d": "Mewtwo",
+      "no": 150,
+      "sp": "skill",
+      "f": 2300,
+      "ip": 16,
+      "sk": 2.9,
+      "b": "MAGO",
+      "cs": 24,
+      "pe": 0,
+      "re": 0,
+      "ms": "Psystrike (Berry Zone)",
+      "i0": [
+        [
+          2,
+          1
+        ]
+      ],
+      "i30": [
+        [
+          2,
+          2
+        ],
+        [
+          11,
+          2
+        ]
+      ],
+      "i60": [
+        [
+          2,
+          4
+        ],
+        [
+          11,
+          3
+        ],
+        [
+          9,
+          3
+        ]
+      ]
+    },
+    {
       "n": "MEW",
       "d": "Mew",
       "no": 151,
@@ -12641,6 +12685,25 @@
         10
       ]
     },
+    "Psystrike (Berry Zone)": {
+      "max": 6,
+      "strength": [
+        1408,
+        2002,
+        2762,
+        3813,
+        5264,
+        7274
+      ],
+      "berryZone": [
+        0.6,
+        0.8,
+        1,
+        1.2,
+        1.6,
+        2
+      ]
+    },
     "Charge Energy S": {
       "max": 6,
       "energy": [
@@ -13687,7 +13750,8 @@
       "Metronome": "揮指",
       "Tasty Chance S": "料理成功S",
       "Versatile": "十項全能",
-      "Type Boost S": "屬性加速S"
+      "Type Boost S": "屬性加速S",
+      "Psystrike (Berry Zone)": "精神擊破（樹果領域）"
     },
     "recipes": {
       "FANCY_APPLE_CURRY": "特選蘋果咖哩",
@@ -13844,6 +13908,7 @@
       "DRATINI": "迷你龍",
       "DRAGONAIR": "哈克龍",
       "DRAGONITE": "快龍",
+      "MEWTWO": "超夢",
       "MEW": "夢幻",
       "CHIKORITA": "菊草葉",
       "BAYLEEF": "月桂葉",
@@ -14042,31 +14107,19 @@
     "normal": [
       "RATTATA",
       "RATICATE",
-      "JIGGLYPUFF",
-      "WIGGLYTUFF",
       "MEOWTH",
       "PERSIAN",
-      "FARFETCHD",
-      "DODUO",
-      "DODRIO",
       "CHANSEY",
       "KANGASKHAN",
       "DITTO",
       "EEVEE",
       "EEVEE_HALLOWEEN",
       "EEVEE_HOLIDAY",
-      "IGGLYBUFF",
       "BLISSEY",
       "SLAKOTH",
       "VIGOROTH",
       "SLAKING",
-      "SWABLU",
-      "HAPPINY",
-      "RUFFLET",
-      "BRAVIARY",
-      "STUFFUL",
-      "BEWEAR",
-      "DRAMPA"
+      "HAPPINY"
     ],
     "fire": [
       "CHARMANDER",
@@ -14080,18 +14133,11 @@
       "CYNDAQUIL",
       "QUILAVA",
       "TYPHLOSION",
-      "HOUNDOUR",
-      "HOUNDOOM",
       "ENTEI",
       "TORCHIC",
-      "COMBUSKEN",
-      "BLAZIKEN",
       "CHIMCHAR",
-      "MONFERNO",
-      "INFERNAPE",
       "FUECOCO",
-      "CROCALOR",
-      "SKELEDIRGE"
+      "CROCALOR"
     ],
     "water": [
       "SQUIRTLE",
@@ -14110,19 +14156,10 @@
       "SLOWKING",
       "SUICUNE",
       "MUDKIP",
-      "MARSHTOMP",
-      "SWAMPERT",
-      "SPHEAL",
-      "SPHEAL_HOLIDAY",
-      "SEALEO",
-      "WALREIN",
       "PIPLUP",
       "PRINPLUP",
-      "EMPOLEON",
-      "CRAMORANT",
       "QUAXLY",
-      "QUAXWELL",
-      "QUAQUAVAL"
+      "QUAXWELL"
     ],
     "electric": [
       "PIKACHU",
@@ -14130,8 +14167,6 @@
       "PIKACHU_HALLOWEEN",
       "PIKACHU_HOLIDAY",
       "RAICHU",
-      "MAGNEMITE",
-      "MAGNETON",
       "JOLTEON",
       "PICHU",
       "MAREEP",
@@ -14143,14 +14178,7 @@
       "SHINX",
       "LUXIO",
       "LUXRAY",
-      "MAGNEZONE",
       "DEDENNE",
-      "CHARJABUG",
-      "VIKAVOLT",
-      "TOGEDEMARU",
-      "TOXEL",
-      "TOXTRICITY_AMPED",
-      "TOXTRICITY_LOW_KEY",
       "PAWMI",
       "PAWMO",
       "PAWMOT"
@@ -14170,34 +14198,19 @@
       "SCEPTILE",
       "TURTWIG",
       "GROTLE",
-      "TORTERRA",
-      "SNOVER",
-      "ABOMASNOW",
       "LEAFEON",
-      "PUMPKABOO_JUMBO",
-      "PUMPKABOO_LARGE",
-      "PUMPKABOO_MEDIUM",
-      "PUMPKABOO_SMALL",
-      "GOURGEIST_JUMBO",
-      "GOURGEIST_LARGE",
-      "GOURGEIST_MEDIUM",
-      "GOURGEIST_SMALL",
       "SPRIGATITO",
-      "FLORAGATO",
-      "MEOWSCARADA"
+      "FLORAGATO"
     ],
     "ice": [
       "VULPIX_ALOLAN",
       "NINETALES_ALOLAN",
-      "SNEASEL",
-      "DELIBIRD",
       "SPHEAL",
       "SPHEAL_HOLIDAY",
       "SEALEO",
       "WALREIN",
       "SNOVER",
       "ABOMASNOW",
-      "WEAVILE",
       "GLACEON",
       "CETODDLE",
       "CETITAN"
@@ -14205,35 +14218,20 @@
     "fighting": [
       "MANKEY",
       "PRIMEAPE",
-      "HERACROSS",
       "COMBUSKEN",
       "BLAZIKEN",
       "MONFERNO",
       "INFERNAPE",
       "RIOLU",
       "LUCARIO",
-      "CROAGUNK",
-      "TOXICROAK",
       "GALLADE",
-      "HAWLUCHA",
       "STUFFUL",
       "BEWEAR",
-      "QUAQUAVAL",
-      "PAWMO",
-      "PAWMOT"
+      "QUAQUAVAL"
     ],
     "poison": [
-      "BULBASAUR",
-      "IVYSAUR",
-      "VENUSAUR",
       "EKANS",
       "ARBOK",
-      "BELLSPROUT",
-      "WEEPINBELL",
-      "VICTREEBEL",
-      "GASTLY",
-      "HAUNTER",
-      "GENGAR",
       "WOOPER_PALDEAN",
       "GULPIN",
       "SWALOT",
@@ -14249,70 +14247,39 @@
       "SANDSLASH",
       "DIGLETT",
       "DUGTRIO",
-      "GEODUDE",
-      "GRAVELER",
-      "GOLEM",
-      "ONIX",
       "CUBONE",
       "MAROWAK",
-      "WOOPER",
-      "WOOPER_PALDEAN",
-      "QUAGSIRE",
-      "STEELIX",
-      "LARVITAR",
-      "PUPITAR",
       "MARSHTOMP",
       "SWAMPERT",
       "TRAPINCH",
       "VIBRAVA",
       "FLYGON",
-      "TORTERRA",
-      "CLODSIRE"
+      "TORTERRA"
     ],
     "flying": [
-      "CHARIZARD",
-      "BUTTERFREE",
       "FARFETCHD",
       "DODUO",
       "DODRIO",
-      "DRAGONITE",
-      "TOGETIC",
-      "NATU",
-      "XATU",
-      "MURKROW",
       "DELIBIRD",
       "SWABLU",
-      "ALTARIA",
-      "SALAMENCE",
-      "DRIFLOON",
-      "DRIFBLIM",
-      "HONCHKROW",
-      "TOGEKISS",
       "RUFFLET",
       "BRAVIARY",
       "HAWLUCHA",
-      "NOIBAT",
-      "NOIVERN",
       "CRAMORANT"
     ],
     "psychic": [
-      "SLOWPOKE",
-      "SLOWBRO",
       "MR_MIME",
+      "MEWTWO",
       "MEW",
       "NATU",
       "XATU",
       "ESPEON",
-      "SLOWKING",
       "WOBBUFFET",
       "RALTS",
       "KIRLIA",
       "GARDEVOIR",
       "WYNAUT",
-      "LATIAS",
-      "LATIOS",
       "MIME_JR",
-      "GALLADE",
       "CRESSELIA",
       "MUNNA",
       "MUSHARNA"
@@ -14328,9 +14295,7 @@
       "CRUSTLE",
       "GRUBBIN",
       "CHARJABUG",
-      "VIKAVOLT",
-      "CUTIEFLY",
-      "RIBOMBEE"
+      "VIKAVOLT"
     ],
     "rock": [
       "GEODUDE",
@@ -14338,16 +14303,9 @@
       "GOLEM",
       "ONIX",
       "SUDOWOODO",
-      "SHUCKLE",
       "LARVITAR",
       "PUPITAR",
-      "TYRANITAR",
-      "ARON",
-      "LAIRON",
-      "AGGRON",
       "BONSLY",
-      "DWEBBLE",
-      "CRUSTLE",
       "TYRUNT",
       "TYRANTRUM"
     ],
@@ -14355,12 +14313,10 @@
       "GASTLY",
       "HAUNTER",
       "GENGAR",
-      "SABLEYE",
       "SHUPPET",
       "BANETTE",
       "DRIFLOON",
       "DRIFBLIM",
-      "SPIRITOMB",
       "PUMPKABOO_JUMBO",
       "PUMPKABOO_LARGE",
       "PUMPKABOO_MEDIUM",
@@ -14376,16 +14332,12 @@
       "DRATINI",
       "DRAGONAIR",
       "DRAGONITE",
-      "VIBRAVA",
-      "FLYGON",
       "ALTARIA",
       "BAGON",
       "SHELGON",
       "SALAMENCE",
       "LATIAS",
       "LATIOS",
-      "TYRUNT",
-      "TYRANTRUM",
       "NOIBAT",
       "NOIVERN",
       "DRAMPA"
@@ -14414,36 +14366,23 @@
       "LAIRON",
       "AGGRON",
       "EMPOLEON",
-      "LUCARIO",
       "MAGNEZONE",
-      "TOGEDEMARU",
-      "TINKATINK",
-      "TINKATUFF",
-      "TINKATON"
+      "TOGEDEMARU"
     ],
     "fairy": [
       "CLEFAIRY",
       "CLEFABLE",
-      "NINETALES_ALOLAN",
       "JIGGLYPUFF",
       "WIGGLYTUFF",
-      "MR_MIME",
       "CLEFFA",
       "IGGLYBUFF",
       "TOGEPI",
       "TOGETIC",
-      "RALTS",
-      "KIRLIA",
-      "GARDEVOIR",
-      "MAWILE",
-      "MIME_JR",
       "TOGEKISS",
       "SYLVEON",
-      "DEDENNE",
       "CUTIEFLY",
       "RIBOMBEE",
       "COMFEY",
-      "MIMIKYU",
       "TINKATINK",
       "TINKATUFF",
       "TINKATON"
@@ -14544,11 +14483,11 @@
   "meta": {
     "schema": 5,
     "src": "nerolis-lab/nerolis-lab",
-    "commit": "70724a2",
-    "commitDate": "2026-09-09",
+    "commit": "52157cb",
+    "commitDate": "2026-09-14",
     "builtAt": "2026-09-14",
     "zhSrc": "RaenonX i18n + 52poke zh-hant",
-    "typesSrc": "tools/types.txt（本專案維護 18 屬性 × 246 隻 —— 上游的寶可夢資料沒有屬性欄位；每一隻的樹果屬性都與上游 berry.type 交叉驗證過）",
+    "typesSrc": "由樹果推導（Pokémon Sleep 每隻只有一個屬性，就是牠撿的樹果的屬性；18 顆樹果對 18 個屬性，來源是上游 berries.ts 的 Berry.type）",
     "msExtraSrc": "tools/skills-extra.json（本專案維護 —— 上游快照沒有這些表）"
   }
 }

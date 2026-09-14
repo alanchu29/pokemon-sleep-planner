@@ -576,13 +576,17 @@ console.log('\n[5c] 拉帝亞斯／拉帝歐斯：條件式的搭配樹果');
             dragon1: (() => { roster = ['LATIOS', ...fill, fill[0]].map(mk);
               roster.forEach(m => (m._bs = baseStats(m, wk)));
               return teamContext([0,1,2,3,4], roster, wk, new Map()).nDragon; })(),
-            dragon5: (() => { const dr = D.dex.filter(x => x.n !== 'LATIOS'
-                && ['DRAGONITE','SALAMENCE','FLYGON','ALTARIA'].includes(x.n)).map(x => x.n);
+            /* **從 D.types.dragon 動態挑，不要硬寫名字。** 踩過：原本寫死
+               ['DRAGONITE','SALAMENCE','FLYGON','ALTARIA']，而屬性改成單一之後
+               沙漠蜻蜓（樹果 FIGY=ground）不再是龍屬性，只湊到 4 種 —— 測試紅的是
+               名單過期，不是引擎壞了。 */
+            dragon5: (() => { const dr = (D.types.dragon || []).filter(n => n !== 'LATIOS').slice(0, 4);
               roster = ['LATIOS', ...dr].map(mk);
               roster.forEach(m => (m._bs = baseStats(m, wk)));
               return teamContext([0,1,2,3,4], roster, wk, new Map()).nDragon; })(),
             self1: D.msExtra['Draco Meteor (Berry Burst)'].selfBerryByDragon[5][0],
             self5: D.msExtra['Draco Meteor (Berry Burst)'].selfBerryByDragon[5][4],
+            nDragonAll: (D.types.dragon || []).length,
             rawHasSelf: 'selfBerry' in skillPayload('Draco Meteor (Berry Burst)', 6)};
   });
   ok('拉帝歐斯：隊上有拉帝亞斯時樹果更多（以前無條件照領）',
@@ -604,6 +608,7 @@ console.log('\n[5c] 拉帝亞斯／拉帝歐斯：條件式的搭配樹果');
      逐格對照遊戲技能頁的截圖 —— 這是目前少數有**絕對數值**的斷言之一。 */
   ok('流星群的基礎樹果表和遊戲技能頁逐格相符（6 級 × 5 種）',
      r && r.tableOk, r && r.tableRows);
+  ok('龍屬性至少 5 隻（上面那個測試的前提）', r && r.nDragonAll >= 5, String(r && r.nDragonAll));
   ok('隊上龍屬性種類數會改變牠的樹果（含牠自己，1~5）',
      r && r.dragon1 === 1 && r.dragon5 === 5 && r.self5 > r.self1,
      r && `nDragon ${r.dragon1}→${r.dragon5}　自身樹果 ${r.self1}→${r.self5}`);
@@ -3704,7 +3709,18 @@ console.log('\n[15b] 本週活動加成：UI、單位與正規化');
   ok('deserialize 也要夾上限', r.revived.crit.v === 90, JSON.stringify(r.revived.crit));
 }
 
-console.log('\n[15c] 屬性資料：18 屬性 × 246 隻，以及上游的交叉驗證');
+/* 屬性資料。**2026-09-14 起每隻只有一個屬性，而且就是牠撿的樹果的屬性。**
+
+   起因：使用者在遊戲裡核對出拉帝亞斯／拉帝歐斯在 Pokémon Sleep 裡**只有龍屬性**，
+   而本傳（與官方圖鑑）兩隻都是龍／超能力。對照當時那份手維護清單發現：122 隻單屬性的
+   **全部**等於自己的樹果屬性、247 隻的樹果屬性也都在各自的清單裡 —— 也就是那份清單
+   只是「樹果屬性 ＋ 本傳多出來的第二屬性」，而第二屬性在 Sleep 裡並不存在。
+   所以 `tools/types.txt` 廢除，屬性改由 `berry.type` 推導。
+
+   這一節因此整個翻轉：以前守的是「雙屬性解得出來（所以不能用樹果取代清單）」，
+   現在守的是**「每隻正好一個屬性，且等於樹果屬性」**。哪天遊戲真的出現雙屬性，
+   這裡會紅，那時才把 types.txt 復活成覆寫檔。 */
+console.log('\n[15c] 屬性資料：每隻正好一個屬性 ＝ 牠的樹果屬性');
 {
   const r = await page.evaluate(() => {
     const TY = ['normal','fire','water','electric','grass','ice','fighting','poison','ground',
@@ -3716,11 +3732,18 @@ console.log('\n[15c] 屬性資料：18 屬性 × 246 隻，以及上游的交叉
       keys: Object.keys(D.types).sort(),
       want: TY.slice().sort(),
       missing, strange,
-      /* 惡／龍是改動之前就有的兩份清單，數量不可以變 —— 夢魘與流星群靠它們。 */
+      /* 惡／龍：夢魘與流星群靠它們，所以要有具體數字擋著。 */
       nDark: D.types.dark.length, nDragon: D.types.dragon.length,
       darkHasUmbreon: D.types.dark.includes('UMBREON'),
-      /* 雙屬性：沙漠蜻蜓是地面/龍，樹果卻是 FIGY(ground) —— 用樹果推屬性會漏掉牠。
-         這一條就是「為什麼不能拿 berry.type 取代 types.txt」的回歸守門。 */
+      /* **核心不變量**：每一隻正好一個屬性，而且就是牠樹果的屬性。
+         `D.types` 的總筆數 ＝ dex 隻數，就等於「沒有人有兩個、也沒有人是 0 個」。 */
+      multi: D.dex.filter(p => typesOf(p).length > 1).map(p => p.n),
+      totalRows: Object.values(D.types).reduce((a, b) => a + b.length, 0),
+      dexN: D.dex.length,
+      /* 使用者在遊戲內核對過的那兩隻（本傳是龍/超能力，Sleep 裡只有龍）。 */
+      latias: typesOf(D.dex.find(p => p.n === 'LATIAS')),
+      latios: typesOf(D.dex.find(p => p.n === 'LATIOS')),
+      /* 以前拿來證明「樹果推不出第二屬性」的那兩隻，現在正好相反：它們就是樹果屬性。 */
       flygon: typesOf(D.dex.find(p => p.n === 'FLYGON')),
       gardevoir: typesOf(D.dex.find(p => p.n === 'GARDEVOIR')),
       /* zh：18 個屬性都要有中文名，否則 UI 會露出內部名 */
@@ -3732,15 +3755,18 @@ console.log('\n[15c] 屬性資料：18 屬性 × 246 隻，以及上游的交叉
     };
   });
   ok('D.types 剛好 18 個屬性鍵', JSON.stringify(r.keys) === JSON.stringify(r.want), r.keys.join(','));
-  ok('246 隻每一隻都至少有一個屬性', r.missing.length === 0, r.missing.slice(0, 5).join(','));
+  ok('每一隻都至少有一個屬性', r.missing.length === 0, r.missing.slice(0, 5).join(','));
   ok('沒有不認識的屬性名', r.strange.length === 0, r.strange.slice(0, 5).join(','));
-  ok('惡屬性 13 隻（不可以因為補齊 18 屬性而弄丟）', r.nDark === 13, String(r.nDark));
-  ok('龍屬性 16 隻', r.nDragon === 16, String(r.nDragon));
+  ok('**沒有任何一隻有兩個以上的屬性**', r.multi.length === 0, r.multi.slice(0, 8).join(','));
+  ok('屬性總筆數 ＝ dex 隻數（＝每隻正好一個）', r.totalRows === r.dexN, `${r.totalRows} vs ${r.dexN}`);
+  ok('惡屬性 13 隻', r.nDark === 13, String(r.nDark));
+  ok('龍屬性 12 隻', r.nDragon === 12, String(r.nDragon));
   ok('月亮伊布仍在惡屬性清單裡', r.darkHasUmbreon);
-  ok('雙屬性解得出來：沙漠蜻蜓＝地面/龍（樹果只說 ground）',
-     JSON.stringify(r.flygon) === JSON.stringify(['ground', 'dragon']), JSON.stringify(r.flygon));
-  ok('雙屬性解得出來：沙奈朵＝超能力/妖精',
-     JSON.stringify(r.gardevoir) === JSON.stringify(['psychic', 'fairy']), JSON.stringify(r.gardevoir));
+  ok('拉帝亞斯在 Sleep 裡只有龍屬性（使用者遊戲內核對）',
+     JSON.stringify(r.latias) === JSON.stringify(['dragon']), JSON.stringify(r.latias));
+  ok('拉帝歐斯在 Sleep 裡只有龍屬性', JSON.stringify(r.latios) === JSON.stringify(['dragon']), JSON.stringify(r.latios));
+  ok('沙漠蜻蜓＝地面（樹果 FIGY=ground）', JSON.stringify(r.flygon) === JSON.stringify(['ground']), JSON.stringify(r.flygon));
+  ok('沙奈朵＝超能力（樹果 MAGO=psychic）', JSON.stringify(r.gardevoir) === JSON.stringify(['psychic']), JSON.stringify(r.gardevoir));
   ok('18 個屬性都有繁中名', r.zhMissing.length === 0, r.zhMissing.join(','));
   ok('屬性中文名對得上（psychic＝超能力）', r.zhPsychic === '超能力', String(r.zhPsychic));
   ok('hasType(p, null) ＝ 全部屬性', r.nullIsAll);
@@ -3774,6 +3800,9 @@ console.log('\n[15d] 屬性限定的活動加成：只打對的那幾隻');
       /* 1. 食材 +1 */
       ingHit:  [off('GARDEVOIR').avgIngAmt, tyIng('GARDEVOIR').avgIngAmt],
       ingMiss: [off('VENUSAUR').avgIngAmt,  tyIng('VENUSAUR').avgIngAmt],
+      /* 拉帝亞斯在 Pokémon Sleep 裡**只有龍屬性**（使用者 2026-09-14 遊戲內核對；
+         本傳是龍/超能力）。所以超能力限定的加成**打不到牠** —— 這一條以前守的是
+         相反的事（「雙屬性的第二個屬性也算數」），翻轉過來正好是那次修正的回歸守門。 */
       ingLatias: [off('LATIAS').avgIngAmt,  tyIng('LATIAS').avgIngAmt],
       ingAll:  [off('VENUSAUR').avgIngAmt,  allTy('VENUSAUR').avgIngAmt],
       /* 2. 發動率 +50% */
@@ -3820,7 +3849,7 @@ console.log('\n[15d] 屬性限定的活動加成：只打對的那幾隻');
   ok('食材 +1 打中超能力（沙奈朵）', moved(r.ingHit) && Math.abs(r.ingHit[1] - r.ingHit[0] - 1) < 1e-9,
      r.ingHit.join(' -> '));
   ok('食材 +1 不打非超能力（妙蛙花）', same(r.ingMiss), r.ingMiss.join(' -> '));
-  ok('雙屬性的第二個屬性也算數（拉帝亞斯 龍/超能力）', moved(r.ingLatias), r.ingLatias.join(' -> '));
+  ok('拉帝亞斯是龍屬性，吃不到超能力限定的加成（Sleep 裡沒有第二屬性）', same(r.ingLatias), r.ingLatias.join(' -> '));
   ok('選「全部屬性」時所有人都吃得到', moved(r.ingAll), r.ingAll.join(' -> '));
   ok('發動率 +50% 打中超能力', moved(r.skHit), r.skHit.join(' -> '));
   ok('發動率 +50% 不打非超能力', same(r.skMiss), r.skMiss.join(' -> '));
@@ -3880,12 +3909,18 @@ console.log('\n[15e] 屬性限定加成的 UI：摘要、標籤、截圖匯入�
     return {sumTy, cards, noHit, impCarry, impLv, impOff, opts};
   });
   ok('摘要要寫出是哪一個屬性', /超能力/.test(r.sumTy) && /主技能發動率 \+50%/.test(r.sumTy), r.sumTy);
-  ok('箱子的摺疊列要顯示屬性標籤', /tag ty/.test(r.cards) && /超能力/.test(r.cards) && /妖精/.test(r.cards),
+  /* roster 是 ['GARDEVOIR','VENUSAUR'] —— 沙奈朵樹果 MAGO=超能力、妙蛙花樹果 DURIN=草。
+     以前這裡寫「妖精」（沙奈朵的本傳第二屬性），屬性改成單一之後就不存在了。 */
+  ok('箱子的摺疊列要顯示屬性標籤', /tag ty/.test(r.cards) && /超能力/.test(r.cards) && /草/.test(r.cards),
      (r.cards.match(/tag ty[^>]*>[^<]*/g) || []).slice(0, 4).join(' '));
   ok('吃得到加成的那個屬性要標出來（.hit）', /tag ty psychic hit/.test(r.cards),
      (r.cards.match(/tag ty [a-z]+ hit/g) || []).join(','));
   ok('沒吃到的屬性不標 .hit', !/tag ty grass hit/.test(r.cards));
-  ok('屬性標籤的 title 要寫出資料出處', /上游資料沒有屬性欄位/.test(r.cards));
+  /* title 要說得出屬性是**哪裡來的**。2026-09-14 起答案變了：不再是手維護清單，
+     而是由樹果推導 —— 文案跟著改，這條斷言也跟著改。 */
+  ok('屬性標籤的 title 要寫出屬性是從樹果來的',
+     /只有一個屬性/.test(r.cards) && /樹果/.test(r.cards) && /沒有屬性欄位/.test(r.cards),
+     (r.cards.match(/title="[^"]{0,120}/g) || []).slice(0, 2).join(' | '));
   ok('箱子裡沒有那個屬性時要出聲', /沒有/.test(r.noHit) && /不會改變任何結果/.test(r.noHit),
      r.noHit.slice(0, 80));
   ok('持有上限 +N 開著時，截圖匯入要擋並說「全部無解」',
@@ -4182,6 +4217,51 @@ console.log('\n[17] 整隊限定屬性');
     ok('但仍要講出這一隻因 📌 而破例', /固定優先於這條規則/.test(pinFill.warnHtml), pinFill.warnHtml);
   }
 
+  /* ---- 同一類的另一面：strictBerry 也會吃掉候選 ----
+     踩到的情形：妖精屬性「箱中 5 隻」看起來選得下去，但其中三隻是樹果型且不產本週
+     加成樹果，早被 strictBerry 剔掉 —— 按下推演才被擋。UI 的判定必須和
+     `prepareSearch` 同一條式子，所以兩邊共用 `usableCount()`。 */
+  const strictCase = await page.evaluate(async () => {
+    /* **自己組箱子**：挑一個「同屬性 ≥5 隻、而且其中有樹果型」的屬性，
+       前面那個 psychic 箱子只有 2 隻樹果型（剔掉還剩 5），湊不出這個情境。 */
+    /* 這一節之後還有測試靠著上面那個 psychic 箱子（自組隊伍那條），所以**要還原**。
+       踩過：不還原的話它會變成「跳過」——測試綠著，但那條斷言根本沒執行。 */
+    const savedRoster = roster.map(m => ({...m}));
+    const ty = TYPE_NAMES.find(t => {
+      const list = (D.types[t] || []).map(n => D.dex.find(p => p.n === n));
+      return list.length >= 5 && list.filter(p => p.sp === 'berry').length >= 1;
+    });
+    if (!ty) return {skip: true};
+    const list = (D.types[ty] || []).map(n => D.dex.find(p => p.n === n));
+    const berry = list.filter(p => p.sp === 'berry').slice(0, 2);
+    const rest  = list.filter(p => p.sp !== 'berry').slice(0, 3);
+    if (berry.length + rest.length < 5) return {skip: true};
+    const mk = p => ({sp: D.dex.findIndex(x => x.n === p.n), level: 50, nature: 'Bashful',
+      ss: ['Helping Speed M', null, null, null, null], ingSet: [0,0,0],
+      skillLv: 3, ribbon: 0, pin: false, ex: false, nick: ''});
+    roster = [...berry, ...rest].map(mk);      // 5 隻同屬性，其中 2 隻是樹果型
+    monOpen.clear(); dropResults(); renderBox();
+    // 讓 strictBerry 真的生效：本週樹果設成一種這 5 隻都不產的
+    const savedFav = wk.fav;
+    wk.fav = new Set([D.berries.find(b => !roster.some(m => D.dex[m.sp].b === b[0]))[0]]);
+    wk.strictBerry = true;
+    wk.teamType = ty; syncWeeklyUI();
+    const opt = [...$('teamType').options].find(o => o.value === ty).textContent;
+    const warn = $('teamTypeWarnBox').innerHTML;
+    lastResults = null; await run();
+    const ran = !!(lastResults && lastResults.length);
+    wk.fav = savedFav; wk.teamType = null;
+    roster = savedRoster; monOpen.clear(); dropResults();
+    syncWeeklyUI(); renderBox();
+    return {skip: false, ty, opt, warn, ran};
+  });
+  if (strictCase.skip) ok('（跳過 strictBerry 交互作用：湊不出這個情境）', true);
+  else {
+    ok('strictBerry 吃掉候選之後，推演確實擋下來', !strictCase.ran);
+    ok('而選項就要先標「湊不滿 5 隻」（不能等按下去才知道）',
+       /湊不滿 5 隻/.test(strictCase.opt), strictCase.opt);
+  }
+
   // ---- deserialize：認不得的屬性要退回「不限」並出聲 ----
   const bad = await page.evaluate(() => {
     const snap = serialize();
@@ -4221,6 +4301,113 @@ console.log('\n[17] 整隊限定屬性');
 
   // 收尾：還原這一節動過的全域狀態，免得污染後面的節
   await page.evaluate(() => { wk.teamType = null; wk.strictBerry = true; syncWeeklyUI(); });
+}
+
+/* 樹果領域（精神擊破 / 超夢，2026-09-15）。這份快照裡**唯一跨發動累積**的主技能：
+   每次發動讓全隊撿來的芒芒果能量 +0.6~2 個百分點，累積上限 24%，持續到搬離地點。
+
+   模型（使用者 2026-09-14 指定）：每週從 0 開始累積，算「從 0 爬到上限」的時間平均。
+   **技能等級是主要變數，不是修飾** —— 滿級 3.7 天到頂（一週平均 17.7%），
+   Lv1 要 12.4 天（一週到不了頂，只有 6.8%）。直接當成 24% 會讓技能糖果的建議失效。
+
+   ⚠ 這一項是「成員自己的係數 × 團隊純量」，所以**刻意留在記憶化之外**
+   （和 `mateBerryPow` 完全同一個手法）—— 直接放進 `ctxKey` 會讓快取跟組合數線性成長。
+   下面有反向守門。 */
+console.log('\n[18] 樹果領域（精神擊破）');
+{
+  const r = await page.evaluate(() => {
+    const ix = n => D.dex.findIndex(x => x.n === n);
+    const mk = (n, lv, ss, skillLv) => ({sp: ix(n), level: lv, nature: 'Bashful',
+      ss: [...ss, ...Array(5 - ss.length).fill(null)], ingSet: [0,0,0],
+      skillLv, ribbon: 4, nick: '', pin: false, ex: false});
+    const RL = {}; D.recipes.forEach(x => { RL[x.n] = 20; });
+    const W = () => ({...wk, island:'greengrass', favMain:null, exBonus:null, evt:null,
+      fav:new Set(['ORAN']), areaBonus:0, pot:60, sleepH:8.5, camp:0, collectH:3,
+      mode:'total', dishType:'curry', recipeName:null, recipeLv:20, recipePick:'auto',
+      recipeScope:'all', recipeLevels:RL, strictBerry:false, oneAll:false, teamType:null});
+    const run = (names) => {
+      const w = W(), rs = names.map(a => mk(...a));
+      w.recipe = D.recipes[0]; buildPool(w);
+      rs.forEach(m => { m._bs = baseStats(m, w); });
+      const res = scoreTeam([0,1,2,3,4], rs, w, new Map());
+      return {zone: (res.ctx.berryZoneMul - 1) * 100, berryS: res.berryS, total: res.total,
+              outs: res.outs.map(o => o.berryStrength), ctx: res.ctx};
+    };
+    const MEW2 = sk => ['MEWTWO', 60, ['Skill Trigger M', 'Skill Trigger S'], sk];
+    // 隊友：全產芒芒果 vs 都不產
+    const MAGO  = [['XATU',60,[],3], ['GARDEVOIR',60,[],6], ['CRESSELIA',60,[],6], ['MUSHARNA',60,[],6]];
+    const OTHER = [['VENUSAUR',60,[],3], ['CHARIZARD',60,[],3], ['BLASTOISE',60,[],3], ['ARCANINE',60,[],3]];
+
+    const lv1 = run([MEW2(1), ...MAGO]);
+    const lv6 = run([MEW2(6), ...MAGO]);
+    const noMago = run([MEW2(6), ...OTHER]);
+    const noMewtwo = run([['MEW',60,[],6], ...MAGO]);
+
+    /* 反向守門：`berryZoneMul` 不同**必須**得到相同的 ctxKey（＝它沒混進去）。 */
+    const k1 = ctxKey({...lv6.ctx, berryZoneMul: 1});
+    const k2 = ctxKey({...lv6.ctx, berryZoneMul: 1.24});
+
+    /* 共用 memo vs 每隊一份新 memo：結果必須相同（沒有跨隊串味）。
+       這一項既然移出了記憶化，memo 就會被 `berryZoneMul` 不同的隊伍共用 ——
+       所以要證明「之前算過誰」不會影響答案。
+
+       ⚠ **一定要用同一個 roster 陣列。** `getOut` 的 memo key 是「roster 索引 ＋
+       ctxKey」，兩個不同的 roster 陣列即使內容不同，索引 0 還是撞同一格 ——
+       那是 memo 的前提（一次搜尋只有一個 roster），不是引擎的 bug。
+       踩過：第一版用兩個 roster 陣列，測出來的「串味」其實是測試自己造的。 */
+    const w2 = W();
+    const rs2 = [MEW2(6), ...MAGO, MEW2(1)].map(a => mk(...a));   // 索引 5 = 技能Lv1 的超夢
+    w2.recipe = D.recipes[0]; buildPool(w2);
+    rs2.forEach(m => { m._bs = baseStats(m, w2); });
+    const A = [0,1,2,3,4], B = [5,1,2,3,4];      // 只差帶哪一隻超夢 → berryZoneMul 不同
+    const shared = new Map();
+    const aShared = scoreTeam(A, rs2, w2, shared).berryS;
+    const bShared = scoreTeam(B, rs2, w2, shared).berryS;
+    const aFresh  = scoreTeam(A, rs2, w2, new Map()).berryS;
+    const bFresh  = scoreTeam(B, rs2, w2, new Map()).berryS;
+
+    /* 一次性能量那一半要走一般路徑（skillStrength 非 0）。 */
+    const solo = (() => { const w = W(), m = mk(...MEW2(6));
+      m._bs = baseStats(m, w); return memberOutput(m, w, SCORE_CTX); })();
+
+    return {lv1: lv1.zone, lv6: lv6.zone, noMago: noMago.zone, noMewtwo: noMewtwo.zone,
+            berryLv1: lv1.berryS, berryLv6: lv6.berryS,
+            berryMago: lv6.berryS, berryOther: noMago.berryS,
+            keySame: k1 === k2,
+            memoOk: aShared === aFresh && bShared === bFresh,
+            memoA: aFresh, memoB: bFresh, memoDiffers: aFresh !== bFresh,
+            skillStrength: solo.skillStrength, zonePerProc: solo.zonePerProc,
+            zoneBase: solo.zoneBase, soloZoneAdd: berryZoneAdd(solo, SCORE_CTX),
+            teamOnly: monPower(mk(...MEW2(6))).teamOnly,
+            // 一週平均的公式本身：每日 24 個百分點 → 1 天到頂 → 平均應該接近 24
+            fast: berryZoneWeekAvg(24), slow: berryZoneWeekAvg(1), zero: berryZoneWeekAvg(0)};
+  });
+
+  ok('沒有超夢時樹果領域完全不生效', r.noMewtwo === 0, String(r.noMewtwo));
+  ok('技能等級是主要變數（Lv6 的領域 > Lv1 的兩倍）', r.lv6 > r.lv1 * 2,
+     `Lv1 +${r.lv1.toFixed(2)}%　Lv6 +${r.lv6.toFixed(2)}%`);
+  ok('Lv1 一週到不了上限（< 24%）', r.lv1 > 0 && r.lv1 < 24, `+${r.lv1.toFixed(2)}%`);
+  ok('Lv6 也不會超過上限', r.lv6 < 24, `+${r.lv6.toFixed(2)}%`);
+  ok('技能等級高 → 整隊樹果能量更高', r.berryLv6 > r.berryLv1,
+     `Lv1 ${Math.round(r.berryLv1)} vs Lv6 ${Math.round(r.berryLv6)}`);
+  /* 這是這個技能的核心：加成打**整隊**，所以隊友產不產芒芒果差很多。 */
+  ok('隊友產芒芒果時整隊樹果能量明顯更高（領域打整隊）',
+     r.berryMago > r.berryOther * 1.3,
+     `全芒芒果 ${Math.round(r.berryMago)} vs 都不產 ${Math.round(r.berryOther)}`);
+  ok('一次性能量那一半走一般路徑（skillStrength 非 0）', r.skillStrength > 0, String(r.skillStrength));
+  ok('超夢自己的 zoneBase 非 0（牠的樹果就是芒芒果）', r.zoneBase > 0, String(r.zoneBase));
+  /* ⚠ 快取守門：這一項必須留在記憶化之外。 */
+  ok('**berryZoneMul 不可以進 ctxKey**（連續值會讓快取跟組合數線性成長）', r.keySame);
+  ok('兩支比較用的隊伍真的不同（否則下一條等於沒測）', r.memoDiffers,
+     `${Math.round(r.memoA)} vs ${Math.round(r.memoB)}`);
+  ok('共用 memo 與每隊一份新 memo 的結果相同（沒有跨隊串味）', r.memoOk);
+  /* 單獨一隻量不到 —— 要標出來，不能假裝算進去了。 */
+  ok('SCORE_CTX 下領域補 0（單獨一隻量不到）', r.soloZoneAdd === 0, String(r.soloZoneAdd));
+  ok('箱子要標「樹果領域」是隊伍型', /樹果領域/.test(r.teamOnly), r.teamOnly);
+  /* 一週平均公式本身 */
+  ok('每日 +24 個百分點 → 一週平均接近上限', r.fast > 20 && r.fast < 24, r.fast.toFixed(2));
+  ok('每日 +1 個百分點 → 一週到不了頂，平均是終值的一半', Math.abs(r.slow - 3.5) < 1e-9, r.slow.toFixed(4));
+  ok('不帶這個技能時回 0', r.zero === 0, String(r.zero));
 }
 
 /* 手機上整頁橫向捲動 —— 純 CSS，但它讓每一個數字都要左右拖才看得完。

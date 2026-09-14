@@ -146,6 +146,7 @@ Metronome=揮指
 Tasty Chance S=料理成功S
 Versatile=十項全能
 Type Boost S=屬性加速S
+Psystrike (Berry Zone)=精神擊破（樹果領域）
 ##RECIPES
 Mixed Curry=拌拌咖哩
 Fancy Apple Curry=特選蘋果咖哩
@@ -296,6 +297,7 @@ Flareon=火伊布
 Dratini=迷你龍
 Dragonair=哈克龍
 Dragonite=快龍
+Mewtwo=超夢
 Mew=夢幻
 Chikorita=菊草葉
 Bayleef=月桂葉

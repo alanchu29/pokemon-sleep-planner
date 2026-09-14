@@ -21,7 +21,7 @@ if (!D || !D.ings || !D.dex || !D.recipes || !D.ms) {
    ASSET_V 擋到的路徑** —— 主執行緒載新引擎、worker 載到快取的舊引擎時，
    搜尋（worker）與 rehydrate／決賽（主執行緒）會用兩套不同的公式，
    不會報錯，只會靜靜地算出對不起來的分數。app.js 會比對這個值。 */
-const ENGINE_V = '20260914b';
+const ENGINE_V = '20260915a';
 
 const ING_NAME = D.ings.map(x=>x[0]);
 const ING_VAL  = D.ings.map(x=>x[1]);
@@ -61,13 +61,21 @@ function critMultiplier(add){
 const MEALS_DAY = 3;
 // Helper Boost extra helps: rows = unique species on the team sharing its berry (1-5)
 const HB_TABLE = [[2,3,3,4,4,5],[2,3,3,4,5,6],[3,4,5,6,7,8],[4,5,6,7,8,9],[6,7,8,9,10,11]];
-/* 屬性清單（內部名）。上游的 dex **沒有屬性欄位**，這份來自 tools/types.txt ——
-   和 zh 對照表同一個性質：repo 自己維護、重建時不能弄丟。
+/* 屬性清單（內部名）。上游的 dex **沒有屬性欄位**。
+
+   **Pokémon Sleep 每隻只有一個屬性，而且就是牠撿的那種樹果的屬性**（18 顆樹果對
+   18 個屬性，一對一），所以 `data/game.json` 的 `types` 是由 `tools/extract-data.mjs`
+   從上游 `berries.ts` 的 `Berry.type` 推導出來的 —— 2026-09-14 之前那是一份 247 行的
+   手維護清單（`tools/types.txt`），已廢除，理由見 CLAUDE.md。
+
+   形狀沒變：依屬性分組的 `{dark:[...], dragon:[...], ...}`，所以底下這兩個 Set 與
+   `TYPES_OF` 反查表都和以前一樣。
+
    吃屬性的有三處：夢魘看惡屬性（BAD_DREAMS_DRAIN）、流星群看隊上的龍屬性種類數，
    以及本週活動加成的三個屬性限定項（見 EVT_KEYS）。
 
-   ⚠ 這 18 個內部名的**出處是上游** `berries.ts` 的 `Berry.type`（18 顆樹果剛好一顆
-   一個屬性），不是隨手取的字串 —— 所以 UI 的下拉、types.txt 的守門、這裡三份都對得上。 */
+   ⚠ 這 18 個內部名的**出處是上游** `berries.ts` 的 `Berry.type`，不是隨手取的字串 ——
+   UI 的下拉、萃取腳本的守門、這裡三份都對得上。 */
 const TYPE_NAMES = ['normal','fire','water','electric','grass','ice','fighting','poison','ground',
                     'flying','psychic','bug','rock','ghost','dragon','dark','steel','fairy'];
 const DARK   = new Set((D.types && D.types.dark)   || []);
@@ -379,6 +387,14 @@ function rawPayload(msName, lv){
     if (o.helpsOne)        o.helpsOne *= tg;
     if (o.helpsWithLatios) o.helpsWithLatios *= tg;
   }
+  /* 精神擊破（樹果領域）。每次發動讓**芒芒果**能量 +0.6~2 個百分點，累積到上限
+     `BERRY_ZONE_CAP`（24%），效果持續到搬離地點為止。
+
+     ⚠ 它和其他每一個主技能的形狀都不同：別人都是「這次發動給 X」，它是**跨發動
+     累積**的持久增益，而且作用在**整隊**（遊戲內說明：「還會在營地展開樹果領域」）。
+     所以這裡只把「每次發動幾個百分點」傳出去，真正的換算在 `teamContext`
+     （要用到持有者的每日發動次數）與 `scoreTeam`（要乘上每個成員自己的芒芒果能量）。 */
+  if (s.berryZone)        o.berryZonePerProc = at(s.berryZone);
   if (s.chance)           o.critChance = at(s.chance);
   return o;
 }
@@ -591,7 +607,8 @@ function memberOutput(m, wk, ctx){
      自己的）與發給隊友的那一份（`mateBerryCoef` / `ownBerryPow`）—— 刻意不吃。
      ⚠ 下一個讀到這裡的人幾乎一定會覺得「樹果能量加成竟然不打樹果技能」是 bug。
      **那是使用者指定的範圍，不是漏掉** —— 要改之前先去問他。 */
-  let berryStrength = sim.berries * bp * favMul * evtMul(wk, 'berry');
+  const pickedBerry = sim.berries * bp * favMul * evtMul(wk, 'berry');
+  let berryStrength = pickedBerry;
   if (pay.selfBerry) berryStrength += sim.procs*pay.selfBerry*bp*favMul;
   /* 「發給隊友的樹果」拿的是**隊友自己的樹果**，不是持有者的。
      遊戲內說明（樹果遽增／流星群都一樣）：「獲得自己**以及隊伍中的寶可夢**會撿來的
@@ -618,6 +635,14 @@ function memberOutput(m, wk, ctx){
   const skillStrength = sim.procs * (pay.strength||0);
   return {sim, pay, ing, berryStrength, skillStrength,
           mateBerryCoef, ownBerryPow: bp*favMul,
+          /* 樹果領域吃得到的基數：**只有牠幫忙撿來的芒芒果**。
+             主技能發出來的那一份（`selfBerry` / `teamBerry`）刻意不算 —— 和本週活動
+             「樹果能量 +N%」完全同一條規則（使用者 2026-09-11「只有撿的」，
+             2026-09-14 再次確認樹果領域比照辦理）。改之前先去問他。 */
+          zoneBase: bs.p.b === BERRY_ZONE_BERRY ? pickedBerry : 0,
+          /* 這一隻每次發動能疊幾個百分點（不帶這個技能就是 0）。
+             `teamContext` 乘上牠的每日發動次數，換算成整隊的樹果領域倍率。 */
+          zonePerProc: pay.berryZonePerProc || 0,
           potBonus: sim.procs*(pay.pot||0),
           /* **只算發給隊友的那一份。** 「回自己」的已經在上面的定點迭代裡由牠自己收下，
              再算進來就是重複計分 —— 而且 `teamContext` 會把它 ÷5 攤給另外四隻，
@@ -661,6 +686,38 @@ function ctxKey(c){ return c.nHB+'|'+c.nERB+'|'+c.supportEnergy+'|'+c.extraHelps
  *  刻意留在記憶化之外 —— 理由見 `ctxKey` 與 `memberOutput` 的註解。 */
 const mateBerryAdd = (o, ctx) =>
   o.mateBerryCoef ? o.mateBerryCoef * Math.max(0, (ctx.mateBerryPow||0) - o.ownBerryPow) : 0;
+
+/* ===== 樹果領域（精神擊破）=====
+   每次發動讓**芒芒果**能量 +N 個百分點，累積上限 24%，持續到搬離地點。
+   加成打**整隊**（遊戲內說明：「還會在營地展開樹果領域」），所以隊上其他產芒芒果的
+   成員也吃得到 —— 這正是它需要「配合其他寶可夢」的地方。 */
+const BERRY_ZONE_CAP   = 24;        // 上限（百分點），遊戲技能頁截圖
+const BERRY_ZONE_BERRY = 'MAGO';    // 只有這一種樹果吃得到（上游 berry-zone-psystrike.ts）
+
+/** 一週的**時間平均**加成（百分點）。`ratePerDay` ＝ 每日累積幾個百分點。
+ *
+ *  使用者 2026-09-14 指定的模型：**每週從 0 開始**累積（＝一週搬一次營地），
+ *  所以要算「從 0 爬到上限」這段的時間平均，不能直接用 24%。
+ *
+ *  ⚠ **這一段是這個技能的主要變數，不是修飾。** 實測超夢 Lv60、技能率 M+S：
+ *  技能滿級每次 +2%，3.7 天到頂 → 一週平均 17.7%；但技能 Lv1 每次只有 +0.6%，
+ *  要 12.4 天 —— **一週根本到不了上限**，平均只有 6.8%。直接當成 24% 會讓
+ *  「技能糖果餵給誰」對這一隻完全失效。 */
+function berryZoneWeekAvg(ratePerDay){
+  if (!(ratePerDay > 0)) return 0;
+  const days = BERRY_ZONE_CAP / ratePerDay;
+  return days >= 7
+    ? (ratePerDay * 7) / 2                                              // 整週都在爬，到不了頂
+    : (days * (BERRY_ZONE_CAP/2) + (7 - days) * BERRY_ZONE_CAP) / 7;    // 爬升期平均一半，之後滿載
+}
+/** 樹果領域補給這個成員的樹果能量。
+ *
+ *  **和 `mateBerryAdd` 完全同一個手法**：這一項是「成員自己的係數（牠撿來的芒芒果能量）
+ *  × 一個團隊純量（`berryZoneMul`）」，拆得開，所以 `berryZoneMul` **不進 `ctxKey`**，
+ *  改由 `scoreTeam` 事後補。直接放進去會重蹈 `mateBerryPow` 的覆轍 —— 那是連續值，
+ *  快取會跟組合數線性成長（見 `ctxKey` 的註解與陷阱 6）。 */
+const berryZoneAdd = (o, ctx) =>
+  o.zoneBase ? o.zoneBase * ((ctx.berryZoneMul || 1) - 1) : 0;
 function teamContext(idxs, roster, wk, memo){
   let nHB=0, nERB=0, hasPlus=false, hasMinus=false, hasLatias=false, hasLatios=false;
   /* 流星群：「隊伍中有越多**不同種類的龍屬性**幫手寶可夢，樹果數量就會增加得越多」
@@ -718,6 +775,19 @@ function teamContext(idxs, roster, wk, memo){
     if (ctxKey(next)===ctxKey(ctx)) { ctx = next; break; }
     ctx = next;
   }
+  /* 樹果領域：**在 two-pass 收斂之後才算**，而且**不進 `ctxKey`**。
+     它需要持有者的每日發動次數（`sim.procs`），所以一定要等 ctx 穩定；
+     而它是連續值，進 `ctxKey` 會讓快取跟組合數線性成長（見 `berryZoneAdd`）。
+     放在 ctx 上、由 `scoreTeam` 事後補 —— 和 `mateBerryPow` 完全同一個位置。
+
+     多隻同隊時**每日累積的百分點相加**（都在同一個營地疊同一個領域），
+     上限仍然是 24%，由 `berryZoneWeekAvg` 夾住。 */
+  let zoneRate = 0;
+  for (const i of idxs){
+    const o = getOut(i, roster, wk, ctx, memo);
+    if (o.zonePerProc) zoneRate += o.sim.procs * o.zonePerProc;
+  }
+  ctx.berryZoneMul = 1 + berryZoneWeekAvg(zoneRate) / 100;
   return ctx;
 }
 function getOut(i, roster, wk, ctx, memo){
@@ -770,7 +840,7 @@ function scoreTeam(idxs, roster, wk, memo){
     /* 「發給隊友的樹果」是記憶化之外的那一項（見 ctxKey）。memo 裡的物件是**跨隊
        共用**的，所以不能就地改 —— 但只有真的帶那個技能的那一隻係數非 0，
        所以一支隊伍最多複製一個。 */
-    const add = mateBerryAdd(o, ctx);
+    const add = mateBerryAdd(o, ctx) + berryZoneAdd(o, ctx);
     if (add) o = {...o, berryStrength: o.berryStrength + add};
     outs.push(o);
     for (let k=0;k<NING;k++) ing[k] += o.ing[k];
@@ -1127,7 +1197,11 @@ function monPower(m){
                /^Helper Boost/.test(me._bs.p.ms) && '幫手加速',
                /^Plus \(/.test(me._bs.p.ms) && '正電',
                /^Minus \(/.test(me._bs.p.ms) && '負電',
-               givesTeamBerry(me._bs.p.ms) && '發給隊友的樹果'].filter(Boolean).join('、'),
+               givesTeamBerry(me._bs.p.ms) && '發給隊友的樹果',
+               /* 樹果領域：加成打**整隊**撿來的芒芒果，所以價值取決於隊上湊了幾隻
+                  產芒芒果的 —— 單獨一隻（SCORE_CTX 沒有 berryZoneMul）完全量不到。
+                  和「發給隊友的樹果」同一條：量不到就要標出來，不能假裝算進去了。 */
+               o.zonePerProc > 0 && '樹果領域'].filter(Boolean).join('、'),
     pay: o.pay,
   };
 }
@@ -1340,6 +1414,29 @@ const nCk = (n,k)=>{ let r=1; for(let i=0;i<k;i++) r = r*(n-i)/(i+1); return r; 
  *
  * 會就地修改：`wk.recipe`、`roster[i]._bs`、模組層的 `POOL`。
  */
+/** 套用**所有候選層級的過濾**之後，還湊得出幾隻（含 📌 —— 📌 豁免所有候選規則）。
+ *
+ *  `prepareSearch` 擋不擋人、以及 UI 的「這個屬性湊不湊得滿 5 隻」，**共用這一份**。
+ *
+ *  ⚠ 這個函式的存在理由是「同一個判定寫兩份就一定有一份說謊」——而那已經發生兩次：
+ *    ① UI 只數「符合屬性的隻數」，漏了 📌 豁免 → 4 隻鋼 ＋ 📌 夢幻明明跑得起來，
+ *       畫面卻標「湊不滿 5 隻・按推演會被擋下來」。
+ *    ② 補好 📌 之後仍漏了 `strictBerry` → 妖精「箱中 5 隻」看起來可以選，
+ *       但皮皮／胖可丁／皮寶寶是樹果型且不產本週加成樹果，早就被剔掉了。
+ *  **再加任何候選層級的規則，改這裡一處就好。** */
+function usableCount(roster, wk, teamType){
+  const strict = wk.strictBerry !== false && wk.fav && wk.fav.size > 0;
+  let pool = 0, pinned = 0;
+  for (const m of roster){
+    if (m.ex) continue;
+    if (m.pin){ pinned++; continue; }        // 📌 優先於所有通則
+    const dx = D.dex[m.sp];
+    if (strict && dx.sp === 'berry' && !wk.fav.has(dx.b)) continue;
+    if (teamType && !hasType(dx, teamType)) continue;
+    pool++;
+  }
+  return pool + pinned;
+}
 function prepareSearch(roster, wk){
   const active = roster.map((m,i)=>({m,i})).filter(x=>!x.m.ex);
   if (active.length < 5) return { error:'few', n: active.length };
