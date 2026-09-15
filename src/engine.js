@@ -102,34 +102,30 @@ const typesOf = p => TYPE_NAMES.filter(t => hasType(p, t));
    與 `EX_ISLANDS`：名單寫成具名常數、出處寫在註解裡。
 
    出處：使用者 2026-09-15 指出**克雷色利亞也是特別寶可夢，不能和夢幻放同一隊**。
-   下面這 9 隻就是這份快照（247 隻）裡全部的傳說與幻獸，用圖鑑編號掃出來的
-   （150/151、243~245、380/381、488、491）。
+
+   ⚠ **判準是「能不能和別的特別寶可夢同隊」，不是「是不是傳說／幻獸」**（使用者
+   2026-09-15 第二次指定）。所以**拉帝亞斯與拉帝歐斯不在名單裡** —— 牠們可以共組
+   （拉帝亞斯「治癒波動」的技能頁明文寫著隊伍中有拉帝歐斯時的加碼，見 6b），
+   而「放得進去」就表示牠們不受這條限制。名單因此是 7 隻，不是圖鑑上的 9 隻傳說。
 
    推演的「同隊最多一隻」就是看這份名單（`wk.oneSpecial`）。它取代了舊的
    `wk.oneAll`（看**全能專長**）—— 那是用專長去逼近這條規則的替代品，而全能型只有
    夢幻與達克萊伊，克雷色利亞、三神獸、拉帝兄妹全都是技能專長，一隻都擋不到。 */
 const SPECIAL_MONS = new Set(['MEWTWO','MEW','RAIKOU','ENTEI','SUICUNE',
-                              'LATIAS','LATIOS','CRESSELIA','DARKRAI']);
+                              'CRESSELIA','DARKRAI']);
 /** 這一隻（dex 條目）是不是特別寶可夢。 */
 const isSpecial = p => SPECIAL_MONS.has(p.n);
 /** 一組物種內部名「佔幾個特別名額」—— 遊戲的同隊限制數的就是這個數字。
  *
- *  **拉帝亞斯＋拉帝歐斯算一隻。** 牠們是遊戲設計好的一對：拉帝亞斯「治癒波動」的
- *  技能頁明文寫著「隊伍中有拉帝歐斯時，還會讓牠們再立刻完成 1 次幫忙」（見 6b）——
- *  遊戲不會去描述一個組不出來的情況。使用者 2026-09-15 確認這一對可以同隊。
- *
- *  ⚠ 那一對**只抵一個名額**：拉帝亞斯＋拉帝歐斯＋夢幻 算 2 隻，照樣擋下來。
- *  遊戲允不允許那樣沒有憑據，所以取保守的一邊 —— 寧可少推薦幾組，也不要推薦一支
- *  組不出來的隊伍。 */
+ *  **這是「佔幾個名額」的唯一真實來源**：引擎的組合數、列舉時的檢查、自組隊伍的
+ *  警告、測試的斷言，四邊都走它。曾經有過「拉帝亞斯＋拉帝歐斯算一隻」的配對例外，
+ *  2026-09-15 當天就拿掉了 —— 使用者的判準是**「能和別的特別寶可夢同隊的就不算
+ *  特別」**，所以那一對直接不進名單，例外也就不存在了。**規則要收在名單裡，
+ *  不要收在計數邏輯裡**：名單看得到、改得動，計數裡的特例只有讀原始碼才看得到。 */
 function specialLoad(names){
-  let n = 0, la = false, lo = false;
-  for (const nm of names){
-    if (!SPECIAL_MONS.has(nm)) continue;
-    n++;
-    if (nm === 'LATIAS') la = true;
-    else if (nm === 'LATIOS') lo = true;
-  }
-  return la && lo ? n - 1 : n;
+  let n = 0;
+  for (const nm of names) if (SPECIAL_MONS.has(nm)) n++;
+  return n;
 }
 /* 上游快照沒有、但遊戲技能頁有的主技能數值表（來自 tools/skills-extra.json）。
    目前只有流星群的基礎樹果表：外層 = 主技能等級 1..6，內層 = 隊上不同種類的龍屬性數 1..5。 */
@@ -1556,12 +1552,10 @@ function prepareSearch(roster, wk){
      `max(1, 固定的特別數)`。固定了兩隻就是兩隻，不報錯 —— 使用者的個別指定
      本來就該贏，而 UI 會把這件事講出來。 */
   /* 每個 roster 索引的標記先算好：列舉階段會跑上千萬次，每次再去 `D.dex` 查名字
-     太貴。0 ＝ 不是特別、1 ＝ 是、2 ＝ 拉帝亞斯、3 ＝ 拉帝歐斯（那一對算一隻）。 */
+     太貴。 */
   const spMark = new Int8Array(roster.length);
-  for (let i = 0; i < roster.length; i++){
-    const n = D.dex[roster[i].sp].n;
-    spMark[i] = !SPECIAL_MONS.has(n) ? 0 : n === 'LATIAS' ? 2 : n === 'LATIOS' ? 3 : 1;
-  }
+  for (let i = 0; i < roster.length; i++)
+    spMark[i] = SPECIAL_MONS.has(D.dex[roster[i].sp].n) ? 1 : 0;
   const spName = i => D.dex[roster[i].sp].n;
   const isSp = i => spMark[i] !== 0;
   const limitSp = wk.oneSpecial !== false;
@@ -1571,10 +1565,11 @@ function prepareSearch(roster, wk){
   /* `total` 要算**通過限制的**組合數，不是全部 —— 它同時是進度條的分母與 UI 上
      顯示的「N 組」。算全部的話進度永遠走不到 100%，而那看起來像卡住了。
 
-     ⚠ 不能用單純的 `Σ C(n特別, j) × C(n其他, need−j)`：拉帝兄妹那一對算一隻，所以
-     「幾隻特別的算合法」要看**是哪幾隻**。特別的整個圖鑑只有 9 隻，所以直接列舉
-     子集（最多 512 個）再乘上「其餘名額從非特別的裡面選」的組合數 —— 便宜，而且
-     和列舉時的檢查走**同一個 `specialLoad`**，兩邊不可能走鐘。 */
+     這裡刻意**列舉特別寶可夢的子集**（整個圖鑑只有 7 隻，最多 128 個）再乘上
+     「其餘名額從非特別的裡面選」的組合數，而不是套 `Σ C(n特別,j)×C(n其他,need−j)`
+     的封閉式。目前兩者等價（`specialLoad` 就是單純數數），但**這樣寫和列舉時的
+     檢查走同一個 `specialLoad`** —— 哪天名單又冒出「某兩隻可以同隊」那種例外，
+     組合數會自己跟著對，不會變成另一個要同步維護的公式。 */
   const need = 5 - pinned.length;
   const spPool = pool.filter(isSp), nO = pool.length - spPool.length;
   let total = 0;
@@ -1631,17 +1626,10 @@ function searchShard(roster, wk, opts){
        的組合數，兩邊要用同一個定義，否則進度條會停在 100% 以下（或提早衝到 100%）。
        列舉本身很便宜（貴的是 scoreTeam），所以「全部列舉、不合法的跳過」是對的做法。
 
-       這裡是 `specialLoad` 的內聯版（走 `spMark`，不查字串）—— 兩邊的規則必須相同：
-       拉帝亞斯（2）＋拉帝歐斯（3）同隊算一隻。 */
+       這裡是 `specialLoad` 的內聯版（走 `spMark`，不查字串）—— 兩邊的規則必須相同。 */
     if (prep.maxSp < 5){
-      let nSp = 0, la = 0, lo = 0;
-      for (const i of idxs){
-        const k = prep.spMark[i];
-        if (!k) continue;
-        nSp++;
-        if (k === 2) la = 1; else if (k === 3) lo = 1;
-      }
-      if (la && lo) nSp--;
+      let nSp = 0;
+      for (const i of idxs) nSp += prep.spMark[i];
       if (nSp > prep.maxSp) return;
     }
     count++;

@@ -3271,6 +3271,82 @@ console.log('\n[5d] 發給隊友的樹果，算的是隊友自己的樹果');
 
    數值來源：遊戲內說明截圖（萌綠之島EX，使用者 2026-09-11 提供）＋ 上游的
    common/src/events/events/*-expert-mode.ts。 */
+/* 種類搜尋（`data-q="sp"`）。247 個選項用捲的找不到，而原生下拉的鍵盤跳選只吃
+   「開頭相符」、中文輸入法打字時又幾乎不作用。
+
+   最重要的一條是**「目前選的那一隻一定要留在選單裡」** —— 濾掉它的話 `select` 會
+   靜靜地跳到另一個物種，那和「篩選後的 data-i」是同一類的 bug（沒有錯誤訊息，
+   只是資料悄悄錯掉）。 */
+console.log('\n[11t] 寶可夢箱：種類下拉的搜尋');
+{
+  const r = await page.evaluate(() => {
+    const mk = n => ({sp:n, level:60, nature:'Bashful', ss:[null,null,null,null,null],
+                      ingSet:[0,0,0], skillLv:1, ribbon:0, pin:false, ex:false});
+    deserialize({roster: [mk('PIKACHU')]});
+    clearBoxFilter(); monOpen.clear(); monOpen.add(0); renderBox();
+    const card = () => $('boxList').querySelector('[data-i="0"]');
+    const sel = () => card().querySelector('[data-k="sp"]');
+    const qbox = () => card().querySelector('[data-q="sp"]');
+    const type = v => { const q = qbox(); q.value = v; q.dispatchEvent(new Event('input', {bubbles:true})); };
+    const opts = () => [...sel().options].map(o => o.text);
+
+    const all = opts().length;
+    const before = sel().value;
+
+    /* 中文名 */
+    type('快龍');
+    const byName = {n: opts().length, has: opts().some(t => /快龍/.test(t)),
+                    note: $('boxList').querySelector('.sp-n').textContent,
+                    /* 皮卡丘不符，但它是目前選的 -> 一定要還在，而且要講出為什麼 */
+                    keeps: opts().some(t => /目前選的/.test(t)),
+                    value: sel().value};
+    /* 真的選得下去（`change` 那條路沒有被搜尋框擋掉） */
+    const dra = [...sel().options].find(o => /快龍/.test(o.text)).value;
+    sel().value = dra; sel().dispatchEvent(new Event('change', {bubbles:true}));
+    const picked = D.dex[roster[0].sp].n;
+
+    /* renderBox 之後搜尋框會清掉（純檢視狀態）—— 選單要回到完整的 */
+    const afterPick = {opts: $('boxList').querySelector('[data-k="sp"]').options.length,
+                       q: $('boxList').querySelector('[data-q="sp"]').value};
+
+    /* 學名／圖鑑編號／專長／樹果 都要搜得到 */
+    type('Dragonite');  const bySci = opts().length;
+    type('#149');       const byNo  = opts().length;
+    type('技能');        const bySpec = opts().length;
+    type('芒芒果');      const byBerry = opts().length;
+
+    /* 一個都沒中 -> 要說出來，不可以留一張看起來壞掉的選單 */
+    type('zzzz');
+    const none = {n: opts().length, note: $('boxList').querySelector('.sp-n').textContent,
+                  onlyCur: opts().length === 1 && /目前選的/.test(opts()[0])};
+
+    /* 清空 -> 恢復全部 */
+    type('');
+    const cleared = {n: opts().length, note: $('boxList').querySelector('.sp-n').textContent};
+
+    return {all, before, byName, picked, afterPick, bySci, byNo, bySpec, byBerry, none, cleared,
+            dex: D.dex.length};
+  });
+  ok('沒搜尋時列出全部種類', r.all === r.dex, `${r.all} / ${r.dex}`);
+  ok('打中文名會篩到剩下少數幾個', r.byName.has && r.byName.n < 5,
+     `${r.byName.n} 個：${r.byName.note}`);
+  ok('而且要寫出「符合 N 種」', /\d+ 種/.test(r.byName.note), r.byName.note);
+  /* 這一條是核心：濾掉目前選的那一隻，select 會靜靜地跳到別的物種。 */
+  ok('目前選的那一隻一定留在選單裡，而且標出為什麼',
+     r.byName.keeps && r.byName.value === r.before, JSON.stringify(r.byName));
+  ok('篩完照樣選得下去（change 沒有被擋掉）', r.picked === 'DRAGONITE', r.picked);
+  ok('選完重畫，搜尋框與選單都回到原狀（純檢視狀態）',
+     r.afterPick.opts === r.dex && r.afterPick.q === '', JSON.stringify(r.afterPick));
+  ok('學名搜得到', r.bySci <= 2 && r.bySci >= 1, String(r.bySci));
+  ok('圖鑑編號搜得到', r.byNo >= 1 && r.byNo <= 3, String(r.byNo));
+  ok('專長搜得到（而且是一大類，不是一隻）', r.bySpec > 20, String(r.bySpec));
+  ok('樹果搜得到', r.byBerry > 3, String(r.byBerry));
+  ok('一個都沒中時要說出來，不是留一張空選單',
+     r.none.onlyCur && /找不到/.test(r.none.note), JSON.stringify(r.none));
+  ok('清空搜尋會恢復全部', r.cleared.n === r.dex && r.cleared.note === '',
+     `${r.cleared.n} / ${r.dex}`);
+}
+
 /* 「特別寶可夢」（傳說／幻獸）在箱子裡的顯示與篩選。同隊限制本身在第 16 節。
    這一節順便釘住「為什麼要換掉舊的 `oneAll`」那個事實：全能專長只有 2 隻，
    而特別的有 9 隻 —— 克雷色利亞是**技能專長**，舊規則一隻都擋不到。 */
@@ -3295,10 +3371,13 @@ console.log('\n[11s] 寶可夢箱：「特別寶可夢」的篩選與徽章');
     const cleared = {vis: vis().join(','), sel: $('fltState').value, state: boxFlt.state};
     return {list, allSpec, tags, only, countText, cleared};
   });
-  ok('名單是這份快照裡全部的傳說／幻獸（9 隻）', r.list.length === 9, r.list.join('、'));
+  ok('名單是 7 隻', r.list.length === 7, r.list.join('、'));
   ok('克雷色利亞在名單裡', r.list.includes('CRESSELIA'), r.list.join('、'));
-  ok('三神獸與拉帝兄妹也在', ['RAIKOU','ENTEI','SUICUNE','LATIAS','LATIOS'].every(n => r.list.includes(n)),
-     r.list.join('、'));
+  ok('三神獸也在', ['RAIKOU','ENTEI','SUICUNE'].every(n => r.list.includes(n)), r.list.join('、'));
+  /* 判準是「能不能和別的特別寶可夢同隊」，不是「是不是傳說」—— 拉帝兄妹可以共組，
+     所以牠們根本不進名單（例外收在名單裡，不收在計數邏輯裡）。 */
+  ok('拉帝亞斯／拉帝歐斯**不算**特別（牠們可以共組）',
+     !r.list.includes('LATIAS') && !r.list.includes('LATIOS'), r.list.join('、'));
   /* 這一條就是使用者反映的那件事：舊規則看的是專長，克雷色利亞是技能專長。 */
   ok('「全能專長」只有 2 隻 —— 舊的「全能限一隻」擋不到克雷色利亞',
      r.allSpec.length === 2 && !r.allSpec.includes('CRESSELIA'), r.allSpec.join('、'));
@@ -4029,21 +4108,21 @@ console.log('\n[16] 特別寶可夢同隊最多一隻（wk.oneSpecial）');
     const resOff = searchTeams(box, W({oneSpecial:false}), {finalists:50});
     const worst = res => Math.max(...res.best.map(t => load(box, t.idxs)));
 
-    /* 📌 固定兩隻特別的 -> 使用者的指定優先，maxSp 變 2，不報錯。
-       **刻意挑不是拉帝兄妹的兩隻**，否則測到的是配對例外而不是 📌 優先。 */
-    const pinNames = sps.filter(n => n !== 'LATIAS' && n !== 'LATIOS').slice(0, 2);
+    /* 📌 固定兩隻特別的 -> 使用者的指定優先，maxSp 變 2，不報錯。 */
+    const pinNames = sps.slice(0, 2);
     const pinned = box.map(m => ({...m, pin: pinNames.includes(D.dex[m.sp].n)}));
     const prepPin = prepareSearch(pinned, W({oneSpecial:true}));
     const resPin  = searchTeams(pinned, W({oneSpecial:true}), {finalists:10});
 
-    /* 拉帝亞斯＋拉帝歐斯是例外，那一對算一隻。只有 5 隻時組合唯一，所以
-       「跑不跑得出來」就等於「這一對合不合法」。 */
+    /* 拉帝兄妹**不算特別**（牠們可以共組），所以牠們完全不受這條規則限制 ——
+       連「拉帝亞斯＋拉帝歐斯＋夢幻」都是合法的（只佔 1 個名額）。
+       只有 5 隻時組合唯一，所以「跑不跑得出來」就等於「這一隊合不合法」。 */
     const pair = ['LATIAS','LATIOS', ...others.slice(0,3)].map(n => mk(n));
     const prepPair = prepareSearch(pair, W({oneSpecial:true}));
     const resPair = prepPair.error ? null : searchTeams(pair, W({oneSpecial:true}), {finalists:5});
-    /* 但那一對**只抵一個名額** —— 再加第三隻特別的照樣擋下來。 */
     const trio = ['LATIAS','LATIOS','MEW', ...others.slice(0,2)].map(n => mk(n));
     const prepTrio = prepareSearch(trio, W({oneSpecial:true}));
+    const trioLoad = specialLoad(['LATIAS','LATIOS','MEW']);
 
     /* 特別的太多、湊不出 5 隻 -> 要指名是哪一條規則。 */
     const tiny = ['MEW','MEW','MEW','DARKRAI','CRESSELIA', others[0]].map(n => mk(n));
@@ -4064,8 +4143,8 @@ console.log('\n[16] 特別寶可夢同隊最多一隻（wk.oneSpecial）');
     return {
       nSp, sps,
       totalOn: on.total, totalOff: off.total,
-      /* 合法的特別子集：0 隻（1 種）、1 隻（nSp 種），外加拉帝兄妹那一對（1 種）。 */
-      expectOn: nCk(8, 5) + nSp * nCk(8, 4) + nCk(8, 3),
+      /* 合法的特別子集：0 隻（1 種）、1 隻（nSp 種）。 */
+      expectOn: nCk(8, 5) + nSp * nCk(8, 4),
       expectOff: nCk(on.pool.length, 5),
       cutSp: on.cutSp, cutSpOff: off.cutSp, maxSp: on.maxSp,
       worstOn: worst(resOn), worstOff: worst(resOff),
@@ -4075,13 +4154,13 @@ console.log('\n[16] 特別寶可夢同隊最多一隻（wk.oneSpecial）');
       pinHas: resPin.best[0].idxs.filter(i => isSpecial(D.dex[pinned[i].sp])).length,
       pairErr: prepPair.error || '', pairTotal: prepPair.total,
       pairBoth: resPair ? resPair.best[0].idxs.length === 5 : false,
-      trioErr: prepTrio.error || '', trioNSp: prepTrio.nSp,
+      trioErr: prepTrio.error || '', trioTotal: prepTrio.total, trioLoad,
       tinyErr: prepTiny.error, tinyNSp: prepTiny.nSp,
       noneSame: sig(a) === sig(b),
       migOff, migOn,
     };
   });
-  ok('特別寶可夢共 9 隻（傳說／幻獸）', r.nSp === 9, r.sps.join('、'));
+  ok('特別寶可夢共 7 隻', r.nSp === 7, r.sps.join('、'));
   ok('total 算的是「通過限制的組合數」，不是全部',
      r.totalOn === r.expectOn && r.totalOn < r.totalOff,
      `${r.totalOn}（預期 ${r.expectOn}）vs 全部 ${r.totalOff}`);
@@ -4096,11 +4175,13 @@ console.log('\n[16] 特別寶可夢同隊最多一隻（wk.oneSpecial）');
   /* 它是限制不是最佳化 —— 開著只會讓分數變低或持平，絕不會變高。 */
   ok('開著的第 1 名不會高於關著的', r.topOn <= r.topOff + 1e-6,
      `${Math.round(r.topOn)} vs ${Math.round(r.topOff)}`);
-  /* 這一對是遊戲承認可以同隊的（拉帝亞斯的主技能明文寫著拉帝歐斯在隊上時的加碼）。 */
-  ok('拉帝亞斯＋拉帝歐斯可以同隊（那一對算一隻）',
+  /* 這一對是遊戲承認可以同隊的（拉帝亞斯的主技能明文寫著拉帝歐斯在隊上時的加碼），
+     而使用者的判準是「能和別的特別寶可夢同隊的就不算特別」—— 所以牠們不進名單。 */
+  ok('拉帝亞斯＋拉帝歐斯可以同隊',
      !r.pairErr && r.pairTotal === 1 && r.pairBoth, `err=${r.pairErr} total=${r.pairTotal}`);
-  ok('但那一對只抵一個名額 —— 再加第三隻特別的照樣擋下來',
-     r.trioErr === 'fewSpecial' && r.trioNSp === 3, `err=${r.trioErr} nSp=${r.trioNSp}`);
+  ok('而且牠們根本不佔名額 —— 再加一隻夢幻照樣跑得起來',
+     !r.trioErr && r.trioTotal === 1 && r.trioLoad === 1,
+     `err=${r.trioErr} total=${r.trioTotal} load=${r.trioLoad}`);
   ok('📌 固定兩隻特別的時，使用者的指定優先（maxSp 變 2、不報錯）',
      r.pinMaxSp === 2 && !r.pinErr, `maxSp=${r.pinMaxSp} err=${r.pinErr}`);
   ok('固定的那兩隻都留在隊上', r.pinHas === 2, String(r.pinHas));
@@ -4121,9 +4202,7 @@ console.log('\n[16b] 特別限一隻的 UI：要講出來，而且手動隊不�
     const idx = n => D.dex.findIndex(x => x.n === n);
     const mk = n => ({sp: idx(n), level:60, nature:'Bashful', ss:[null,null,null,null,null],
       ingSet:[0,0,0], skillLv:3, ribbon:4, pin:false, ex:false, nick:''});
-    /* 前兩隻刻意**不是**拉帝兄妹 —— 那一對是例外，拿它來測警告會什麼都測不到。 */
-    const sps = D.dex.filter(isSpecial).map(p => p.n)
-                     .filter(n => n !== 'LATIAS' && n !== 'LATIOS');
+    const sps = D.dex.filter(isSpecial).map(p => p.n);
     const others = D.dex.filter(p => !isSpecial(p)).map(p => p.n).slice(0, 8);
     roster = [...sps, ...others].map(mk);
     wk.oneSpecial = true; wk.strictBerry = false; wk.teamType = null;
@@ -4152,8 +4231,8 @@ console.log('\n[16b] 特別限一隻的 UI：要講出來，而且手動隊不�
      (r.tmHTML.match(/⭐[^<]{0,80}/) || [''])[0]);
   ok('規則關掉之後就不再出聲', !/組不出來/.test(r.tmOff));
 
-  /* 拉帝兄妹那一對在自組隊伍也**不可以**被警告 —— 警告一支合法的隊伍，和漏掉一支
-     不合法的一樣糟（使用者會照著它去拆隊）。 */
+  /* 拉帝兄妹在自組隊伍也**不可以**被警告 —— 警告一支合法的隊伍，和漏掉一支
+     不合法的一樣糟（使用者會照著它去拆隊）。牠們不算特別，所以連配夢幻都合法。 */
   const r2 = await page.evaluate(() => {
     const idx = n => D.dex.findIndex(x => x.n === n);
     const mk = n => ({sp: idx(n), level:60, nature:'Bashful', ss:[null,null,null,null,null],
@@ -4169,8 +4248,7 @@ console.log('\n[16b] 特別限一隻的 UI：要講出來，而且手動隊不�
     return {both, trio: $('view-team').innerHTML};
   });
   ok('拉帝亞斯＋拉帝歐斯同隊不可以被警告（牠們合法）', !/組不出來/.test(r2.both));
-  ok('再加一隻夢幻就要警告', /組不出來/.test(r2.trio),
-     (r2.trio.match(/⭐[^<]{0,80}/) || [''])[0]);
+  ok('再加一隻夢幻也不可以警告（拉帝兄妹不佔名額）', !/組不出來/.test(r2.trio));
 }
 
 console.log('\n[12] 快取偏移：schema 不符必須明確擋下');

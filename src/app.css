@@ -359,6 +359,11 @@ td.n{font-family:var(--mono);font-variant-numeric:tabular-nums}
 .mon-edit .w-num{flex:0 0 84px}
 .mon-edit .w-rib{flex:0 0 108px}
 .mon-edit label.f select,.mon-edit label.f input{width:100%}
+/* 種類搜尋框。它貼在種類下拉的正下方（同一個 label 裡）——247 個選項用捲的找不到，
+   而「符合 N 種」一定要看得見：搜完剩幾個是使用者決定要不要再打字的依據。 */
+.sp-find{display:flex;gap:6px;align-items:center;min-width:0}
+.sp-find input{flex:1 1 auto;min-width:0;font-size:12px;padding:3px 6px}
+.sp-n{flex:0 0 auto;font-size:11px;white-space:nowrap}
 .mon-edit .w-num input{text-align:center}
 .mon-grp{display:flex;flex-wrap:wrap;gap:6px;align-items:center;flex:1 1 auto;min-width:0}
 .mon-ss{display:flex;flex-wrap:wrap;gap:6px;flex:1 1 100%;min-width:0}

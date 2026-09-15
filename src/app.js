@@ -953,6 +953,40 @@ function syncEvtUI(){
    整串被裁成「大食花　#71 Vi…」—— 被裁掉的資訊等於沒有。專長／樹果／主技能改成
    卡片上的獨立標籤（也才能拿來篩選）。打中文名跳選照樣可用，因為中文名在最前面。 */
 const SPECIES_OPTS = D.dex.map((p,i)=>`<option value="${i}">${pz(p)}　#${p.no}</option>`).join('');
+/* 種類搜尋（`data-q="sp"`）。247 個選項用捲的找不到，而原生下拉的鍵盤跳選**只吃
+   「開頭相符」**、中文輸入法打字時又幾乎不作用 —— 所以另外給一個搜尋框，即時重建
+   那張卡的種類選項。吃的東西和箱子的搜尋列一致：中文名／學名／#編號／專長／樹果／
+   主技能（**不是** `monHaystack` —— 那一份是「箱子裡的某一隻」，含暱稱與副技能，
+   而這裡選的是**物種**，那些欄位還不存在）。
+
+   兩條規則：
+   1. **目前選中的那一隻一定要留在選單裡**，而且標出來是為什麼。濾掉它的話 `select`
+      會靜靜地跳到另一個物種 —— 和「篩選後的 `data-i`」同一類的 bug：沒有任何錯誤
+      訊息，只是資料悄悄錯掉。
+   2. **一個都沒中要說出來**。只剩「目前選的」那一個選項的選單，看起來像壞掉。
+
+   它是純檢視狀態：不進 roster、不進 `serialize()`，`renderBox()` 一跑就沒了
+   （那時候使用者已經找到要的那一隻了）。 */
+const SPECIES_HAY = D.dex.map(p =>
+  [pz(p), p.d, '#' + p.no, SPEC_ZH[p.sp], bz(p.b), msz(p.ms)].join(' ').toLowerCase());
+const spOpt = i => `<option value="${i}">${pz(D.dex[i])}　#${D.dex[i].no}</option>`;
+function filterSpecies(card, q){
+  const sel = card && card.querySelector('[data-k="sp"]');
+  if (!sel) return;
+  const cur = +sel.value;
+  const s = (q || '').trim().toLowerCase();
+  const hit = s ? D.dex.map((p,i)=>i).filter(i => SPECIES_HAY[i].includes(s)) : null;
+  if (hit){
+    let html = hit.map(spOpt).join('');
+    /* 目前選的那一隻不符也一定要留著（規則 1），並且講出它為什麼還在。 */
+    if (!hit.includes(cur))
+      html = `<option value="${cur}">${pz(D.dex[cur])}　#${D.dex[cur].no}（目前選的）</option>` + html;
+    sel.innerHTML = html;
+  } else sel.innerHTML = SPECIES_OPTS;
+  sel.value = String(cur);
+  const n = card.querySelector('.sp-n');
+  if (n) n.textContent = !s ? '' : hit.length ? `${hit.length} 種` : '找不到符合的種類';
+}
 const NATURE_OPTS = D.natures.map(n=>`<option value="${n.n}">${natLabel(n)}</option>`).join('');
 /* 副技能用**全名**，不用縮寫 —— 這一欄要「完全顯示」，卡片版面已經給足寬度。 */
 const SS_OPTS = `<option value="">—</option>` + D.subskills.map(s=>`<option value="${s.n}">${ssz(s.n)}</option>`).join('');
@@ -1501,7 +1535,11 @@ function monEdit(m, o){
         <label class="f w-nick">暱稱<input type="text" data-k="nick" maxlength="${NICK_MAX}"
           placeholder="${pz(p)}" value="${esc(m.nick||'')}"
           title="你在遊戲裡取的名字。只影響顯示，不影響計算 —— 留空就顯示學名"></label>
-        <label class="f w-sp">種類<select data-k="sp"${ambCls('sp')}>${SPECIES_OPTS}</select></label>
+        <label class="f w-sp">種類<select data-k="sp"${ambCls('sp')}>${SPECIES_OPTS}</select>
+          <span class="sp-find"><input type="search" data-q="sp" autocomplete="off"
+            placeholder="搜尋種類：中文名、學名、#編號、專長、樹果、主技能"
+            title="即時篩掉不符的選項。清空就恢復全部 —— 目前選中的那一隻一定會留在選單裡"
+            ><span class="sp-n muted"></span></span></label>
         <span class="tag ${SPEC_TAG[p.sp]}" title="專長（由種類決定）" style="align-self:center">${SPEC_ZH[p.sp]}</span>
         <label class="f w-num">等級<input type="number" data-k="level" min="1" max="70" value="${m.level}"></label>
         <label class="f w-nat">性格<select data-k="nature">${NATURE_OPTS}</select></label>
@@ -1854,6 +1892,12 @@ $('fltIngMode').addEventListener('click', e=>{
   syncIngFilterUI();
   if (boxFlt.ing.size) renderBox();
 });
+/* 種類搜尋只重建**那一張卡**的選項，不重畫列表 —— 重畫會把正在打的字吃掉。
+   暱稱那個 input 也會冒泡到這裡，所以一定要用 `data-q` 認人。 */
+$('boxList').addEventListener('input', e=>{
+  const q = e.target.closest('[data-q="sp"]'); if (!q) return;
+  filterSpecies(e.target.closest('.mon'), q.value);
+});
 $('fltName').addEventListener('input', e=>{ boxFlt.q = e.target.value.trim(); applyBoxFilter(); });
 /* 排序會改渲染順序 → 必須重畫，不能只切 hidden。
    換排序時**方向回到正向** —— 「等級低→高」按完換去看「主技能」，繼承一個反向會
@@ -2044,6 +2088,12 @@ function buildImport(){
   $('impSave').addEventListener('click', impSaveDraft);
 
   // 校對表：任何欄位改動 → 更新草稿 → 立刻重新校驗
+  /* 截圖校對區的種類搜尋。**和箱子共用 `filterSpecies`** —— 兩邊各寫一份的話，
+     在其中一邊搜得到、另一邊搜不到，而那種差異不會有任何錯誤訊息。 */
+  $('impRow').addEventListener('input', e=>{
+    const q = e.target.closest('[data-q="sp"]'); if (!q) return;
+    filterSpecies(e.target.closest('.mon'), q.value);
+  });
   $('impRow').addEventListener('change', e=>{
     if (!impDraft) return;
     const k = e.target.dataset.k; if (!k) return;
@@ -3149,8 +3199,8 @@ function teamBerryWarn(t){
    手動隊已經親手指定了 5 隻所以自然不生效（手動權力最大）。但這一條比另外兩條更該
    講出來 —— 它不只是「推演不會推薦」，而是**你在遊戲裡根本組不出這一隊**。
 
-   ⚠ 判定一定要走引擎那一份 `specialLoad`（拉帝兄妹那一對算一隻）：自己在這裡數一遍
-   就會出現「推演算得出來、這裡卻警告」的矛盾。 */
+   ⚠ 判定一定要走引擎那一份 `specialLoad`：自己在這裡數一遍，名單或規則一改就會
+   出現「推演算得出來、這裡卻警告」的矛盾。 */
 function teamSpecialWarn(t){
   if (wk.oneSpecial === false) return '';
   const mem = t.members.filter(i => i != null);
