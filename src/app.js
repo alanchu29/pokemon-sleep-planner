@@ -66,7 +66,7 @@ const SCHEMA = 5;   // 4: 新增 msExtra{}（上游沒有的主技能數值表�
    「新的 index.html ＋ 舊的 app.js」—— 畫面畫出舊版 UI，而使用者只會覺得
    「你根本沒改」，完全不知道是快取。有了這個斷言，過期的 app.js 會直接被擋下來
    並要求強制重新整理。tests/smoke.mjs 第 11 節會斷言三處一致。 */
-const APP_V = '20260915b';
+const APP_V = '20260915c';
 
 /** 致命錯誤：整頁換成一段說明。這種狀況下繼續跑只會產生錯的數字。 */
 function fatal(html){
@@ -182,7 +182,7 @@ const f1 = n => (Math.round(n*10)/10).toFixed(1);
 const NICK_MAX = 24;
 const BLANK = () => ({sp: D.dex.findIndex(p=>p.n==='PIKACHU'), level:30, nature:'Bashful', ss:[null,null,null,null,null], ingSet:[0,0,0], skillLv:1, ribbon:0, nick:'', pin:false, ex:false});
 let roster = [];
-let wk = {island:'greengrass', fav:new Set(), favMain:null, exBonus:null, evt:blankEvt(), areaBonus:15, pot:57, sleepH:8.5, camp:0, collectH:DEFAULT_COLLECT_H, mode:'total', dishType:'curry', recipeName:null, recipeLv:20, recipePick:'auto', recipeScope:'type', recipeLevels:{}, strictBerry:true, oneAll:true, teamType:null};
+let wk = {island:'greengrass', fav:new Set(), favMain:null, exBonus:null, evt:blankEvt(), areaBonus:15, pot:57, sleepH:8.5, camp:0, collectH:DEFAULT_COLLECT_H, mode:'total', dishType:'curry', recipeName:null, recipeLv:20, recipePick:'auto', recipeScope:'type', recipeLevels:{}, strictBerry:true, oneSpecial:true, teamType:null};
 let lastResults = null, shownAlt = 0;
 /* 「上一次的推演結果已經對不上現在的箱子了」。
  *
@@ -269,6 +269,15 @@ function deserialize(o, opts){
        （因為退回「全部屬性」會把只打超能力的加成憑空發給全隊，是放大範圍）；這裡
        沒有「歸零」可言，留著一個認不得的值會讓推演永遠湊不出隊伍，所以只能放寬 ——
        正因為是放寬，更要由 `syncWeeklyUI()` 明講。 */
+    /* 舊欄位 `oneAll`（全能型同隊最多一隻）→ `oneSpecial`（特別寶可夢同隊最多一隻）。
+       2026-09-15 換掉的：`oneAll` 是用**專長**去逼近遊戲規則的替代品，擋不到
+       克雷色利亞／三神獸／拉帝兄妹。**舊資料的關／開要接過來**（關掉它是使用者
+       刻意的選擇），而且要把舊 key 刪掉 —— 留著會跟著 `serialize()` 一路傳下去，
+       變成一個沒有人讀、卻看起來還有效的欄位。 */
+    if (wk.oneAll !== undefined){
+      if (o.wk.oneSpecial === undefined) wk.oneSpecial = wk.oneAll !== false;
+      delete wk.oneAll;
+    }
     teamTypeBad = null;
     if (wk.teamType != null && wk.teamType !== ''){
       if (!TYPE_NAMES.includes(wk.teamType)){ teamTypeBad = String(wk.teamType); wk.teamType = null; }
@@ -734,7 +743,7 @@ function buildWeekly(){
         syncWeeklyUI(); weeklyChanged(); });
   }
   $('strictBerry').addEventListener('change', e=>{ wk.strictBerry = e.target.checked; weeklyChanged(); });
-  $('oneAll').addEventListener('change', e=>{ wk.oneAll = e.target.checked; weeklyChanged(); });
+  $('oneSpecial').addEventListener('change', e=>{ wk.oneSpecial = e.target.checked; weeklyChanged(); });
   /* 選了屬性就把「認不得」的警告清掉 —— 那是在講**讀進來的舊值**，使用者手動改過
      之後它就不再成立，留著就是文案說謊。 */
   $('teamType').addEventListener('change', e=>{ wk.teamType = e.target.value || null; teamTypeBad = null; syncWeeklyUI(); weeklyChanged(); });
@@ -771,7 +780,7 @@ function syncWeeklyUI(){
   $('dishType').value = wk.dishType; $('recipeLv').value = wk.recipeLv;
   $('recipePick').value = wk.recipePick; $('recipeScope').value = wk.recipeScope;
   $('strictBerry').checked = wk.strictBerry !== false;
-  $('oneAll').checked = wk.oneAll !== false;
+  $('oneSpecial').checked = wk.oneSpecial !== false;
   syncRecipeCount();
   const auto = wk.recipePick === 'auto';
   $('recipe').disabled = auto;
@@ -1394,6 +1403,14 @@ function typeTags(p){
       hit ? '　←　本週活動的屬性限定加成打得到牠' : ''}${why}&#10;Pokémon Sleep 每隻只有一個屬性，就是牠撿的樹果的屬性（上游的寶可夢資料沒有屬性欄位，由 ${P.extract} 推導）">${tyz(t)}</span>`;
   }).join('');
 }
+/** 「特別寶可夢」徽章（傳說／幻獸）。**箱子與結果卡共用這一份。**
+ *
+ *  為什麼要顯示：它決定「能不能和另一隻特別的放同一隊」，那是種類本身的性質、
+ *  在畫面上其他地方完全看不出來（專長、屬性、主技能都不會透露）。
+ *  名單在 `engine.js` 的 `SPECIAL_MONS` —— 上游沒有這個旗標。 */
+const specialTag = p => isSpecial(p)
+  ? `<span class="tag spmon" title="特別寶可夢（傳說／幻獸）　遊戲裡同一隊只能放一隻">⭐ 特別</span>`
+  : '';
 /** 主技能旁邊的警告徽章。沒有 caveat 就回空字串。 */
 function msCaveat(ms){
   const c = MS_CAVEAT[ms]; if (!c) return '';
@@ -1452,7 +1469,7 @@ function monHead(m, idx, open){
         <span class="mon-lv">Lv${m.level}</span>
       </span>
       <span class="mon-rest">
-        <span class="tag ${SPEC_TAG[p.sp]}" title="專長">${SPEC_ZH[p.sp]}</span>${typeTags(p)}
+        <span class="tag ${SPEC_TAG[p.sp]}" title="專長">${SPEC_ZH[p.sp]}</span>${specialTag(p)}${typeTags(p)}
         <span class="mon-ms" title="主技能（由種類決定）">${msz(p.ms)}</span>${msCaveat(p.ms)}
         <span class="mon-nat">${natBrief(m)}</span>
         <span class="mon-sum">${ss}</span>
@@ -1726,6 +1743,7 @@ function monMatch(m, idx){
   if (boxFlt.state === 'pin' && !m.pin) return false;
   if (boxFlt.state === 'ex' && !m.ex) return false;
   if (boxFlt.state === 'plain' && (m.pin || m.ex)) return false;
+  if (boxFlt.state === 'special' && !isSpecial(p)) return false;
   if (boxFlt.state === 'dup' && !monDup.has(idx)) return false;
   if (boxFlt.q && !monHaystack(m).includes(boxFlt.q.toLowerCase())) return false;
   return true;
@@ -2385,8 +2403,8 @@ function searchViaPool(payload, onProgress){
       cands: parts.flatMap(p => p.cands),
       count: parts.reduce((s, p) => s + p.count, 0),
       excluded: parts[0].excluded,   // 每個分片算出來的排除名單相同
-      // cutAll / maxAll 同理：它們只取決於 (roster, wk)，每個分片算出來都一樣
-      cutAll: parts[0].cutAll, maxAll: parts[0].maxAll,
+      // cutSp / maxSp 同理：它們只取決於 (roster, wk)，每個分片算出來都一樣
+      cutSp: parts[0].cutSp, maxSp: parts[0].maxSp,
       // 屬性限定的排除名單與 📌 破例名單，同理（只取決於 roster 與 wk）
       excludedTy: parts[0].excludedTy, pinnedOffType: parts[0].pinnedOffType,
       total: parts[0].total,
@@ -2427,18 +2445,22 @@ const RUN_ERR = {
     + `沒指定等於整個加成沒有對象。請在上面的<b>「主要樹果」</b>選一種`
     + `（要先在「本週加成樹果」把它勾起來）。`,
   fewBerry: n => `套用「樹果型只考慮本週加成樹果」之後只剩 ${n} 隻可用（需要 5 隻）。`,
-  /* 「全能同隊最多一隻」湊不出任何一組 5 隻。和 `fewBerry` 同一類：**被規則擋住時
-     要指名是哪一條規則**，不可以只說「找不到隊伍」。實際會走到這裡的情形是
-     「可用的 N 隻裡有 N-3 隻以上是全能」—— 罕見但不是不可能。 */
-  /* 屬性限定湊不滿 5 隻。和 `fewBerry` / `fewAll` 同一類：**被規則擋住時要指名是
+  /* 屬性限定湊不滿 5 隻。和 `fewBerry` / `fewSpecial` 同一類：**被規則擋住時要指名是
      哪一條規則**，而且要寫出「還差幾隻」與怎麼解決，不可以只說「找不到隊伍」。
      這一條比另外兩條更容易撞到 —— 冰、鋼那種屬性在一般箱子裡本來就不到 5 隻。 */
   fewType: n => `套用「<b>整隊限定 ${tyz(wk.teamType)}屬性</b>」之後只剩 <b>${n} 隻</b>可用（需要 5 隻）—— `
     + `把「整隊限定屬性」改回<b>不限</b>、換一個屬性，或在箱子裡多加幾隻${tyz(wk.teamType)}屬性的。`
     + `（下拉選單的每個屬性後面都寫著箱子裡有幾隻。）`,
-  fewAll: (n, nAll) => `套用「<b>全能型同隊最多一隻</b>」之後湊不出任何一組 5 隻 —— `
-    + `目前可用的 ${n} 隻裡有 <b>${nAll} 隻是全能型</b>，扣掉之後剩下的不足 4 隻。`
-    + `把下面的「全能型同隊最多一隻」取消勾選，或在箱子裡多加幾隻非全能型的。`
+  /* 「特別寶可夢同隊最多一隻」湊不出任何一組 5 隻。和 `fewBerry` 同一類：**被規則
+     擋住時要指名是哪一條規則**，不可以只說「找不到隊伍」。實際會走到這裡的情形是
+     「可用的 N 隻裡有 N-4 隻以上是特別寶可夢」—— 罕見但不是不可能。
+     ⚠ 這一條和另外兩條不同：它是**遊戲的規則**，所以解法要先講「多加幾隻一般的」，
+     取消勾選擺在後面並寫明代價 —— 把「你可以關掉它」講在前面等於鼓勵人去看一份
+     遊戲裡組不出來的答案。 */
+  fewSpecial: (n, nSp) => `套用「<b>特別寶可夢同隊最多一隻</b>」之後湊不出任何一組 5 隻 —— `
+    + `目前可用的 ${n} 隻裡有 <b>${nSp} 隻是特別寶可夢</b>（傳說／幻獸），扣掉之後剩下的不足 4 隻。`
+    + `請在箱子裡多加幾隻一般的寶可夢，或把需要的成員用 📌 固定（固定的不受此限）。`
+    + `（那一條是遊戲的規則 —— 取消勾選算得出更高的分數，但那支隊伍你組不出來。）`
               + `請調整本週加成樹果、把需要的成員用 📌 固定（固定的不受此限），或關掉那個選項。`,
 };
 
@@ -2485,7 +2507,7 @@ async function run(){
       const top = merged.cands.slice().sort(byScore).slice(0, FINALISTS);
       res = { best: finalizeTeams(rehydrate(top, roster, wk), roster, wk),
               count: merged.count, shardMs: merged.shardMs,
-              cutAll: merged.cutAll, maxAll: merged.maxAll,
+              cutSp: merged.cutSp, maxSp: merged.maxSp,
               excluded: merged.excluded.map(i => D.dex[roster[i].sp].n),
               /* 和 `excluded` 同一條路：worker 回的是 roster 索引，這裡轉成內部名，
                  `searchTeams`（主執行緒退路）那一份也做同樣的轉換 —— 兩條路徑的
@@ -2514,7 +2536,7 @@ async function run(){
       killPool();
       setRunning(false);
       const m = err.shardError, f = RUN_ERR[m.error];
-      $("results").innerHTML = `<div class="notice warn">${f ? f(m.n, m.nAll) : "推演失敗，請重試。"}</div>`;
+      $("results").innerHTML = `<div class="notice warn">${f ? f(m.n, m.nSp) : "推演失敗，請重試。"}</div>`;
       return;
     }
     console.warn('worker 推演失敗，退回主執行緒：', err.message);
@@ -2535,7 +2557,7 @@ async function run(){
   if (!res || res.error){
     const f = res && RUN_ERR[res.error];
     if (res && res.error === 'stopped') return;
-    $("results").innerHTML = `<div class="notice warn">${f ? f(res.n, res.nAll) : "推演失敗，請重試。"}</div>`;
+    $("results").innerHTML = `<div class="notice warn">${f ? f(res.n, res.nSp) : "推演失敗，請重試。"}</div>`;
     return;
   }
   lastResults = res.best; shownAlt = 0; resultsStale = false;
@@ -2553,11 +2575,11 @@ async function run(){
        這一行是唯一分得出「這是活動週算的」的地方。 */
     + (evtActive().length ? ` · 活動加成：${evtActive().join('・')}` : '')
     + (cut ? ` · 已排除 ${cut} 隻樹果不符的樹果型` : '')
-    /* 「全能同隊最多一隻」砍掉的**組合數**。和上面那個「排除 N 隻」是不同的量
+    /* 「特別寶可夢同隊最多一隻」砍掉的**組合數**。和上面那個「排除 N 隻」是不同的量
        （那是候選、這是組合），所以分開講 —— 合成一句會讓人以為有幾隻被剔掉了。
-       `maxAll > 1` 代表 📌 固定的全能超過一隻、規則被使用者的指定覆蓋，那也要講。 */
-    + (res.cutAll > 0 ? ` · 全能限一隻，已略過 ${res.cutAll.toLocaleString()} 種組合` : '')
-    + (res.maxAll > 1 ? ` · ⚠ 你固定了 ${res.maxAll} 隻全能，「全能限一隻」這一週不生效` : '')
+       `maxSp > 1` 代表 📌 固定的特別寶可夢超過一隻、規則被使用者的指定覆蓋，那也要講。 */
+    + (res.cutSp > 0 ? ` · ⭐ 特別限一隻，已略過 ${res.cutSp.toLocaleString()} 種組合` : '')
+    + (res.maxSp > 1 ? ` · ⚠ 你固定了 ${res.maxSp} 隻特別寶可夢，「特別限一隻」這一週不生效` : '')
     /* 屬性限定。排除的**隻數**（和 strictBerry 同一個量，所以講法一致），以及
        📌 破例的那幾隻 —— 後者一定要指名，否則畫面上會出現一隻不符屬性的成員而
        沒有任何解釋，那就是「文案說謊」。 */
@@ -2704,7 +2726,7 @@ function memberCard(rank, i, r, o){
         /* 推演結果是**最需要暱稱的地方**：箱子裡有兩隻妙蛙花時，選中的是哪一隻只有
            暱稱分得出來。但學名也一定要在（不然不知道要看哪一隻的數值），所以並列。 */
         (m.nick||'').trim() ? `<span class="nm-sci">${pz(p)}</span>` : ''
-      }<span class="tag ${SPEC_TAG[p.sp]}">${SPEC_ZH[p.sp]}</span>${wk.fav.has(p.b)?`<span class="tag fav" title="本週加成樹果：幫忙撿來的樹果能量 ×${mulTxt(berryMulShown(p.b))}">加成樹果</span>`:''}${exTag(bs)}${typeTags(p)}${m.pin?`<span class="tag pin">固定</span>`:''}</div>
+      }<span class="tag ${SPEC_TAG[p.sp]}">${SPEC_ZH[p.sp]}</span>${specialTag(p)}${wk.fav.has(p.b)?`<span class="tag fav" title="本週加成樹果：幫忙撿來的樹果能量 ×${mulTxt(berryMulShown(p.b))}">加成樹果</span>`:''}${exTag(bs)}${typeTags(p)}${m.pin?`<span class="tag pin">固定</span>`:''}</div>
       <div class="meta">Lv${m.level} · ${natZ(NAT[m.nature]||NAT.Bashful)} · ${act.length?act.join('／'):'無副技能'} · 頻率 ${Math.round(o.sim.freqBase/60*10)/10}分</div>\n      <div class="meta">${msz(p.ms)} Lv${bs.skillLv} · 每日發動 ${f1(o.sim.procs)} 次 ${msCaveat(p.ms)}</div>
       <div class="meta" style="color:var(--ing)">${ingList.length?ingList.join('　'):'（無食材產出）'}</div>
       <div class="why">${pickReason(rank-1, r)}</div>
@@ -3123,17 +3145,20 @@ function teamBerryWarn(t){
        + `只是別拿它跟推演的名次對照。</div>`;
 }
 
-/* 「全能型同隊最多一隻」和 `strictBerry` 完全同一條規則：它是**組合過濾**，手動隊
-   已經親手指定了 5 隻所以自然不生效（手動權力最大）。但同樣會造成「這裡算得好好的、
-   推演卻永遠不推薦」的矛盾，所以要講出來是哪幾隻。 */
-function teamAllWarn(t){
-  if (wk.oneAll === false) return '';
-  const all = t.members.filter(i => i != null).filter(i => D.dex[roster[i].sp].sp === 'all');
-  if (all.length < 2) return '';
-  const who = all.map(i => esc(monName(roster[i]))).join('、');
-  return `<div class="notice" style="margin:8px 0 0">這裡照算：${who} 都是全能型（同隊 ${all.length} 隻）。`
-       + `推演分頁因為「全能型同隊最多一隻」不會選出這個組合 —— 數字本身沒問題，`
-       + `只是別拿它跟推演的名次對照。</div>`;
+/* 「特別寶可夢同隊最多一隻」和 `strictBerry` 完全同一條規則：它是**組合過濾**，
+   手動隊已經親手指定了 5 隻所以自然不生效（手動權力最大）。但這一條比另外兩條更該
+   講出來 —— 它不只是「推演不會推薦」，而是**你在遊戲裡根本組不出這一隊**。
+
+   ⚠ 判定一定要走引擎那一份 `specialLoad`（拉帝兄妹那一對算一隻）：自己在這裡數一遍
+   就會出現「推演算得出來、這裡卻警告」的矛盾。 */
+function teamSpecialWarn(t){
+  if (wk.oneSpecial === false) return '';
+  const mem = t.members.filter(i => i != null);
+  const sp = mem.filter(i => isSpecial(D.dex[roster[i].sp]));
+  if (specialLoad(sp.map(i => D.dex[roster[i].sp].n)) < 2) return '';
+  const who = sp.map(i => esc(monName(roster[i]))).join('、');
+  return `<div class="notice warn" style="margin:8px 0 0">⭐ ${who} 都是特別寶可夢（傳說／幻獸）——`
+       + `<b>遊戲裡同一隊只能放一隻，這一隊組不出來</b>。數字照算，但別拿它跟推演的名次對照。</div>`;
 }
 
 /* 「整隊限定屬性」和上面兩條完全同一條規則：**候選過濾**，手動隊已經親手指定了
@@ -3178,7 +3203,7 @@ function teamCardHTML(t, ti){
         title="${teams.length>1?'刪除這支隊伍':'清空這支隊伍'}">✕</button>
     </div>
     <div class="tmslots">${[0,1,2,3,4].map(s=>teamSlotHTML(ti,s)).join('')}</div>
-    ${teamBerryWarn(t)}${teamAllWarn(t)}${teamTypeWarn(t)}
+    ${teamBerryWarn(t)}${teamSpecialWarn(t)}${teamTypeWarn(t)}
   </div>`;
 }
 

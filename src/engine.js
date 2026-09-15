@@ -21,7 +21,7 @@ if (!D || !D.ings || !D.dex || !D.recipes || !D.ms) {
    ASSET_V 擋到的路徑** —— 主執行緒載新引擎、worker 載到快取的舊引擎時，
    搜尋（worker）與 rehydrate／決賽（主執行緒）會用兩套不同的公式，
    不會報錯，只會靜靜地算出對不起來的分數。app.js 會比對這個值。 */
-const ENGINE_V = '20260915b';
+const ENGINE_V = '20260915c';
 
 const ING_NAME = D.ings.map(x=>x[0]);
 const ING_VAL  = D.ings.map(x=>x[1]);
@@ -97,6 +97,40 @@ const hasType = (p, ty) => !ty || !!(TYPES_OF.get(p.n) && TYPES_OF.get(p.n).has(
 /** 這一隻的屬性陣列，順序固定為 TYPE_NAMES 的順序（＝本傳的屬性排序）。
  *  UI 的標籤用它 —— 順序穩定，同一隻在箱子與成員卡上才不會一下「草/毒」一下「毒/草」。 */
 const typesOf = p => TYPE_NAMES.filter(t => hasType(p, t));
+/* 「特別寶可夢」＝ 遊戲把傳說／幻獸歸在一起的那一類。**上游完全沒有這個旗標**
+   （`Pokemon` 型別只有 specialty／berry／skill 那幾欄），所以比照 `BAD_DREAMS_DRAIN`
+   與 `EX_ISLANDS`：名單寫成具名常數、出處寫在註解裡。
+
+   出處：使用者 2026-09-15 指出**克雷色利亞也是特別寶可夢，不能和夢幻放同一隊**。
+   下面這 9 隻就是這份快照（247 隻）裡全部的傳說與幻獸，用圖鑑編號掃出來的
+   （150/151、243~245、380/381、488、491）。
+
+   推演的「同隊最多一隻」就是看這份名單（`wk.oneSpecial`）。它取代了舊的
+   `wk.oneAll`（看**全能專長**）—— 那是用專長去逼近這條規則的替代品，而全能型只有
+   夢幻與達克萊伊，克雷色利亞、三神獸、拉帝兄妹全都是技能專長，一隻都擋不到。 */
+const SPECIAL_MONS = new Set(['MEWTWO','MEW','RAIKOU','ENTEI','SUICUNE',
+                              'LATIAS','LATIOS','CRESSELIA','DARKRAI']);
+/** 這一隻（dex 條目）是不是特別寶可夢。 */
+const isSpecial = p => SPECIAL_MONS.has(p.n);
+/** 一組物種內部名「佔幾個特別名額」—— 遊戲的同隊限制數的就是這個數字。
+ *
+ *  **拉帝亞斯＋拉帝歐斯算一隻。** 牠們是遊戲設計好的一對：拉帝亞斯「治癒波動」的
+ *  技能頁明文寫著「隊伍中有拉帝歐斯時，還會讓牠們再立刻完成 1 次幫忙」（見 6b）——
+ *  遊戲不會去描述一個組不出來的情況。使用者 2026-09-15 確認這一對可以同隊。
+ *
+ *  ⚠ 那一對**只抵一個名額**：拉帝亞斯＋拉帝歐斯＋夢幻 算 2 隻，照樣擋下來。
+ *  遊戲允不允許那樣沒有憑據，所以取保守的一邊 —— 寧可少推薦幾組，也不要推薦一支
+ *  組不出來的隊伍。 */
+function specialLoad(names){
+  let n = 0, la = false, lo = false;
+  for (const nm of names){
+    if (!SPECIAL_MONS.has(nm)) continue;
+    n++;
+    if (nm === 'LATIAS') la = true;
+    else if (nm === 'LATIOS') lo = true;
+  }
+  return la && lo ? n - 1 : n;
+}
 /* 上游快照沒有、但遊戲技能頁有的主技能數值表（來自 tools/skills-extra.json）。
    目前只有流星群的基礎樹果表：外層 = 主技能等級 1..6，內層 = 隊上不同種類的龍屬性數 1..5。 */
 const MS_EXTRA = D.msExtra || {};
@@ -1482,14 +1516,14 @@ function prepareSearch(roster, wk){
   /* 整隊限定單一屬性（`wk.teamType`，預設 null ＝ 不限）。
 
      **和 `strictBerry` 完全同一個形狀**：看單一隻就能判定，所以在候選階段剔除。
-     （對照 `oneAll` 是組合層級的，只能在列舉時擋。加新規則時先問這一題。）
+     （對照 `oneSpecial` 是組合層級的，只能在列舉時擋。加新規則時先問這一題。）
 
      ⚠ **判定用 `hasType`，雙屬性任一符合即可。** 只認第一屬性的話，實測 18 種屬性
      裡只有 7 種湊得滿 5 隻（含雙屬性是 16 種），而且天然鳥（飛行/超能力）這種會被
      自己的第二屬性排除掉 —— 那與活動加成的屬性限定項語意也不一致（那邊也是 hasType）。
 
      📌 **固定的成員豁免**（使用者 2026-09-14 指定，和 `strictBerry` 第 2 個例外、
-     `oneAll` 的 `max(1, pinnedAll)` 同一條通則：個別指定優先於通則）。代價是隊伍
+     `oneSpecial` 的 `max(1, 固定的特別數)` 同一條通則：個別指定優先）。代價是隊伍
      就不再是純該屬性，所以 `pinnedOffType` 要傳出去讓 UI **指名是哪一隻破例** ——
      靜靜地留一隻非該屬性的在隊裡，就是「文案說謊」那一類。 */
   const teamType = wk.teamType || null;
@@ -1507,39 +1541,60 @@ function prepareSearch(roster, wk){
       return { error:'fewType', n: pool.length + pinned.length, ty: teamType, cut: excludedTy.length };
   }
 
-  /* 全能型同隊最多一隻（`wk.oneAll`，預設開）。
+  /* 特別寶可夢同隊最多一隻（`wk.oneSpecial`，預設開）。
 
-     **和 `strictBerry` 一樣是產品需求，不是最佳化**（使用者 2026-09-14：「全能寶可夢
-     太強了」）。它會讓總能量變低，那是刻意的取捨。
+     **這一條是遊戲的硬規則，不是取捨**（使用者 2026-09-15：「克雷色利亞也是特別
+     寶可夢，不能跟夢幻那些放同隊」）—— 推薦一支**組不出來**的隊伍，比少推薦幾組
+     糟得多。前身是 `wk.oneAll`（全能型最多一隻），那是用**專長**去逼近這條規則的
+     替代品，而全能型只有夢幻與達克萊伊，擋不到克雷色利亞／三神獸／拉帝兄妹。
 
      ⚠ 它和 `strictBerry` 的形狀**不同**：`strictBerry` 看單一隻，可以在候選階段就把
      人剔掉；這一條是**組合層級的限制**（兩隻各自都合法，湊在一起才不合法），所以
      只能在列舉時擋。剔候選是做不到的 —— 剔掉哪一隻都是錯的。
 
      📌 固定的成員優先於通則（和 `strictBerry` 第 2 個例外同一條）：所以上限是
-     `max(1, 固定的全能數)`。固定了兩隻全能就是兩隻，不報錯 —— 使用者的個別指定
+     `max(1, 固定的特別數)`。固定了兩隻就是兩隻，不報錯 —— 使用者的個別指定
      本來就該贏，而 UI 會把這件事講出來。 */
-  const isAll = i => D.dex[roster[i].sp].sp === 'all';
-  const pinnedAll = pinned.filter(isAll).length;
-  const oneAll = wk.oneAll !== false;
-  const maxAll = oneAll ? Math.max(1, pinnedAll) : 5;
+  /* 每個 roster 索引的標記先算好：列舉階段會跑上千萬次，每次再去 `D.dex` 查名字
+     太貴。0 ＝ 不是特別、1 ＝ 是、2 ＝ 拉帝亞斯、3 ＝ 拉帝歐斯（那一對算一隻）。 */
+  const spMark = new Int8Array(roster.length);
+  for (let i = 0; i < roster.length; i++){
+    const n = D.dex[roster[i].sp].n;
+    spMark[i] = !SPECIAL_MONS.has(n) ? 0 : n === 'LATIAS' ? 2 : n === 'LATIOS' ? 3 : 1;
+  }
+  const spName = i => D.dex[roster[i].sp].n;
+  const isSp = i => spMark[i] !== 0;
+  const limitSp = wk.oneSpecial !== false;
+  const pinnedNames = pinned.map(spName);
+  const maxSp = limitSp ? Math.max(1, specialLoad(pinnedNames)) : 5;
 
   /* `total` 要算**通過限制的**組合數，不是全部 —— 它同時是進度條的分母與 UI 上
      顯示的「N 組」。算全部的話進度永遠走不到 100%，而那看起來像卡住了。
-       need = 還要從 pool 選幾隻、nA = pool 裡的全能數、room = 還能再放幾隻全能 */
-  const need = 5 - pinned.length;
-  const nA = pool.filter(isAll).length, nO = pool.length - nA;
-  const room = Math.max(0, maxAll - pinnedAll);
-  let total = 0;
-  for (let j = 0; j <= Math.min(room, nA, need); j++) total += nCk(nA, j) * nCk(nO, need - j);
-  total = Math.round(total);
-  if (oneAll && total < 1)
-    return { error:'fewAll', n: pool.length + pinned.length, nAll: nA + pinnedAll };
 
-  return { pool, pinned, excluded, total, maxAll, isAll, excludedTy, pinnedOffType, teamType,
+     ⚠ 不能用單純的 `Σ C(n特別, j) × C(n其他, need−j)`：拉帝兄妹那一對算一隻，所以
+     「幾隻特別的算合法」要看**是哪幾隻**。特別的整個圖鑑只有 9 隻，所以直接列舉
+     子集（最多 512 個）再乘上「其餘名額從非特別的裡面選」的組合數 —— 便宜，而且
+     和列舉時的檢查走**同一個 `specialLoad`**，兩邊不可能走鐘。 */
+  const need = 5 - pinned.length;
+  const spPool = pool.filter(isSp), nO = pool.length - spPool.length;
+  let total = 0;
+  for (let mask = 0; mask < (1 << spPool.length); mask++){
+    const take = [];
+    for (let b = 0; b < spPool.length; b++) if (mask & (1 << b)) take.push(spName(spPool[b]));
+    if (take.length > need) continue;
+    if (limitSp && specialLoad([...pinnedNames, ...take]) > maxSp) continue;
+    total += nCk(nO, need - take.length);
+  }
+  total = Math.round(total);
+  if (limitSp && total < 1)
+    return { error:'fewSpecial', n: pool.length + pinned.length,
+             nSp: spPool.length + pinned.filter(isSp).length };
+
+  return { pool, pinned, excluded, total, maxSp, isSp, spMark, limitSp,
+           excludedTy, pinnedOffType, teamType,
            /* 排除掉的組合數，給 UI 講出來 —— 「靜靜地少算候選」就是 CLAUDE.md 說的
               那種文案說謊，而這一條砍掉的組合數往往不小。 */
-           cutAll: oneAll ? Math.round(nCk(pool.length, need)) - total : 0 };
+           cutSp: limitSp ? Math.round(nCk(pool.length, need)) - total : 0 };
 }
 
 /**
@@ -1572,13 +1627,22 @@ function searchShard(roster, wk, opts){
   // 所以用旗標讓 callback 變成 no-op —— 列舉本身很便宜，貴的是 scoreTeam。
   combinations(prep.pool, 5, prep.pinned, idxs=>{
     if (stopped) return;
-    /* 全能同隊上限。**擋在 `count++` 之前** —— `prep.total` 算的是通過限制的組合數，
-       兩邊要用同一個定義，否則進度條會停在 100% 以下（或提早衝到 100%）。
-       列舉本身很便宜（貴的是 scoreTeam），所以「全部列舉、不合法的跳過」是對的做法。 */
-    if (prep.maxAll < 5){
-      let nAll = 0;
-      for (const i of idxs) if (prep.isAll(i)) nAll++;
-      if (nAll > prep.maxAll) return;
+    /* 特別寶可夢的同隊上限。**擋在 `count++` 之前** —— `prep.total` 算的是通過限制
+       的組合數，兩邊要用同一個定義，否則進度條會停在 100% 以下（或提早衝到 100%）。
+       列舉本身很便宜（貴的是 scoreTeam），所以「全部列舉、不合法的跳過」是對的做法。
+
+       這裡是 `specialLoad` 的內聯版（走 `spMark`，不查字串）—— 兩邊的規則必須相同：
+       拉帝亞斯（2）＋拉帝歐斯（3）同隊算一隻。 */
+    if (prep.maxSp < 5){
+      let nSp = 0, la = 0, lo = 0;
+      for (const i of idxs){
+        const k = prep.spMark[i];
+        if (!k) continue;
+        nSp++;
+        if (k === 2) la = 1; else if (k === 3) lo = 1;
+      }
+      if (la && lo) nSp--;
+      if (nSp > prep.maxSp) return;
     }
     count++;
     if ((count & 0xFFF) === 0){
@@ -1592,9 +1656,9 @@ function searchShard(roster, wk, opts){
   if (stopped) return { error:'stopped', count };
   const cands = o.lean ? best.map(b => ({ idxs: b.idxs, score: b.score })) : best;
   return { cands, count, excluded: prep.excluded, total: prep.total,
-           cutAll: prep.cutAll, maxAll: prep.maxAll,
+           cutSp: prep.cutSp, maxSp: prep.maxSp,
            /* 屬性限定：排除名單與「因 📌 而破例」的名單。兩個都要穿過 worker 的
-              shard 訊息與合併 —— 和 `excluded` / `cutAll` 同一條理由（靜靜地少算
+              shard 訊息與合併 —— 和 `excluded` / `cutSp` 同一條理由（靜靜地少算
               候選就是文案說謊）。 */
            excludedTy: prep.excludedTy, pinnedOffType: prep.pinnedOffType, teamType: prep.teamType };
 }
@@ -1667,7 +1731,7 @@ function searchTeams(roster, wk, opts){
   if (r.error) return r;
   const best = finalizeTeams(r.cands, roster, wk, (opts && opts.finalists) || FINALISTS);
   if (opts && opts.onProgress) opts.onProgress(r.count, r.total);
-  return { best, count: r.count, ms: Date.now()-t0, cutAll: r.cutAll, maxAll: r.maxAll,
+  return { best, count: r.count, ms: Date.now()-t0, cutSp: r.cutSp, maxSp: r.maxSp,
            excluded: r.excluded.map(i => D.dex[roster[i].sp].n),
            excludedTy: (r.excludedTy || []).map(i => D.dex[roster[i].sp].n),
            pinnedOffType: (r.pinnedOffType || []).map(i => D.dex[roster[i].sp].n),

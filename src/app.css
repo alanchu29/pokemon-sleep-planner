@@ -152,6 +152,9 @@ input[type=range]{width:100%;accent-color:var(--accent)}
 .tag.pin{background:var(--surface-3);color:var(--ink-2)}
 /* EX 營地（專家模式）的三檔。中間那一檔（其他喜好樹果）刻意沒有標籤 ——
    它既不加速也不被罰，標了只是雜訊。 */
+/* 特別寶可夢（傳說／幻獸）。用強調色 —— 它會影響「能不能和另一隻同隊」，
+   和屬性那種中性資訊不同。 */
+.tag.spmon{background:color-mix(in srgb,var(--accent) 18%,transparent);color:var(--accent)}
 .tag.exmain{background:color-mix(in srgb,var(--pos) 88%,var(--ink));color:#fff}
 .tag.exoff{background:color-mix(in srgb,var(--neg) 82%,var(--ink));color:#fff}
 /* 屬性標籤（18 種）。**一律中性色** —— 屬性本身不是價值判斷，給 18 種各配一個顏色

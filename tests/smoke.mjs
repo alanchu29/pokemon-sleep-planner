@@ -3271,6 +3271,44 @@ console.log('\n[5d] 發給隊友的樹果，算的是隊友自己的樹果');
 
    數值來源：遊戲內說明截圖（萌綠之島EX，使用者 2026-09-11 提供）＋ 上游的
    common/src/events/events/*-expert-mode.ts。 */
+/* 「特別寶可夢」（傳說／幻獸）在箱子裡的顯示與篩選。同隊限制本身在第 16 節。
+   這一節順便釘住「為什麼要換掉舊的 `oneAll`」那個事實：全能專長只有 2 隻，
+   而特別的有 9 隻 —— 克雷色利亞是**技能專長**，舊規則一隻都擋不到。 */
+console.log('\n[11s] 寶可夢箱：「特別寶可夢」的篩選與徽章');
+{
+  const r = await page.evaluate(() => {
+    const list = D.dex.filter(isSpecial).map(p => p.n).sort();
+    /* 全能專長只有 2 隻，特別的有 9 隻 —— 這就是舊規則擋不到克雷色利亞的證據。 */
+    const allSpec = D.dex.filter(p => p.sp === 'all').map(p => p.n).sort();
+    const mk = n => ({sp:n, level:60, nature:'Bashful', ss:[null,null,null,null,null],
+                      ingSet:[0,0,0], skillLv:1, ribbon:0, pin:false, ex:false});
+    deserialize({roster: [mk('MEW'), mk('RAICHU'), mk('CRESSELIA')]});
+    clearBoxFilter(); monOpen.clear(); renderBox();
+    const vis = () => [...$('boxList').querySelectorAll('[data-i]')].filter(e => !e.hidden).map(e => +e.dataset.i);
+    const tagOn = i => !!$('boxList').querySelector(`[data-i="${i}"] .tag.spmon`);
+    const tags = [0,1,2].map(tagOn).join(',');
+    $('fltState').value = 'special';
+    $('fltState').dispatchEvent(new Event('change', {bubbles:true}));
+    const only = vis().join(',');
+    const countText = $('boxCount').textContent;
+    $('fltClear').click();
+    const cleared = {vis: vis().join(','), sel: $('fltState').value, state: boxFlt.state};
+    return {list, allSpec, tags, only, countText, cleared};
+  });
+  ok('名單是這份快照裡全部的傳說／幻獸（9 隻）', r.list.length === 9, r.list.join('、'));
+  ok('克雷色利亞在名單裡', r.list.includes('CRESSELIA'), r.list.join('、'));
+  ok('三神獸與拉帝兄妹也在', ['RAIKOU','ENTEI','SUICUNE','LATIAS','LATIOS'].every(n => r.list.includes(n)),
+     r.list.join('、'));
+  /* 這一條就是使用者反映的那件事：舊規則看的是專長，克雷色利亞是技能專長。 */
+  ok('「全能專長」只有 2 隻 —— 舊的「全能限一隻」擋不到克雷色利亞',
+     r.allSpec.length === 2 && !r.allSpec.includes('CRESSELIA'), r.allSpec.join('、'));
+  ok('特別的那幾隻在箱子裡有 ⭐ 徽章，其他沒有', r.tags === 'true,false,true', r.tags);
+  ok('狀態篩「特別」只留下那幾隻', r.only === '0,2', r.only);
+  ok('而且數量要換成「顯示 N / 全部」', /顯示 2 \/ 3/.test(r.countText), r.countText);
+  ok('清除篩選會一起清掉它', r.cleared.vis === '0,1,2' && r.cleared.sel === '' && r.cleared.state === '',
+     JSON.stringify(r.cleared));
+}
+
 console.log('\n[14] EX 營地（專家模式）：三檔樹果待遇與隨機營地效果');
 {
   const r = await page.evaluate(() => {
@@ -3964,7 +4002,7 @@ console.log('\n[15e] 屬性限定加成的 UI：摘要、標籤、截圖匯入�
      r.opts.find(o => o.startsWith('psychic')));
 }
 
-console.log('\n[16] 全能型同隊最多一隻（wk.oneAll）');
+console.log('\n[16] 特別寶可夢同隊最多一隻（wk.oneSpecial）');
 {
   const r = await page.evaluate(() => {
     const idx = n => D.dex.findIndex(x => x.n === n);
@@ -3974,73 +4012,108 @@ console.log('\n[16] 全能型同隊最多一隻（wk.oneAll）');
     const W = over => ({...wk, island:'greengrass', favMain:null, exBonus:null,
       fav:new Set(['ORAN']), areaBonus:15, pot:57, sleepH:8.5, camp:0, collectH:4,
       mode:'total', dishType:'curry', recipeName:null, recipeLv:20, recipePick:'auto',
-      recipeScope:'type', recipeLevels:RL, strictBerry:false, evt:blankEvt(), ...(over||{})});
+      recipeScope:'type', recipeLevels:RL, strictBerry:false, evt:blankEvt(),
+      teamType:null, ...(over||{})});
 
-    const alls = D.dex.filter(p => p.sp === 'all').map(p => p.n);
-    const others = D.dex.filter(p => p.sp !== 'all').map(p => p.n).slice(0, 8);
-    const box = [...alls, ...others].map(n => mk(n));
-    const nAll = alls.length;
+    const sps = D.dex.filter(isSpecial).map(p => p.n);
+    const others = D.dex.filter(p => !isSpecial(p)).map(p => p.n).slice(0, 8);
+    const box = [...sps, ...others].map(n => mk(n));
+    const nSp = sps.length;
     const nCk = (n,k)=>{ let r=1; for(let i=0;i<k;i++) r=r*(n-i)/(i+1); return Math.round(r); };
+    /* 這一隊「佔幾個特別名額」—— 斷言一律走引擎那一份，自己再數一遍就會和規則走鐘。 */
+    const load = (rs, idxs) => specialLoad(idxs.map(i => D.dex[rs[i].sp].n));
 
-    const on = prepareSearch(box, W({oneAll:true}));
-    const off = prepareSearch(box, W({oneAll:false}));
-    const resOn = searchTeams(box, W({oneAll:true}), {finalists:50});
-    const resOff = searchTeams(box, W({oneAll:false}), {finalists:50});
-    const nAllIn = res => Math.max(...res.best.map(t =>
-      t.idxs.filter(i => D.dex[box[i].sp].sp === 'all').length));
+    const on  = prepareSearch(box, W({oneSpecial:true}));
+    const off = prepareSearch(box, W({oneSpecial:false}));
+    const resOn  = searchTeams(box, W({oneSpecial:true}),  {finalists:50});
+    const resOff = searchTeams(box, W({oneSpecial:false}), {finalists:50});
+    const worst = res => Math.max(...res.best.map(t => load(box, t.idxs)));
 
-    /* 📌 固定兩隻全能 -> 使用者的指定優先，maxAll 變 2，不報錯 */
-    const pinned = box.map((m, i) => ({...m, pin: i < nAll}));
-    const prepPin = prepareSearch(pinned, W({oneAll:true}));
-    const resPin = searchTeams(pinned, W({oneAll:true}), {finalists:10});
+    /* 📌 固定兩隻特別的 -> 使用者的指定優先，maxSp 變 2，不報錯。
+       **刻意挑不是拉帝兄妹的兩隻**，否則測到的是配對例外而不是 📌 優先。 */
+    const pinNames = sps.filter(n => n !== 'LATIAS' && n !== 'LATIOS').slice(0, 2);
+    const pinned = box.map(m => ({...m, pin: pinNames.includes(D.dex[m.sp].n)}));
+    const prepPin = prepareSearch(pinned, W({oneSpecial:true}));
+    const resPin  = searchTeams(pinned, W({oneSpecial:true}), {finalists:10});
 
-    /* 全能太多湊不出 5 隻 -> 要指名是哪一條規則（用重複個體湊，全 dex 只有 2 隻全能） */
-    const tiny = [alls[0], alls[0], alls[0], alls[1], alls[1], others[0]].map(n => mk(n));
-    const prepTiny = prepareSearch(tiny, W({oneAll:true}));
+    /* 拉帝亞斯＋拉帝歐斯是例外，那一對算一隻。只有 5 隻時組合唯一，所以
+       「跑不跑得出來」就等於「這一對合不合法」。 */
+    const pair = ['LATIAS','LATIOS', ...others.slice(0,3)].map(n => mk(n));
+    const prepPair = prepareSearch(pair, W({oneSpecial:true}));
+    const resPair = prepPair.error ? null : searchTeams(pair, W({oneSpecial:true}), {finalists:5});
+    /* 但那一對**只抵一個名額** —— 再加第三隻特別的照樣擋下來。 */
+    const trio = ['LATIAS','LATIOS','MEW', ...others.slice(0,2)].map(n => mk(n));
+    const prepTrio = prepareSearch(trio, W({oneSpecial:true}));
 
-    /* 箱子裡沒有全能型 -> 開關不可以造成任何差異 */
-    const noAll = others.slice(0, 8).map(n => mk(n));
-    const a = searchTeams(noAll, W({oneAll:true}), {finalists:20});
-    const b = searchTeams(noAll, W({oneAll:false}), {finalists:20});
+    /* 特別的太多、湊不出 5 隻 -> 要指名是哪一條規則。 */
+    const tiny = ['MEW','MEW','MEW','DARKRAI','CRESSELIA', others[0]].map(n => mk(n));
+    const prepTiny = prepareSearch(tiny, W({oneSpecial:true}));
+
+    /* 箱子裡一隻特別的都沒有 -> 開關不可以造成任何差異（逐位相同）。 */
+    const none = others.slice(0, 8).map(n => mk(n));
+    const a = searchTeams(none, W({oneSpecial:true}),  {finalists:20});
+    const b = searchTeams(none, W({oneSpecial:false}), {finalists:20});
     const sig = res => JSON.stringify(res.best.slice(0, 8).map(x => [x.idxs, x.total]));
 
+    /* 舊欄位 `oneAll` 的遷移：關掉是使用者刻意的選擇，換規則不可以把它打開。 */
+    deserialize({wk: {oneAll: false}});
+    const migOff = {v: wk.oneSpecial, stale: 'oneAll' in wk};
+    deserialize({wk: {oneAll: true}});
+    const migOn = wk.oneSpecial;
+
     return {
-      nAll, poolN: on.pool.length,
+      nSp, sps,
       totalOn: on.total, totalOff: off.total,
-      expectOn: nCk(on.pool.length - nAll, 5) + nAll * nCk(on.pool.length - nAll, 4),
-      cutAll: on.cutAll, cutAllOff: off.cutAll, maxAll: on.maxAll,
-      worstOn: nAllIn(resOn), worstOff: nAllIn(resOff),
+      /* 合法的特別子集：0 隻（1 種）、1 隻（nSp 種），外加拉帝兄妹那一對（1 種）。 */
+      expectOn: nCk(8, 5) + nSp * nCk(8, 4) + nCk(8, 3),
+      expectOff: nCk(on.pool.length, 5),
+      cutSp: on.cutSp, cutSpOff: off.cutSp, maxSp: on.maxSp,
+      worstOn: worst(resOn), worstOff: worst(resOff),
       topOn: resOn.best[0].total, topOff: resOff.best[0].total,
       countOn: resOn.count,
-      pinMaxAll: prepPin.maxAll, pinErr: prepPin.error || '',
-      pinHas: resPin.best[0].idxs.filter(i => D.dex[pinned[i].sp].sp === 'all').length,
-      tinyErr: prepTiny.error, tinyNAll: prepTiny.nAll,
-      noAllSame: sig(a) === sig(b),
+      pinMaxSp: prepPin.maxSp, pinErr: prepPin.error || '',
+      pinHas: resPin.best[0].idxs.filter(i => isSpecial(D.dex[pinned[i].sp])).length,
+      pairErr: prepPair.error || '', pairTotal: prepPair.total,
+      pairBoth: resPair ? resPair.best[0].idxs.length === 5 : false,
+      trioErr: prepTrio.error || '', trioNSp: prepTrio.nSp,
+      tinyErr: prepTiny.error, tinyNSp: prepTiny.nSp,
+      noneSame: sig(a) === sig(b),
+      migOff, migOn,
     };
   });
-  ok('全 dex 的全能型隻數（夢幻與達克萊伊）', r.nAll === 2, String(r.nAll));
+  ok('特別寶可夢共 9 隻（傳說／幻獸）', r.nSp === 9, r.sps.join('、'));
   ok('total 算的是「通過限制的組合數」，不是全部',
      r.totalOn === r.expectOn && r.totalOn < r.totalOff,
      `${r.totalOn}（預期 ${r.expectOn}）vs 全部 ${r.totalOff}`);
+  ok('關掉時 total ＝ 全部組合', r.totalOff === r.expectOff, `${r.totalOff} vs ${r.expectOff}`);
   ok('count 跑完剛好等於 total（進度條的分母才不會歪）', r.countOn === r.totalOn,
      `${r.countOn} vs ${r.totalOn}`);
-  ok('cutAll ＝ 被略過的組合數', r.cutAll === r.totalOff - r.totalOn, String(r.cutAll));
-  ok('關掉時 cutAll ＝ 0', r.cutAllOff === 0, String(r.cutAllOff));
-  ok('maxAll 預設是 1', r.maxAll === 1, String(r.maxAll));
-  ok('結果裡每一組最多一隻全能', r.worstOn <= 1, `最多 ${r.worstOn} 隻`);
-  ok('關掉之後真的會出現多隻全能（證明規則有在作用）', r.worstOff >= 2, `最多 ${r.worstOff} 隻`);
+  ok('cutSp ＝ 被略過的組合數', r.cutSp === r.totalOff - r.totalOn, String(r.cutSp));
+  ok('關掉時 cutSp ＝ 0', r.cutSpOff === 0, String(r.cutSpOff));
+  ok('maxSp 預設是 1', r.maxSp === 1, String(r.maxSp));
+  ok('結果裡每一組最多佔一個特別名額', r.worstOn <= 1, `最多 ${r.worstOn}`);
+  ok('關掉之後真的會出現多隻特別的（證明規則有在作用）', r.worstOff >= 2, `最多 ${r.worstOff}`);
   /* 它是限制不是最佳化 —— 開著只會讓分數變低或持平，絕不會變高。 */
   ok('開著的第 1 名不會高於關著的', r.topOn <= r.topOff + 1e-6,
      `${Math.round(r.topOn)} vs ${Math.round(r.topOff)}`);
-  ok('📌 固定的全能超過一隻時，使用者的指定優先（maxAll 變 2、不報錯）',
-     r.pinMaxAll === 2 && !r.pinErr, `maxAll=${r.pinMaxAll} err=${r.pinErr}`);
-  ok('固定的兩隻全能都留在隊上', r.pinHas === 2, String(r.pinHas));
-  ok('湊不出 5 隻時要指名是這條規則（fewAll，不是泛用錯誤）',
-     r.tinyErr === 'fewAll' && r.tinyNAll === 5, `${r.tinyErr}/${r.tinyNAll}`);
-  ok('箱子裡沒有全能型時，開關不造成任何差異（逐位相同）', r.noAllSame);
+  /* 這一對是遊戲承認可以同隊的（拉帝亞斯的主技能明文寫著拉帝歐斯在隊上時的加碼）。 */
+  ok('拉帝亞斯＋拉帝歐斯可以同隊（那一對算一隻）',
+     !r.pairErr && r.pairTotal === 1 && r.pairBoth, `err=${r.pairErr} total=${r.pairTotal}`);
+  ok('但那一對只抵一個名額 —— 再加第三隻特別的照樣擋下來',
+     r.trioErr === 'fewSpecial' && r.trioNSp === 3, `err=${r.trioErr} nSp=${r.trioNSp}`);
+  ok('📌 固定兩隻特別的時，使用者的指定優先（maxSp 變 2、不報錯）',
+     r.pinMaxSp === 2 && !r.pinErr, `maxSp=${r.pinMaxSp} err=${r.pinErr}`);
+  ok('固定的那兩隻都留在隊上', r.pinHas === 2, String(r.pinHas));
+  ok('湊不出 5 隻時要指名是這條規則（fewSpecial，不是泛用錯誤）',
+     r.tinyErr === 'fewSpecial' && r.tinyNSp === 5, `${r.tinyErr}/${r.tinyNSp}`);
+  ok('箱子裡沒有特別寶可夢時，開關不造成任何差異（逐位相同）', r.noneSame);
+  /* 換規則不可以把使用者關掉的選項打開，也不可以留下一個沒人讀的舊欄位。 */
+  ok('舊資料的 oneAll:false 會接成 oneSpecial:false，而且舊 key 要刪掉',
+     r.migOff.v === false && !r.migOff.stale, JSON.stringify(r.migOff));
+  ok('oneAll:true 同理', r.migOn === true, String(r.migOn));
 }
 
-console.log('\n[16b] 全能限一隻的 UI：要講出來，而且手動隊不擋但要出聲');
+console.log('\n[16b] 特別限一隻的 UI：要講出來，而且手動隊不擋但要警告組不出來');
 {
   /* doRun 是 Node 端的輔助（它要 await page.waitForFunction），不能在 page.evaluate
      裡呼叫 —— 所以「佈置狀態 / 跑推演 / 讀畫面」要拆成三段。 */
@@ -4048,34 +4121,56 @@ console.log('\n[16b] 全能限一隻的 UI：要講出來，而且手動隊不�
     const idx = n => D.dex.findIndex(x => x.n === n);
     const mk = n => ({sp: idx(n), level:60, nature:'Bashful', ss:[null,null,null,null,null],
       ingSet:[0,0,0], skillLv:3, ribbon:4, pin:false, ex:false, nick:''});
-    const alls = D.dex.filter(p => p.sp === 'all').map(p => p.n);
-    const others = D.dex.filter(p => p.sp !== 'all').map(p => p.n).slice(0, 8);
-    roster = [...alls, ...others].map(mk);
-    wk.oneAll = true; wk.strictBerry = false;
+    /* 前兩隻刻意**不是**拉帝兄妹 —— 那一對是例外，拿它來測警告會什麼都測不到。 */
+    const sps = D.dex.filter(isSpecial).map(p => p.n)
+                     .filter(n => n !== 'LATIAS' && n !== 'LATIOS');
+    const others = D.dex.filter(p => !isSpecial(p)).map(p => p.n).slice(0, 8);
+    roster = [...sps, ...others].map(mk);
+    wk.oneSpecial = true; wk.strictBerry = false; wk.teamType = null;
     syncWeeklyUI();
-    return $('oneAll').checked;
+    return $('oneSpecial').checked;
   });
   await doRun();
   const r = await page.evaluate(() => {
     const combo = $('comboCount').textContent;
-    /* 手動隊：前兩隻就是那兩隻全能型 -> 照算，但要講出推演不會選它 */
+    /* 手動隊：前兩隻就是特別寶可夢 -> 照算，但要講出這一隊在遊戲裡組不出來 */
     teams[0].members = [0, 1, 2, 3, 4];
     renderTeamsView();
     const tmHTML = $('view-team').innerHTML;
-    wk.oneAll = false;
+    wk.oneSpecial = false;
     renderTeamsView();
     const tmOff = $('view-team').innerHTML;
-    wk.oneAll = true;
+    wk.oneSpecial = true;
     return {combo, tmHTML, tmOff};
   });
   ok('預設是勾起來的', checked);
   ok('推演結果那一行要講出略過了幾種組合',
-     /全能限一隻/.test(r.combo) && /略過/.test(r.combo), r.combo.slice(0, 160));
-  /* 和 strictBerry 完全同一條：手動隊權力最大，但矛盾要講出來。 */
-  ok('自組隊伍照算，但要講出推演不會選這個組合',
-     /全能型同隊最多一隻/.test(r.tmHTML) && /別拿它跟推演的名次對照/.test(r.tmHTML),
-     (r.tmHTML.match(/這裡照算：[^<]{0,70}/) || [''])[0]);
-  ok('規則關掉之後就不再出聲', !/全能型同隊最多一隻/.test(r.tmOff));
+     /特別限一隻/.test(r.combo) && /略過/.test(r.combo), r.combo.slice(0, 160));
+  /* 和 strictBerry 不同的是：這一條不是「推演不會選」，是「你組不出來」。 */
+  ok('自組隊伍照算，但要警告那一隊在遊戲裡組不出來',
+     /特別寶可夢/.test(r.tmHTML) && /組不出來/.test(r.tmHTML),
+     (r.tmHTML.match(/⭐[^<]{0,80}/) || [''])[0]);
+  ok('規則關掉之後就不再出聲', !/組不出來/.test(r.tmOff));
+
+  /* 拉帝兄妹那一對在自組隊伍也**不可以**被警告 —— 警告一支合法的隊伍，和漏掉一支
+     不合法的一樣糟（使用者會照著它去拆隊）。 */
+  const r2 = await page.evaluate(() => {
+    const idx = n => D.dex.findIndex(x => x.n === n);
+    const mk = n => ({sp: idx(n), level:60, nature:'Bashful', ss:[null,null,null,null,null],
+      ingSet:[0,0,0], skillLv:3, ribbon:4, pin:false, ex:false, nick:''});
+    const others = D.dex.filter(p => !isSpecial(p)).map(p => p.n).slice(0, 3);
+    roster = ['LATIAS','LATIOS', ...others].map(mk);
+    teams[0].members = [0, 1, 2, 3, 4];
+    renderTeamsView();
+    const both = $('view-team').innerHTML;
+    roster = ['LATIAS','LATIOS','MEW', ...others.slice(0,2)].map(mk);
+    teams[0].members = [0, 1, 2, 3, 4];
+    renderTeamsView();
+    return {both, trio: $('view-team').innerHTML};
+  });
+  ok('拉帝亞斯＋拉帝歐斯同隊不可以被警告（牠們合法）', !/組不出來/.test(r2.both));
+  ok('再加一隻夢幻就要警告', /組不出來/.test(r2.trio),
+     (r2.trio.match(/⭐[^<]{0,80}/) || [''])[0]);
 }
 
 console.log('\n[12] 快取偏移：schema 不符必須明確擋下');
@@ -4120,8 +4215,13 @@ console.log('\n[17] 整隊限定屬性');
      `wk.strictBerry` 一併關掉：它在屬性過濾**之前**就先剔掉樹果不符的樹果型，
      那樣「排除的隻數」就不等於「屬性不符的隻數」，斷言會對不上。這一節只測屬性。 */
   const pick = await page.evaluate(() => {
-    const psy = (D.types.psychic || []).slice(0, 7);
-    const other = D.dex.filter(p => !hasType(p, 'psychic')).slice(0, 4).map(p => p.n);
+    /* ⚠ 造箱子時要把**特別寶可夢排掉**。超能力＝芒芒果，而超夢／夢幻／克雷色利亞
+       三隻都撿芒芒果 —— 混進來的話「📌 補滿第 5 格」那一組會同時踩到「特別同隊
+       最多一隻」，測到的就不是屬性規則了。和上面關掉 `strictBerry` 完全同一個理由：
+       一次只隔離一條規則。 */
+    const notSp = n => !isSpecial(D.dex.find(x => x.n === n));
+    const psy = (D.types.psychic || []).filter(notSp).slice(0, 7);
+    const other = D.dex.filter(p => !hasType(p, 'psychic') && !isSpecial(p)).slice(0, 4).map(p => p.n);
     const mk = n => ({sp: D.dex.findIndex(x => x.n === n), level: 50, nature: 'Bashful',
       ss: ['Helping Speed M', 'Skill Trigger S', null, null, null], ingSet: [0,0,0],
       skillLv: 3, ribbon: 0, pin: false, ex: false, nick: ''});
