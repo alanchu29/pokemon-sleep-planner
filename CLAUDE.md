@@ -12,7 +12,7 @@ Pokémon Sleep 每週最佳隊伍推演工具。零依賴、無 build step、純
 
 | 檔案 | 內容 |
 |---|---|
-| `index.html` | 骨架：`<head>`（字型、`app.css`）＋ markup（四個 `.view`：`view-plan` / `view-team` / `view-box` / `view-recipes`，加「資料版本」footer 與 `.wrap` 之外的選擇器浮層 `#tmPicker`）＋ 尾端的載入器 |
+| `index.html` | 骨架：`<head>`（字型、`app.css`）＋ markup（五個 `.view`：`view-plan` / `view-team` / `view-box` / `view-cmp` / `view-recipes`，加「資料版本」footer 與 `.wrap` 之外的選擇器浮層 `#tmPicker`）＋ 尾端的載入器 |
 | `src/app.css` | CSS 變數（三種主題狀態）與版面 |
 | `src/engine.js` | **純引擎**，約 500 行。window 與 Worker 兩邊都載入同一份 |
 | `src/engine.worker.js` | 薄薄一層 Worker 外殼，約 50 行 |
@@ -141,6 +141,24 @@ app.js  run()   ──{init, data:D}──▶  engine.worker.js × N
 搜尋走 `monHaystack`（**和箱子的篩選列共用**，暱稱＋學名都吃），排序沿用 `boxOrder()`，但**篩選條件是選擇器自己的**（`pickerQ` / `pickerSpec`）—— 吃 `boxFlt` 的話會出現「箱子篩了食材 → 這裡莫名少了一半」。
 
 **同隊不可重複、跨隊可以。** 同一隻放進同一隊兩次會讓 Helper Boost 的物種計數、流星群的龍屬性種類數全部算錯；跨隊重複則是必要的（比較兩隊通常只換 1~2 隻），已在別隊的要標出來。
+
+### 新抓比較（`view-cmp`）
+
+剛抓到的一隻 vs 箱子裡**同一條進化系**的，比「資質」與「練滿」—— 回答「新抓的能不能取代箱子裡那隻」。
+使用者 2026-09-23 要求：「計算方式就是跟盒子裡顯示的一樣」。
+
+五條規則：
+
+1. **數字就是箱子摺疊列上那兩個 chip 的同一份算式**（`cmpMetrics` → `idealOf` / `idealPctFrom` / `fullMain`，共用 `idealCache`）。第 19 節斷言逐位相同。**不要在這裡另寫一份評分。**
+2. **比的是整條進化系，不是同物種。** 新抓的通常還沒進化（喇叭芽），箱子裡的是進化完的（大食花）—— 只比同物種的話最常見的情境一隻都比不到。進化系靠 `dex[].ef`（上游的 `evolvesFrom`，schema 6 加的）。
+   - 一方是另一方的祖先（含同物種）→ **兩隻都以比較進化的那一種計算**（`cmpTarget`），只把 `sp` 換掉。
+   - 這成立的前提是**每條進化邊的食材清單與專長都相同**（`ingSet` 的索引才對得上、練滿才同單位）。第 19 節直接斷言；哪天紅了，`cmpMetrics` 要改成真的去對應食材。
+   - 分岔的兄弟（水伊布 vs 太陽伊布）**不比，但要列出來講為什麼** —— 資質只在同物種內有意義，而水伊布變不成太陽伊布。
+3. **輸的那一方有空的副技能格要講出來**（`cmpVerdict` 的 `unkNote`）—— 它只是下界，結論可能會翻。和箱子的 `≥` 同一條。
+4. **草稿（`cmpDraft`）不進 `serialize()`**，按「加入箱子」才 `roster.push(cloneMon(...))`。比較結果**不存 roster 索引**，每次 `renderCmp()` 都從 roster 重找，所以不在「存 roster 索引的東西」那張表裡。
+5. **欄位改動走 `setMonField`**（和箱子共用）、卡片走 `monCard`、副技能標籤走 `ssTags` —— 和「截圖校對區與箱子共用 `monCard`」同一個理由。截圖校對區有「拿去新抓比較」，**不清掉**那邊的草稿（校驗碼只有那一頁有）。
+
+⚠ 同物種時資質與練滿幾乎一定同進退（分母是同一個理想個體）；會「互有勝負」幾乎只有一種原因：某一方已經超過 Lv60，練滿用牠的實際等級算（和箱子一樣）。`cmpVerdict` 會把這件事寫出來，不然看起來像算錯。
 
 ### 鍋子的剩餘空位會被別的食材填滿（`mealPlan` 的填充段）
 
@@ -1269,8 +1287,8 @@ memo 的結果要完全相同（沒有跨隊串味），箱子要標「隊伍型
 1. **輸出的形狀完全沒變**：依屬性分組的 `{dark:[…], dragon:[…], …}`，所以 engine 的
    `DARK` / `DRAGON` 兩個 Set 與 `TYPES_OF` 反查表都沒動，`meta.schema` 也**不用 +1**
    （結構沒變，只是內容變了）。
-2. **`meta.schema` 目前是 5**，前四次 +1 的理由仍然成立（新增 `dark[]`、併成
-   `types{dark,dragon}`、加 `msExtra{}`、`types` 補滿 18 鍵＋`zh.types`）。
+2. **`meta.schema` 目前是 6**，前五次 +1 的理由仍然成立（新增 `dark[]`、併成
+   `types{dark,dragon}`、加 `msExtra{}`、`types` 補滿 18 鍵＋`zh.types`、`dex[].ef` 進化來源）。
 3. **每一隻的屬性都顯示在寶可夢箱與結果卡片上**（`typeTags()`，兩處共用一份）。
    現在它不再是「核對手維護清單」的防線，而是回答「為什麼推演突然選了這一隻」——
    屬性決定三個活動加成與「整隊限定屬性」打不打得到牠。

@@ -56,8 +56,10 @@ const esc = s => String(s == null ? '' : s)
    GitHub Pages 送 max-age=600，所以更新後有最多 10 分鐘的窗口，瀏覽器可能
    拿到「新 app.js ＋ 舊 game.json」。純數值過期還好，結構變了就會算出錯的
    數字或直接壞掉 —— 而使用者只會看到壞頁面，不知道重新整理就好。 */
-const SCHEMA = 5;   // 4: 新增 msExtra{}（上游沒有的主技能數值表，目前是流星群的基礎樹果表）
+const SCHEMA = 6;   // 4: 新增 msExtra{}（上游沒有的主技能數值表，目前是流星群的基礎樹果表）
                     // 5: types{} 從 {dark,dragon} 補滿成 18 個屬性鍵（屬性限定的活動加成要用）
+                    // 6: dex[].ef（進化來源）—— 新抓比較要認同一條進化系。舊資料沒有它時
+                    //    不會報錯，只會靜靜地「只和同物種比」，所以要擋
 
 /* 這一份 app.js 的資源版本。必須等於 index.html 裡的 ASSET_V（以及 app.css 的 ?v=）。
    動到 app.css 或 src/*.js 就三個地方一起往前推。
@@ -66,7 +68,7 @@ const SCHEMA = 5;   // 4: 新增 msExtra{}（上游沒有的主技能數值表�
    「新的 index.html ＋ 舊的 app.js」—— 畫面畫出舊版 UI，而使用者只會覺得
    「你根本沒改」，完全不知道是快取。有了這個斷言，過期的 app.js 會直接被擋下來
    並要求強制重新整理。tests/smoke.mjs 第 11 節會斷言三處一致。 */
-const APP_V = '20260915c';
+const APP_V = '20260923a';
 
 /** 致命錯誤：整頁換成一段說明。這種狀況下繼續跑只會產生錯的數字。 */
 function fatal(html){
@@ -1473,13 +1475,17 @@ function msCaveat(ms){
  *
  *  副技能的底色就是**稀有度**（`game.json` 的 `subskills[].r`：gold／silver／white）——
  *  這是資料裡本來就有的分級，不是我編的配色。未解鎖的那幾格會變淡。 */
-function monHead(m, idx, open){
-  const p = D.dex[m.sp];
-  const ss = [0,1,2,3,4].filter(s=>m.ss[s]).map(s=>{
+/** 副技能標籤（底色＝稀有度，未解鎖的變淡）。摺疊列與新抓比較共用這一份。 */
+function ssTags(m){
+  return [0,1,2,3,4].filter(s=>m.ss[s]).map(s=>{
     const lock = m.level < SS_SLOT_LV[s];
     return `<span class="rr ${(SS[m.ss[s]]||{}).r||'white'}${lock?' lock':''}"`
          + ` title="第 ${s+1} 格${lock?` — Lv${SS_SLOT_LV[s]} 才解鎖，目前不生效`:''}">${ssz(m.ss[s])}</span>`;
   }).join('');
+}
+function monHead(m, idx, open){
+  const p = D.dex[m.sp];
+  const ss = ssTags(m);
   /* 未解鎖的食材格**照樣顯示，只是變淡** —— 和上面的副技能同一個處理方式。
      遊戲畫面會把它預告出來（🔒Lv.60 加食材圖與 ×N），藏起來反而看不出存錯了。 */
   const ing = [0,1,2].map(s=>{
@@ -1855,20 +1861,29 @@ function renderBox(){
      但進度文字要蓋在剛寫好的 boxCount 上）。 */
   idealFillAsync();
 }
+/** monEdit 的一個欄位改動 → 寫回 m。寶可夢箱與新抓比較**共用這一份** ——
+ *  兩邊各寫一份的話，換種類時要不要重設食材格這種細節一定會走鐘。
+ *  （截圖校對區不走這裡：它每改一欄還要重新反解食材與技能等級。） */
+function setMonField(m, t){
+  const k = t.dataset.k;
+  if (k==='sp'){ m.sp = +t.value; m.ingSet = [0,0,0]; m.skillLv = 1; }
+  else if (k==='ss') m.ss[+t.dataset.s] = t.value || null;
+  else if (k==='ingSet') m.ingSet[+t.dataset.s] = +t.value;
+  else if (k==='level') m.level = Math.max(1, Math.min(70, +t.value||1));
+  else if (k==='skillLv') m.skillLv = Math.max(1, Math.min(8, +t.value||1));
+  else if (k==='nature') m.nature = t.value;
+  else if (k==='ribbon') m.ribbon = +t.value;
+  /* 暱稱：`change` 對 text input 是「離開欄位才觸發」，所以之後的重畫
+     不會把你正在打的字吃掉。存的是 trim 過的值 —— 只有空白的暱稱等於沒取名。 */
+  else if (k==='nick') m.nick = t.value.trim().slice(0, NICK_MAX);
+}
+/** 進 roster 用的副本：陣列要複製（否則草稿再改會改到箱子裡那一隻），📌／🚫 歸零。 */
+const cloneMon = m => ({...m, ss: m.ss.slice(), ingSet: m.ingSet.slice(), pin:false, ex:false});
 $('boxList').addEventListener('change', e=>{
   const row = e.target.closest('[data-i]'); if (!row) return;
   const m = roster[+row.dataset.i], k = e.target.dataset.k;
   if (!k) return;
-  if (k==='sp'){ m.sp = +e.target.value; m.ingSet = [0,0,0]; m.skillLv = 1; }
-  else if (k==='ss') m.ss[+e.target.dataset.s] = e.target.value || null;
-  else if (k==='ingSet') m.ingSet[+e.target.dataset.s] = +e.target.value;
-  else if (k==='level') m.level = Math.max(1, Math.min(70, +e.target.value||1));
-  else if (k==='skillLv') m.skillLv = Math.max(1, Math.min(8, +e.target.value||1));
-  else if (k==='nature') m.nature = e.target.value;
-  else if (k==='ribbon') m.ribbon = +e.target.value;
-  /* 暱稱：`change` 對 text input 是「離開欄位才觸發」，所以下面的 renderBox()
-     不會把你正在打的字吃掉。存的是 trim 過的值 —— 只有空白的暱稱等於沒取名。 */
-  else if (k==='nick') m.nick = e.target.value.trim().slice(0, NICK_MAX);
+  setMonField(m, e.target);
   /* 一律重畫。展開時摺疊列還在上面，而摺疊列顯示的就是副技能／食材／等級／
      性格／⚠重複 —— 只改值不重畫，摘要就會和下面的選單不一致。
      代價是 select 的焦點會掉，但 change 是「選完才觸發」，可以接受。 */
@@ -2086,6 +2101,14 @@ function buildImport(){
   $('impReset').addEventListener('click', impResetForm);
   $('impDiscard').addEventListener('click', impClearDraft);
   $('impSave').addEventListener('click', impSaveDraft);
+  /* 拿去新抓比較：**不清掉**這裡的草稿 —— 比完回來照樣可以按「存入箱子」，
+     而校驗碼（幫忙間隔／持有上限）只有這一頁有，丟掉就回不來了。 */
+  $('impToCmp').addEventListener('click', ()=>{
+    if (!impDraft){ $('impSaveStatus').textContent = '沒有可比較的草稿'; return; }
+    cmpDraft = cloneMon(impDraft);
+    $('cmpStatus').textContent = '從截圖匯入帶過來的 —— 截圖那一頁的草稿還留著';
+    showView('cmp');
+  });
 
   // 校對表：任何欄位改動 → 更新草稿 → 立刻重新校驗
   /* 截圖校對區的種類搜尋。**和箱子共用 `filterSpecies`** —— 兩邊各寫一份的話，
@@ -2326,7 +2349,7 @@ function impSaveDraft(){
   if (v.carry.ok === false) failed.push('持有上限');
   if (failed.length && !confirm(`${failed.join('、')}和截圖上的數字不一致 —— 這通常表示有欄位讀錯了，存進去會讓推演結果不準。\n\n還是要存入嗎？`))
     return;
-  roster.push({...impDraft, ss: impDraft.ss.slice(), ingSet: impDraft.ingSet.slice(), pin:false, ex:false});
+  roster.push(cloneMon(impDraft));
   clearBoxFilter();            // 剛存進去的那隻一定要看得到
   renderBox(); save();
   const p = D.dex[impDraft.sp];
@@ -3402,8 +3425,216 @@ function renderPickerList(){
   }).join('') : `<div class="muted" style="padding:14px;text-align:center">找不到符合的</div>`;
 }
 
+/* ================= 新抓比較 =================
+   剛抓到的一隻 vs 箱子裡**同一條進化系**的，比兩個數字：
+
+   | | 算式 | 回答 |
+   |---|---|---|
+   | 資質 | `idealPctFrom`（牠 ÷ 同物種理想個體） | 這一隻是不是好貨 |
+   | 練滿 | `fullMain`（Lv60・緞帶4・技能滿級的主指標） | 練起來會多強 |
+
+   **兩個都是箱子摺疊列上那兩個 chip 的同一份算式**（`idealOf` 共用 `idealCache`），
+   所以這裡的數字和箱子裡看到的逐位相同 —— 各寫一份一定會走鐘。
+
+   為什麼要認進化系而不是只比同物種：新抓的通常還沒進化（喇叭芽），箱子裡的是
+   進化完的（大食花）。只比同物種的話，最常見的情境反而一隻都比不到。
+   **進化不改性格、副技能、食材**，而且資料裡每一條進化邊的食材清單與專長都相同
+   （第 19 節斷言），所以「進化成 X 之後」＝ 只把 `sp` 換成 X，其餘原封不動。
+
+   配對規則（`cmpTarget`）：
+     · 一方是另一方的祖先（含同物種）→ 兩隻都以**比較進化的那一種**計算
+     · 分岔的兄弟（水伊布 vs 太陽伊布）→ 不比：資質只在同物種內有意義，
+       而一隻水伊布變不成太陽伊布。列出來並講清楚為什麼沒比。
+
+   草稿 `cmpDraft` 是純檢視狀態（不進 serialize()），按「加入箱子」才 `roster.push`。
+   比較結果**不存 roster 索引**，每次 renderCmp 都從 roster 重找 —— 所以箱子增刪之後
+   不會有陷阱「存 roster 索引的東西」那一類的問題。 */
+let cmpDraft = null;
+const DEX_IDX = new Map(D.dex.map((p, i) => [p.n, i]));
+/** 進化來源的 dex 索引；基礎型（或資料沒有 `ef`）回 null。 */
+const evoParent = i => { const ef = D.dex[i].ef; return ef && DEX_IDX.has(ef) ? DEX_IDX.get(ef) : null; };
+/** a 是不是 b 的祖先（**含 a === b**）。 */
+function evoAncestorOf(a, b){
+  for (let x = b; x != null; x = evoParent(x)) if (x === a) return true;
+  return false;
+}
+function evoRoot(i){
+  let x = i;
+  for (let p = evoParent(x); p != null; p = evoParent(x)) x = p;
+  return x;
+}
+/** 兩隻要以哪一個物種比；分岔的兄弟回 null（不比）。 */
+function cmpTarget(a, b){
+  if (evoAncestorOf(a, b)) return b;
+  if (evoAncestorOf(b, a)) return a;
+  return null;
+}
+/** 以物種 sp 計算的資質／練滿。和箱子的 chip 走同一份 idealOf（同一格快取）。 */
+function cmpMetrics(m, sp){
+  const x = sp === m.sp ? m : {...m, sp};
+  const ideal = idealOf(x, true);
+  if (!ideal) return null;
+  const pct = idealPctFrom(x, ideal);
+  if (pct == null) return null;
+  return {pct, full: fullMain(ideal), fullT: powerText(ideal.self),
+          unk: idealUnknownSlots(x, ideal), lvl: ideal.lvl};
+}
+/** 基準說明。和箱子的 scoreNote 同一條理由：沒有出處的數字比沒有數字更糟。 */
+function cmpNote(){
+  return `<b>資質</b>與<b>練滿</b>就是寶可夢箱摺疊列上的那兩個數字，<b>算式完全相同</b>：`
+       + `兩邊都規範化到 <b>Lv${IDEAL_LEVEL}（已經超過就用實際等級）・緞帶4・主技能滿級</b>，`
+       + `所以「還沒練」不會吃虧 —— 比的是<b>性格、副技能、食材組合</b>這些改不掉的東西。`
+       + `和箱子裡<b>同一條進化系</b>的比；新抓的還沒進化時，以<b>進化後的種類</b>計算`
+       + `（進化不會改性格、副技能、食材）。<b>副技能要填到 Lv${SS_SLOT_LV[2]} 那一格</b>（第 3 格）才比得準 ——`
+       + `空著的格子只會讓那一方被低估，會標成 <b>≥</b>。`;
+}
+/** 差額標籤。資質用「點」（百分比的差），練滿用相對百分比（單位隨專長不同）。 */
+function cmpDiff(d, unit){
+  if (Math.abs(d) < 0.5) return `<span class="tmdiff">相同</span>`;
+  const v = unit === '%' ? `${Math.round(Math.abs(d))}%` : `${Math.round(Math.abs(d))} 點`;
+  return `<span class="tmdiff ${d > 0 ? 'up' : 'down'}">新的${d > 0 ? '高' : '低'} ${v}</span>`;
+}
+/** 一對的結論。**輸的那一方有空格時要講出來** —— 那一方只是下界，結論可能會翻。 */
+function cmpVerdict(nm, bm, b){
+  const dq = nm.pct - bm.pct;
+  const df = bm.full > 0 ? (nm.full / bm.full - 1) * 100 : 0;
+  const sq = Math.abs(dq) < 0.5 ? 0 : Math.sign(dq), sf = Math.abs(df) < 0.5 ? 0 : Math.sign(df);
+  const unkNote = who => who.unk ? `（但${who === nm ? '新抓的' : '箱中這隻'}還有 ${who.unk} 格副技能沒填，實際可能更高）` : '';
+  if (sq >= 0 && sf >= 0 && (sq || sf))
+    return {cls: 'good', t: `✓ 新抓的比較好 —— 可以考慮取代牠${unkNote(bm)}`};
+  if (sq <= 0 && sf <= 0 && (sq || sf))
+    return {cls: 'bad', t: `箱中這隻比較好${unkNote(nm)}`};
+  if (!sq && !sf) return {cls: 'mix', t: '兩項都相同'};
+  /* 同一個物種的理想個體相同，所以資質與練滿通常同進退；會分岔幾乎只有一種原因：
+     某一方已經超過 Lv60，練滿就用牠的實際等級算（和箱子一樣）。講出來，不然看起來像算錯。 */
+  const lvHi = [nm.lvl > IDEAL_LEVEL && '新抓的', bm.lvl > IDEAL_LEVEL && `箱中這隻（Lv${b.level}）`].filter(Boolean);
+  return {cls: 'mix', t: `互有勝負：資質${sq > 0 ? '新的' : '箱中的'}好、練滿${sf > 0 ? '新的' : '箱中的'}高`
+       + (lvHi.length ? ` —— ${lvHi.join('、')}已經超過 Lv${IDEAL_LEVEL}，練滿是照實際等級算的` : '')};
+}
+const cmpStat = (label, v, unit, tip) =>
+  `<div class="cmpstat" title="${tip}"><span>${label}</span><b>${v}</b>${unit ? `<i>${unit}</i>` : ''}</div>`;
+function cmpWho(m){
+  const p = D.dex[m.sp], nick = (m.nick || '').trim();
+  return `<span class="mon-no">#${p.no}</span> <b class="cmpname">${nick ? esc(nick) : pz(p)}</b>`
+       + (nick ? ` <span class="muted">${pz(p)}</span>` : '')
+       + ` <span class="mon-lv">Lv${m.level}</span> <span class="mon-nat">${natBrief(m)}</span>`;
+}
+function renderCmp(){
+  if (!cmpDraft) cmpDraft = BLANK();
+  $('cmpNote').innerHTML = cmpNote();
+  $('cmpEdit').innerHTML = monCard(cmpDraft, null, {allowIdeal: true});
+  setMonValues($('cmpEdit').querySelector('.mon'), cmpDraft);
+  renderCmpResult();
+}
+function renderCmpResult(){
+  const host = $('cmpResult');
+  const n = cmpDraft, root = evoRoot(n.sp);
+  const fam = roster.map((m, i) => ({m, i})).filter(x => evoRoot(x.m.sp) === root);
+  const famNames = D.dex.map((p, i) => i).filter(i => evoRoot(i) === root).map(i => pz(D.dex[i]));
+  /* 依「以哪個物種比」分組。新抓的那一種排最前面，其餘照圖鑑順序。 */
+  const groups = new Map(), apart = [];
+  for (const x of fam){
+    const T = cmpTarget(n.sp, x.m.sp);
+    if (T == null){ apart.push(x); continue; }
+    if (!groups.has(T)) groups.set(T, []);
+    groups.get(T).push(x);
+  }
+  const order = [...groups.keys()].sort((a, b) => (a !== n.sp) - (b !== n.sp) || D.dex[a].no - D.dex[b].no || a - b);
+  const newSide = (nm, T) => {
+    const p = D.dex[T];
+    return `<div class="cmpnew">
+        <div class="eyebrow">新抓的</div>
+        <div class="cmpwho">${cmpWho(n)}</div>
+        <div class="mon-sum">${ssTags(n) || '<span class="muted">（沒填副技能）</span>'}</div>
+        ${nm ? `<div class="cmpstats">`
+          + cmpStat('資質', `${nm.unk ? '≥' : ''}${nm.pct}%`, '', `牠 ÷ ${pz(p)}的理想個體（同物種內比）`)
+          + cmpStat('練滿', nm.fullT.v, nm.fullT.u, `以 ${pz(p)} Lv${nm.lvl}・緞帶4・主技能滿級計算`)
+          + `</div>` : `<div class="muted">理想個體算不出來</div>`}
+      </div>`;
+  };
+  let wins = 0, total = 0;
+  const blocks = order.map(T => {
+    const p = D.dex[T], nm = cmpMetrics(n, T);
+    const why = T === n.sp ? '同物種'
+      : `新抓的是${pz(D.dex[n.sp])} —— 以<b>進化成${pz(p)}之後</b>計算（性格、副技能、食材不變）`;
+    const rows = groups.get(T).map(({m, i}) => {
+      const bm = cmpMetrics(m, T);
+      total++;
+      if (!nm || !bm) return `<div class="cmprow">${cmpWho(m)}<div class="muted">理想個體算不出來</div></div>`;
+      const v = cmpVerdict(nm, bm, m);
+      if (v.cls === 'good') wins++;
+      const evo = m.sp !== T ? ` <span class="muted">（牠是${pz(D.dex[m.sp])}，以進化成${pz(p)}之後計算）</span>` : '';
+      return `<div class="cmprow" data-ci="${i}">
+          <div class="cmpwho">${cmpWho(m)}${evo}</div>
+          <div class="mon-sum">${ssTags(m)}</div>
+          <div class="cmpvals">
+            <span>資質 <b>${bm.unk ? '≥' : ''}${bm.pct}%</b> ${cmpDiff(nm.pct - bm.pct, '點')}</span>
+            <span>練滿 <b>${bm.fullT.v}</b> <i class="muted">${bm.fullT.u}</i> ${cmpDiff(bm.full > 0 ? (nm.full / bm.full - 1) * 100 : 0, '%')}</span>
+          </div>
+          <div class="cmpverdict ${v.cls}">${v.t}</div>
+        </div>`;
+    }).join('');
+    return `<div class="panel cmpgrp">
+        <div class="phead"><h3>以「${pz(p)}」比較</h3><span class="muted" style="font-size:12px">${why}</span></div>
+        <div class="pbody cmpgrid">${newSide(nm, T)}<div class="cmpbox">
+          <div class="eyebrow">箱子裡的（${groups.get(T).length} 隻）</div>${rows}</div></div>
+      </div>`;
+  }).join('');
+  /* 分岔的兄弟：不比，但要列出來並講為什麼 —— 靜靜地不列，使用者會以為沒認到牠。 */
+  const apartHtml = apart.length ? `<div class="notice" style="margin-top:12px">`
+    + `箱子裡還有同一系、但<b>進化方向不同</b>的 ${apart.length} 隻：`
+    + apart.map(({m}) => `${esc(monName(m))}${(m.nick || '').trim() ? `（${pz(D.dex[m.sp])}）` : ''} Lv${m.level}`).join('、')
+    + ` —— 資質只在同物種內有意義，而新抓的${pz(D.dex[n.sp])}變不成牠們，所以沒有比。`
+    + `如果打算把新抓的進化成其中一種，把上面的「種類」改成那一種就會比到。</div>` : '';
+  const head = !fam.length
+    ? `<div class="notice warn">箱子裡沒有這一系（${famNames.join('／')}）的寶可夢 —— 沒有可以比的對象。`
+      + `下面是新抓的自己的資質與練滿，想留就按「加入箱子」。</div>`
+    : `<div class="cmpsum">箱子裡同一系有 <b>${fam.length}</b> 隻`
+      + (total ? `，新抓的<b>兩項都勝過</b>其中 <b>${wins}</b> 隻` : '')
+      + (wins ? ' —— 可以考慮取代' : total ? ' —— 沒有一隻被比下去' : '') + `。</div>`;
+  const alone = !fam.length ? (() => {
+    const nm = cmpMetrics(n, n.sp);
+    return `<div class="panel cmpgrp"><div class="pbody">${newSide(nm, n.sp)}</div></div>`;
+  })() : '';
+  host.innerHTML = `<section style="margin-top:18px">${head}${blocks}${alone}${apartHtml}</section>`;
+}
+/* 草稿的欄位改動：和箱子共用 setMonField（換種類要重設食材格那些細節才不會走鐘）。 */
+$('cmpEdit').addEventListener('change', e=>{
+  if (!cmpDraft || !e.target.dataset.k) return;
+  setMonField(cmpDraft, e.target);
+  $('cmpStatus').textContent = '';
+  renderCmp();
+});
+$('cmpEdit').addEventListener('input', e=>{
+  const q = e.target.closest('[data-q="sp"]'); if (!q) return;
+  filterSpecies(e.target.closest('.mon'), q.value);
+});
+$('cmpEdit').addEventListener('click', e=>{
+  // 展開後產能列的「算理想個體」按鈕（allowIdeal 已經開著，通常不會出現，保險起見）
+  if (e.target.closest('[data-act="ideal"]') && cmpDraft){ idealOf(cmpDraft, true); renderCmp(); }
+});
+$('cmpAdd').addEventListener('click', ()=>{
+  if (!cmpDraft) return;
+  /* 每個欄位都相同的已經在箱子裡 —— 多半是同一隻輸入兩次。問一聲，不要靜靜地多一隻。 */
+  const k = dupKey(cmpDraft);
+  const dup = roster.findIndex(m => dupKey(m) === k);
+  if (dup >= 0 && !confirm(`箱子裡已經有一隻每個欄位都完全相同的（${monName(roster[dup])} Lv${roster[dup].level}）。\n\n還是要加入嗎？`))
+    return;
+  roster.push(cloneMon(cmpDraft));
+  renderBox(); save();
+  const name = monName(cmpDraft);
+  cmpDraft = null;
+  renderCmp();
+  $('cmpStatus').textContent = `已加入 ${name}，箱子現在 ${roster.length} 隻`;
+});
+$('cmpReset').addEventListener('click', ()=>{
+  cmpDraft = null;
+  $('cmpStatus').textContent = '';
+  renderCmp();
+});
+
 /* ================= VIEWS ================= */
-const VIEWS = ['plan','team','box','recipes'];
+const VIEWS = ['plan','team','box','cmp','recipes'];
 function showView(name){
   for (const v of VIEWS) $('view-'+v).hidden = (v !== name);
   for (const b of $('viewNav').querySelectorAll('[data-view]'))
@@ -3411,6 +3642,8 @@ function showView(name){
   if (name !== 'team') closePicker();     // 浮層是 fixed 的，切走了不關會浮在別的分頁上
   if (name === 'recipes') renderRecipeLevels();
   if (name === 'team') renderTeamsView();
+  /* 箱子在別的分頁增刪過的話，同一系的名單要重找 —— 比較結果不存索引，每次重算。 */
+  if (name === 'cmp') renderCmp();
   /* 本週條件那一區有兩個「箱中 N 隻」的下拉（整隊限定屬性、活動加成的屬性限定項），
      而在箱子裡增刪一隻只會 `renderBox()` —— 不補這一下，切回來看到的就是進箱子之前
      的隻數，而那正是使用者用來判斷「這個屬性湊不湊得滿 5 隻」的依據。 */
@@ -3646,7 +3879,7 @@ $('themeBtn').addEventListener('click', ()=>{
 });
 
 /* ================= INIT ================= */
-function renderAll(){ syncWeeklyUI(); renderBox(); renderResults(); renderVersion(); if (!$('view-recipes').hidden) renderRecipeLevels(); if (!$('view-team').hidden) renderTeamsView(); }
+function renderAll(){ syncWeeklyUI(); renderBox(); renderResults(); renderVersion(); if (!$('view-recipes').hidden) renderRecipeLevels(); if (!$('view-team').hidden) renderTeamsView(); if (!$('view-cmp').hidden) renderCmp(); }
 buildWeekly();
 buildBoxBar(); syncIngFilterUI(); syncTypeFilterUI(); syncSortDirUI();
 buildImport();

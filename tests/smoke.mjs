@@ -869,7 +869,7 @@ console.log('\n[8b] 一次性設定連結（#sync=…&token=…）');
 }
 
 console.log('\n[9] 每個 view 都能渲染');
-for (const v of ['plan', 'team', 'box', 'recipes']) {
+for (const v of ['plan', 'team', 'box', 'cmp', 'recipes']) {
   await page.evaluate((x) => showView(x), v);
   await page.waitForTimeout(400);
   ok(`view-${v} 有內容`, await page.evaluate((x) => $('view-' + x).innerText.trim().length > 50, v));
@@ -4622,6 +4622,146 @@ console.log('\n[18] 樹果領域（精神擊破）');
    所以欄位**縮不到 min-content 以下**。實際踩過（390px）：推演分頁的 `.panel`
    被撐成 405.8px（容器只有 350px），documentElement.scrollWidth 487 vs clientWidth 390。
    修法是 `.grid > *{min-width:0}` / `.hero > *{min-width:0}`，表格自己在 `.scroll` 裡橫捲。 */
+/* 新抓比較：剛抓到的一隻 vs 箱子裡同一條進化系的。
+   核心是兩件事：①數字和箱子摺疊列上的 chip **同一份算式**、②「以進化後的種類計算」
+   只換 sp 就對 —— 那靠的是資料裡每條進化邊的食材清單與專長都相同，這裡直接斷言。 */
+console.log('\n[19] 新抓比較（view-cmp）');
+{
+  const r = await page.evaluate(() => {
+    const out = {};
+    const I = n => D.dex.findIndex(p => p.n === n);
+    const mk = (n, o) => ({sp:I(n), level:60, nature:'Bashful', ss:[null,null,null,null,null],
+                           ingSet:[0,0,0], skillLv:1, ribbon:0, nick:'', pin:false, ex:false, ...(o||{})});
+
+    /* ---- 資料：ef 與「進化只換 sp」的前提 ---- */
+    const byN = new Map(D.dex.map(p => [p.n, p]));
+    const edges = D.dex.filter(p => p.ef);
+    out.efN = edges.length;
+    out.peN = D.dex.filter(p => p.pe > 0).length;
+    out.dangling = edges.filter(p => !byN.has(p.ef)).map(p => p.n);
+    const J = x => JSON.stringify(x);
+    out.ingDiff = edges.filter(p => { const q = byN.get(p.ef);
+      return J([p.i0,p.i30,p.i60]) !== J([q.i0,q.i30,q.i60]); }).map(p => p.n);
+    out.specDiff = edges.filter(p => p.sp !== byN.get(p.ef).sp).map(p => p.n);
+
+    /* ---- 進化系 ---- */
+    const BS = I('BELLSPROUT'), VB = I('VICTREEBEL'), EV = I('EEVEE'), VA = I('VAPOREON'), ES = I('ESPEON');
+    out.root = evoRoot(VB) === BS && evoRoot(ES) === EV && evoRoot(BS) === BS;
+    out.tgt = [cmpTarget(BS, VB) === VB, cmpTarget(VB, BS) === VB, cmpTarget(VB, VB) === VB,
+               cmpTarget(VA, ES) === null, cmpTarget(EV, ES) === ES];
+
+    /* ---- 和箱子 chip 同一份算式 ---- */
+    deserialize({roster: [mk('VICTREEBEL', {level:45, nature:'Quiet', ss:['Ingredient Finder M',null,null,null,null]})]});
+    renderBox();
+    const bm = cmpMetrics(roster[0], roster[0].sp), bi = idealOf(roster[0], true);
+    out.sameAsBox = bm.pct === idealPct(roster[0]) && bm.full === fullMain(bi);
+    /* 喇叭芽「以大食花計算」＝ 直接拿同樣欄位的大食花算 */
+    const asEvo = cmpMetrics(mk('BELLSPROUT', {level:12, nature:'Quiet'}), VB);
+    const direct = cmpMetrics(mk('VICTREEBEL', {level:12, nature:'Quiet'}), VB);
+    out.evoEq = J(asEvo) === J(direct);
+    /* 喇叭芽自己算（沒進化）和以大食花算，練滿必須不同 —— 否則「以進化後計算」沒有作用 */
+    out.evoMatters = cmpMetrics(mk('BELLSPROUT', {level:12}), BS).full !== cmpMetrics(mk('BELLSPROUT', {level:12}), VB).full;
+
+    /* ---- 畫面：新抓的喇叭芽（理想配置）vs 箱中大食花（差的配置）---- */
+    const idealM = idealOf(mk('VICTREEBEL'), true).member;
+    deserialize({roster: [mk('VICTREEBEL', {level:40})]});
+    renderBox();
+    cmpDraft = {...mk('BELLSPROUT', {level:8, nick:'新<b>'}), nature: idealM.nature, ss: idealM.ss.slice(), ingSet: idealM.ingSet.slice()};
+    showView('cmp');
+    const res = () => $('cmpResult').textContent;
+    out.goodTitle = /以「大食花」比較/.test(res()) && /進化成大食花之後/.test(res());
+    out.good = /可以考慮取代/.test(res()) && /兩項都勝過.*1.*隻/.test(res());
+    out.lbNote = /還有 \d 格副技能沒填/.test(res());            // 箱中那隻沒填副技能 → 下界要講
+    out.nickEsc = !$('cmpResult').querySelector('.cmpname b') && /新<b>/.test(res());
+    out.viewOn = !$('view-cmp').hidden && $('viewNav').querySelector('[data-view="cmp"]').getAttribute('aria-pressed') === 'true';
+
+    /* 反過來：新抓的差、箱中的好 */
+    cmpDraft = mk('BELLSPROUT', {level:8});
+    deserialize({roster: [{...mk('VICTREEBEL', {level:40}), nature: idealM.nature, ss: idealM.ss.slice(), ingSet: idealM.ingSet.slice()}]});
+    renderCmp();
+    out.bad = /箱中這隻比較好/.test(res()) && !/可以考慮取代/.test(res());
+
+    /* ---- 透過 UI 改欄位（每次重新 querySelector：改完整個 #cmpEdit 會重畫）---- */
+    const lv = $('cmpEdit').querySelector('[data-k="level"]');
+    lv.value = '33'; lv.dispatchEvent(new Event('change', {bubbles:true}));
+    out.edit = cmpDraft.level === 33 && $('cmpEdit').querySelector('[data-k="level"]').value === '33';
+    const sp = $('cmpEdit').querySelector('[data-k="sp"]');
+    sp.value = String(I('WEEPINBELL')); sp.dispatchEvent(new Event('change', {bubbles:true}));
+    out.editSp = cmpDraft.sp === I('WEEPINBELL') && /口呆花/.test(res()) && /以「大食花」比較/.test(res());
+
+    /* ---- 分岔的兄弟：不比，但要列出來 ---- */
+    deserialize({roster: [mk('ESPEON')]});
+    cmpDraft = mk('VAPOREON'); renderCmp();
+    out.apart = /進化方向不同/.test(res()) && !$('cmpResult').querySelector('.cmprow');
+    /* 伊布（還沒進化）就比得到太陽伊布 */
+    cmpDraft = mk('EEVEE'); renderCmp();
+    out.eevee = !!$('cmpResult').querySelector('.cmprow') && /以「太陽伊布」比較/.test(res());
+
+    /* ---- 箱子裡沒有這一系 ---- */
+    deserialize({roster: [mk('PIKACHU')]});
+    cmpDraft = mk('BELLSPROUT'); renderCmp();
+    out.none = /沒有這一系/.test(res()) && !!$('cmpResult').querySelector('.cmpnew .cmpstat');
+
+    /* ---- 加入箱子 ---- */
+    const n0 = roster.length;
+    $('cmpAdd').click();
+    out.added = roster.length === n0 + 1 && D.dex[roster[n0].sp].n === 'BELLSPROUT'
+             && /已加入/.test($('cmpStatus').textContent) && D.dex[cmpDraft.sp].n === 'PIKACHU';
+    /* 加入的是副本：草稿再改不會動到箱子裡那一隻 */
+    cmpDraft = mk('BELLSPROUT'); $('cmpAdd').click();
+    const n1 = roster.length;
+    cmpDraft.ss[0] = 'Berry Finding S';
+    out.cloned = roster[n1 - 1].ss[0] === null;
+    /* 每個欄位都相同的已經在箱子裡 → 要問；取消就不加 */
+    const oc = window.confirm; let asked = '';
+    window.confirm = m => { asked = m; return false; };
+    cmpDraft = mk('BELLSPROUT'); renderCmp(); $('cmpAdd').click();
+    window.confirm = oc;
+    out.dup = roster.length === n1 && /完全相同/.test(asked);
+
+    /* ---- 草稿不進 serialize()（純檢視狀態，和自組隊伍同待遇）---- */
+    const ser = serialize();
+    out.noSer = J(Object.keys(ser).sort()) === J(['roster','updatedAt','v','wk'])
+             && ser.roster.length === roster.length && !('cmpDraft' in ser.wk);
+
+    /* ---- 從截圖校對區帶過來 ---- */
+    impDraft = mk('VICTREEBEL', {level:21, nick:'截圖來的'});
+    $('impToCmp').click();
+    out.fromImp = !$('view-cmp').hidden && cmpDraft.nick === '截圖來的' && cmpDraft !== impDraft
+               && !!impDraft;                                    // 截圖那邊的草稿還在
+    impDraft = null; cmpDraft = null;
+    showView('plan');
+    return out;
+  });
+  ok('每一條 ef 都指到 dex 裡存在的物種', !r.dangling.length, r.dangling.join(','));
+  ok('ef 的筆數 ＝ 有進化前型（pe>0）的隻數', r.efN === r.peN && r.efN > 100, `${r.efN} vs ${r.peN}`);
+  /* 這兩條是「以進化後的種類計算只換 sp」的前提 —— 哪天上游讓某一種進化改了食材或專長，
+     ingSet 的索引就對不上了，那時候 cmpMetrics 要改成真的去對應食材。 */
+  ok('每條進化邊的食材清單都相同（進化只換 sp 的前提）', !r.ingDiff.length, r.ingDiff.join(','));
+  ok('每條進化邊的專長都相同（練滿才同單位）', !r.specDiff.length, r.specDiff.join(','));
+  ok('evoRoot 找得到基礎型', r.root);
+  ok('cmpTarget：祖先↔後代取進化的那一種、分岔的兄弟回 null', r.tgt.every(Boolean), JSON.stringify(r.tgt));
+  ok('資質／練滿和箱子摺疊列的 chip 是同一份算式', r.sameAsBox);
+  ok('「以進化後計算」＝ 直接拿同樣欄位的進化型來算', r.evoEq);
+  ok('以進化後計算真的有作用（練滿和未進化時不同）', r.evoMatters);
+  ok('分組標題寫出以哪一種比、而且講明是進化後', r.goodTitle);
+  ok('新抓的比較好 → 講「可以考慮取代」，摘要算得出勝幾隻', r.good);
+  ok('輸的那一方有空的副技能格 → 要講出它只是下界', r.lbNote);
+  ok('暱稱有 escape（新抓比較也是 innerHTML）', r.nickEsc);
+  ok('showView("cmp") 切得過去，導覽列跟著亮', r.viewOn);
+  ok('箱中的比較好 → 不可以叫人取代', r.bad);
+  ok('透過畫面改等級會寫回草稿並重畫', r.edit);
+  ok('透過畫面換種類（口呆花）也照樣以大食花比', r.editSp);
+  ok('分岔的兄弟（水伊布 vs 太陽伊布）不比，但要列出來講為什麼', r.apart);
+  ok('還沒進化的伊布比得到太陽伊布', r.eevee);
+  ok('箱子裡沒有同一系 → 要講出來，而且還是顯示新抓的自己的數字', r.none);
+  ok('「加入箱子」寫進 roster、講出來、草稿重設', r.added);
+  ok('加入的是副本（草稿再改不會動到箱子裡那一隻）', r.cloned);
+  ok('每個欄位都相同的已經在箱子裡 → 要問，取消就不加', r.dup);
+  ok('草稿不進 serialize()', r.noSer);
+  ok('截圖校對區的「拿去新抓比較」帶得過來，而且原本的草稿還留著', r.fromImp);
+}
+
 console.log('\n[13] 窄螢幕（390px）：任何分頁都不准整頁橫向捲動');
 {
   const mob = await browser.newPage({ viewport: { width: 390, height: 844 } });
@@ -4648,7 +4788,7 @@ console.log('\n[13] 窄螢幕（390px）：任何分頁都不准整頁橫向捲�
   await mob.evaluate(`(async () => { lastResults = null; await run(); })()`);
   await mob.waitForFunction(() => lastResults && lastResults.length, null, { timeout: 60000 });
 
-  for (const v of ['plan', 'team', 'box', 'recipes']) {
+  for (const v of ['plan', 'team', 'box', 'cmp', 'recipes']) {
     const r = await mob.evaluate((name) => {
       showView(name);
       const de = document.documentElement;

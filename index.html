@@ -14,7 +14,7 @@
      這裡、下面載入器的 ASSET_V、以及 src/app.js 的 APP_V。
      光靠 ?v= 只是降低機率，APP_V 的斷言才會真的擋下過期的 app.js。
      tests/smoke.mjs 第 11 節會斷言三處一致。 -->
-<link rel="stylesheet" href="./src/app.css?v=20260915c">
+<link rel="stylesheet" href="./src/app.css?v=20260923a">
 </head>
 <body>
 <div class="wrap">
@@ -29,6 +29,7 @@
       <button type="button" data-view="plan" aria-pressed="true">推演</button>
       <button type="button" data-view="team" aria-pressed="false">自組隊伍</button>
       <button type="button" data-view="box" aria-pressed="false">寶可夢箱</button>
+      <button type="button" data-view="cmp" aria-pressed="false">新抓比較</button>
       <button type="button" data-view="recipes" aria-pressed="false">食譜等級</button>
     </nav>
     <span class="status" id="saveStatus"></span>
@@ -395,6 +396,7 @@
       <div id="impAlts"></div>
       <div style="display:flex;flex-wrap:wrap;gap:9px;align-items:center;margin-top:14px">
         <button class="btn primary" id="impSave" type="button">存入箱子</button>
+        <button class="btn" id="impToCmp" type="button" title="先不存，拿去和箱子裡同一系的比資質與練滿">拿去新抓比較</button>
         <button class="btn ghost" id="impDiscard" type="button">捨棄</button>
         <span class="status" id="impSaveStatus"></span>
       </div>
@@ -496,6 +498,30 @@
 </section>
 
 </div><!-- /view-box -->
+
+<!-- 新抓比較：剛抓到的一隻 vs 箱子裡同一條進化系的，比「資質」與「練滿」。
+     算式和寶可夢箱摺疊列上的那兩個數字是同一份（idealOf / idealPctFrom / fullMain），
+     輸入用的也是同一個 monCard() —— 所以這裡的數字可以直接和箱子對照。
+     草稿不進 serialize()（和自組隊伍同待遇），按「加入箱子」才寫進 roster。 -->
+<div class="view" id="view-cmp" hidden>
+<section>
+  <div class="sechead">
+    <h2>新抓比較</h2>
+    <span class="muted" style="font-size:12.5px">輸入剛抓到的，和箱子裡同一系的比資質與練滿 · <b>只是比較，按「加入箱子」才會存，重新整理就清空</b></span>
+  </div>
+  <div class="panel"><div class="pbody">
+    <!-- #cmpNote 由 renderCmp() 填：數字的基準一定要寫出來（和箱子的 scoreNote 同一條理由） -->
+    <div class="notice" id="cmpNote" style="margin-bottom:12px"></div>
+    <div id="cmpEdit"></div>
+    <div style="display:flex;flex-wrap:wrap;gap:9px;align-items:center;margin-top:12px">
+      <button class="btn primary" id="cmpAdd" type="button">加入箱子</button>
+      <button class="btn ghost" id="cmpReset" type="button">清空，輸入下一隻</button>
+      <span class="status" id="cmpStatus"></span>
+    </div>
+  </div></div>
+</section>
+<div id="cmpResult"></div>
+</div><!-- /view-cmp -->
 
 <div class="view" id="view-recipes" hidden>
 <section>
@@ -708,7 +734,7 @@ try {
      也放到 window 上：app.js 有一份自己的 APP_V，兩者不符就整頁擋下來。
      理由和 game.json 的 SCHEMA 一樣 —— 過期的 app.js 會靜靜地畫出舊版 UI，
      而使用者只會覺得「你根本沒改」，完全不知道是快取。 */
-  const ASSET_V = '20260915c';
+  const ASSET_V = '20260923a';
   window.ASSET_V = ASSET_V;
   for (const src of ['./src/engine.js', './src/import.js', './src/app.js']) {
     await new Promise((ok, bad) => {

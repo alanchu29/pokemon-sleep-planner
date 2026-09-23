@@ -70,6 +70,8 @@ const dex = A.COMPLETE_POKEDEX.map((p: any) => ({
   f: p.frequency, ip: p.ingredientPercentage, sk: p.skillPercentage,
   b: p.berry?.name, cs: p.carrySize, pe: p.previousEvolutions, re: p.remainingEvolutions,
   ms: p.skill?.name, i0: set(p.ingredient0), i30: set(p.ingredient30), i60: set(p.ingredient60),
+  // 進化來源（內部名）。只有進化型才有 —— 給「新抓比較」認同一條進化系用。
+  ...(p.evolvesFrom ? { ef: p.evolvesFrom } : {}),
 })).sort((a: any, b: any) => a.no - b.no || a.d.localeCompare(b.d));
 const recipes = A.RECIPES.map((r: any) => ({
   n: r.name, t: r.type, bonus: r.bonus, cnt: r.nrOfIngredients,
@@ -187,6 +189,15 @@ data.types = Object.fromEntries(TYPE_NAMES.map((t) => [t, []]));
 }
 delete data.bt; // 推導用，不進 game.json
 
+/* ---- 進化來源的守門 ----
+   `ef` 指到的物種必須也在 dex 裡。指到不存在的名字時，「新抓比較」認進化系會
+   靜靜地斷在那一節（那一隻只會和同物種比），而那在執行期沒有任何症狀。 */
+{
+  const names = new Set(data.dex.map((p) => p.n));
+  const dangling = data.dex.filter((p) => p.ef && !names.has(p.ef)).map((p) => `${p.n} ← ${p.ef}`);
+  if (dangling.length) throw new Error(`有 ${dangling.length} 隻的進化來源不在 dex 裡：\n  ` + dangling.join('\n  '));
+}
+
 /* ---- 合併上游沒有的主技能數值表（tools/skills-extra.json）----
    例如流星群（樹果遽增）依「隊上不同種類的龍屬性數」決定樹果數的那張表 ——
    遊戲技能頁有，上游快照沒有。同樣是 repo 自己維護、重建時不能弄丟。
@@ -203,7 +214,7 @@ data.meta = {
   // 資料結構版本。app.js 有一份 SCHEMA 常數會斷言它相等 —— 兩者不合就顯示「請重新整理」，
   // 避免瀏覽器拿到「新 app.js ＋ 舊 game.json」這種偏移組合而算出錯的數字。
   // 動到欄位結構（改名／改型別／移除）時，這裡和 app.js 的 SCHEMA 要一起 +1。
-  schema: 5,
+  schema: 6,
   src: 'nerolis-lab/nerolis-lab', commit, commitDate,
   builtAt: new Date().toISOString().slice(0, 10),
   zhSrc: 'RaenonX i18n + 52poke zh-hant',

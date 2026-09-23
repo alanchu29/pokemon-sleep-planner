@@ -238,7 +238,8 @@
           9,
           6
         ]
-      ]
+      ],
+      "ef": "BULBASAUR"
     },
     {
       "n": "VENUSAUR",
@@ -282,7 +283,8 @@
           9,
           6
         ]
-      ]
+      ],
+      "ef": "IVYSAUR"
     },
     {
       "n": "CHARMANDER",
@@ -370,7 +372,8 @@
           10,
           6
         ]
-      ]
+      ],
+      "ef": "CHARMANDER"
     },
     {
       "n": "CHARIZARD",
@@ -414,7 +417,8 @@
           10,
           6
         ]
-      ]
+      ],
+      "ef": "CHARMELEON"
     },
     {
       "n": "SQUIRTLE",
@@ -502,7 +506,8 @@
           4,
           7
         ]
-      ]
+      ],
+      "ef": "SQUIRTLE"
     },
     {
       "n": "BLASTOISE",
@@ -546,7 +551,8 @@
           4,
           7
         ]
-      ]
+      ],
+      "ef": "WARTORTLE"
     },
     {
       "n": "CATERPIE",
@@ -634,7 +640,8 @@
           2,
           4
         ]
-      ]
+      ],
+      "ef": "CATERPIE"
     },
     {
       "n": "BUTTERFREE",
@@ -678,7 +685,8 @@
           2,
           4
         ]
-      ]
+      ],
+      "ef": "METAPOD"
     },
     {
       "n": "RATTATA",
@@ -766,7 +774,8 @@
           4,
           3
         ]
-      ]
+      ],
+      "ef": "RATTATA"
     },
     {
       "n": "EKANS",
@@ -854,7 +863,8 @@
           10,
           3
         ]
-      ]
+      ],
+      "ef": "EKANS"
     },
     {
       "n": "PIKACHU",
@@ -898,7 +908,8 @@
           7,
           3
         ]
-      ]
+      ],
+      "ef": "PICHU"
     },
     {
       "n": "PIKACHU_CAPTAIN",
@@ -1074,7 +1085,8 @@
           7,
           3
         ]
-      ]
+      ],
+      "ef": "PIKACHU"
     },
     {
       "n": "SANDSHREW",
@@ -1162,7 +1174,8 @@
           9,
           7
         ]
-      ]
+      ],
+      "ef": "SANDSHREW"
     },
     {
       "n": "CLEFAIRY",
@@ -1206,7 +1219,8 @@
           2,
           3
         ]
-      ]
+      ],
+      "ef": "CLEFFA"
     },
     {
       "n": "CLEFABLE",
@@ -1250,7 +1264,8 @@
           2,
           3
         ]
-      ]
+      ],
+      "ef": "CLEFAIRY"
     },
     {
       "n": "VULPIX",
@@ -1382,7 +1397,8 @@
           9,
           3
         ]
-      ]
+      ],
+      "ef": "VULPIX"
     },
     {
       "n": "NINETALES_ALOLAN",
@@ -1426,7 +1442,8 @@
           9,
           3
         ]
-      ]
+      ],
+      "ef": "VULPIX_ALOLAN"
     },
     {
       "n": "JIGGLYPUFF",
@@ -1470,7 +1487,8 @@
           12,
           2
         ]
-      ]
+      ],
+      "ef": "IGGLYBUFF"
     },
     {
       "n": "WIGGLYTUFF",
@@ -1514,7 +1532,8 @@
           12,
           2
         ]
-      ]
+      ],
+      "ef": "JIGGLYPUFF"
     },
     {
       "n": "DIGLETT",
@@ -1602,7 +1621,8 @@
           2,
           8
         ]
-      ]
+      ],
+      "ef": "DIGLETT"
     },
     {
       "n": "MEOWTH",
@@ -1682,7 +1702,8 @@
           4,
           3
         ]
-      ]
+      ],
+      "ef": "MEOWTH"
     },
     {
       "n": "PSYDUCK",
@@ -1770,7 +1791,8 @@
           4,
           5
         ]
-      ]
+      ],
+      "ef": "PSYDUCK"
     },
     {
       "n": "MANKEY",
@@ -1858,7 +1880,8 @@
           3,
           4
         ]
-      ]
+      ],
+      "ef": "MANKEY"
     },
     {
       "n": "GROWLITHE",
@@ -1946,7 +1969,8 @@
           1,
           5
         ]
-      ]
+      ],
+      "ef": "GROWLITHE"
     },
     {
       "n": "BELLSPROUT",
@@ -2034,7 +2058,8 @@
           16,
           4
         ]
-      ]
+      ],
+      "ef": "BELLSPROUT"
     },
     {
       "n": "VICTREEBEL",
@@ -2078,7 +2103,8 @@
           16,
           4
         ]
-      ]
+      ],
+      "ef": "WEEPINBELL"
     },
     {
       "n": "GEODUDE",
@@ -2166,7 +2192,8 @@
           15,
           4
         ]
-      ]
+      ],
+      "ef": "GEODUDE"
     },
     {
       "n": "GOLEM",
@@ -2210,7 +2237,8 @@
           15,
           4
         ]
-      ]
+      ],
+      "ef": "GRAVELER"
     },
     {
       "n": "SLOWPOKE",
@@ -2298,7 +2326,8 @@
           6,
           5
         ]
-      ]
+      ],
+      "ef": "SLOWPOKE"
     },
     {
       "n": "MAGNEMITE",
@@ -2378,7 +2407,8 @@
           10,
           3
         ]
-      ]
+      ],
+      "ef": "MAGNEMITE"
     },
     {
       "n": "FARFETCHD",
@@ -2510,7 +2540,8 @@
           4,
           3
         ]
-      ]
+      ],
+      "ef": "DODUO"
     },
     {
       "n": "GASTLY",
@@ -2598,7 +2629,8 @@
           8,
           8
         ]
-      ]
+      ],
+      "ef": "GASTLY"
     },
     {
       "n": "GENGAR",
@@ -2642,7 +2674,8 @@
           8,
           8
         ]
-      ]
+      ],
+      "ef": "HAUNTER"
     },
     {
       "n": "ONIX",
@@ -2766,7 +2799,8 @@
           12,
           3
         ]
-      ]
+      ],
+      "ef": "CUBONE"
     },
     {
       "n": "CHANSEY",
@@ -2810,7 +2844,8 @@
           3,
           8
         ]
-      ]
+      ],
+      "ef": "HAPPINY"
     },
     {
       "n": "KANGASKHAN",
@@ -2898,7 +2933,8 @@
           16,
           4
         ]
-      ]
+      ],
+      "ef": "MIME_JR"
     },
     {
       "n": "PINSIR",
@@ -3162,7 +3198,8 @@
           4,
           3
         ]
-      ]
+      ],
+      "ef": "EEVEE"
     },
     {
       "n": "JOLTEON",
@@ -3206,7 +3243,8 @@
           4,
           3
         ]
-      ]
+      ],
+      "ef": "EEVEE"
     },
     {
       "n": "FLAREON",
@@ -3250,7 +3288,8 @@
           4,
           3
         ]
-      ]
+      ],
+      "ef": "EEVEE"
     },
     {
       "n": "DRATINI",
@@ -3338,7 +3377,8 @@
           8,
           8
         ]
-      ]
+      ],
+      "ef": "DRATINI"
     },
     {
       "n": "DRAGONITE",
@@ -3382,7 +3422,8 @@
           8,
           8
         ]
-      ]
+      ],
+      "ef": "DRAGONAIR"
     },
     {
       "n": "MEWTWO",
@@ -3626,7 +3667,8 @@
           16,
           3
         ]
-      ]
+      ],
+      "ef": "CHIKORITA"
     },
     {
       "n": "MEGANIUM",
@@ -3670,7 +3712,8 @@
           16,
           3
         ]
-      ]
+      ],
+      "ef": "BAYLEEF"
     },
     {
       "n": "CYNDAQUIL",
@@ -3758,7 +3801,8 @@
           8,
           3
         ]
-      ]
+      ],
+      "ef": "CYNDAQUIL"
     },
     {
       "n": "TYPHLOSION",
@@ -3802,7 +3846,8 @@
           8,
           3
         ]
-      ]
+      ],
+      "ef": "QUILAVA"
     },
     {
       "n": "TOTODILE",
@@ -3882,7 +3927,8 @@
           8,
           3
         ]
-      ]
+      ],
+      "ef": "TOTODILE"
     },
     {
       "n": "FERALIGATR",
@@ -3922,7 +3968,8 @@
           8,
           3
         ]
-      ]
+      ],
+      "ef": "CROCONAW"
     },
     {
       "n": "PICHU",
@@ -4142,7 +4189,8 @@
           12,
           3
         ]
-      ]
+      ],
+      "ef": "TOGEPI"
     },
     {
       "n": "NATU",
@@ -4230,7 +4278,8 @@
           0,
           5
         ]
-      ]
+      ],
+      "ef": "NATU"
     },
     {
       "n": "MAREEP",
@@ -4310,7 +4359,8 @@
           7,
           4
         ]
-      ]
+      ],
+      "ef": "MAREEP"
     },
     {
       "n": "AMPHAROS",
@@ -4350,7 +4400,8 @@
           7,
           4
         ]
-      ]
+      ],
+      "ef": "FLAAFFY"
     },
     {
       "n": "SUDOWOODO",
@@ -4394,7 +4445,8 @@
           15,
           2
         ]
-      ]
+      ],
+      "ef": "BONSLY"
     },
     {
       "n": "WOOPER",
@@ -4526,7 +4578,8 @@
           4,
           12
         ]
-      ]
+      ],
+      "ef": "WOOPER"
     },
     {
       "n": "ESPEON",
@@ -4570,7 +4623,8 @@
           4,
           3
         ]
-      ]
+      ],
+      "ef": "EEVEE"
     },
     {
       "n": "UMBREON",
@@ -4614,7 +4668,8 @@
           4,
           3
         ]
-      ]
+      ],
+      "ef": "EEVEE"
     },
     {
       "n": "MURKROW",
@@ -4702,7 +4757,8 @@
           6,
           5
         ]
-      ]
+      ],
+      "ef": "SLOWPOKE"
     },
     {
       "n": "WOBBUFFET",
@@ -4746,7 +4802,8 @@
           8,
           3
         ]
-      ]
+      ],
+      "ef": "WYNAUT"
     },
     {
       "n": "STEELIX",
@@ -4790,7 +4847,8 @@
           9,
           3
         ]
-      ]
+      ],
+      "ef": "ONIX"
     },
     {
       "n": "SHUCKLE",
@@ -5054,7 +5112,8 @@
           16,
           3
         ]
-      ]
+      ],
+      "ef": "HOUNDOUR"
     },
     {
       "n": "BLISSEY",
@@ -5098,7 +5157,8 @@
           3,
           8
         ]
-      ]
+      ],
+      "ef": "CHANSEY"
     },
     {
       "n": "RAIKOU",
@@ -5318,7 +5378,8 @@
           4,
           8
         ]
-      ]
+      ],
+      "ef": "LARVITAR"
     },
     {
       "n": "TYRANITAR",
@@ -5362,7 +5423,8 @@
           4,
           8
         ]
-      ]
+      ],
+      "ef": "PUPITAR"
     },
     {
       "n": "TREECKO",
@@ -5450,7 +5512,8 @@
           16,
           2
         ]
-      ]
+      ],
+      "ef": "TREECKO"
     },
     {
       "n": "SCEPTILE",
@@ -5494,7 +5557,8 @@
           16,
           2
         ]
-      ]
+      ],
+      "ef": "GROVYLE"
     },
     {
       "n": "TORCHIC",
@@ -5582,7 +5646,8 @@
           8,
           5
         ]
-      ]
+      ],
+      "ef": "TORCHIC"
     },
     {
       "n": "BLAZIKEN",
@@ -5626,7 +5691,8 @@
           8,
           5
         ]
-      ]
+      ],
+      "ef": "COMBUSKEN"
     },
     {
       "n": "MUDKIP",
@@ -5714,7 +5780,8 @@
           15,
           3
         ]
-      ]
+      ],
+      "ef": "MUDKIP"
     },
     {
       "n": "SWAMPERT",
@@ -5758,7 +5825,8 @@
           15,
           3
         ]
-      ]
+      ],
+      "ef": "MARSHTOMP"
     },
     {
       "n": "RALTS",
@@ -5846,7 +5914,8 @@
           16,
           2
         ]
-      ]
+      ],
+      "ef": "RALTS"
     },
     {
       "n": "GARDEVOIR",
@@ -5890,7 +5959,8 @@
           16,
           2
         ]
-      ]
+      ],
+      "ef": "KIRLIA"
     },
     {
       "n": "SLAKOTH",
@@ -5978,7 +6048,8 @@
           0,
           4
         ]
-      ]
+      ],
+      "ef": "SLAKOTH"
     },
     {
       "n": "SLAKING",
@@ -6022,7 +6093,8 @@
           0,
           4
         ]
-      ]
+      ],
+      "ef": "VIGOROTH"
     },
     {
       "n": "SABLEYE",
@@ -6198,7 +6270,8 @@
           2,
           7
         ]
-      ]
+      ],
+      "ef": "ARON"
     },
     {
       "n": "AGGRON",
@@ -6242,7 +6315,8 @@
           2,
           7
         ]
-      ]
+      ],
+      "ef": "LAIRON"
     },
     {
       "n": "PLUSLE",
@@ -6418,7 +6492,8 @@
           3,
           4
         ]
-      ]
+      ],
+      "ef": "GULPIN"
     },
     {
       "n": "TRAPINCH",
@@ -6506,7 +6581,8 @@
           2,
           12
         ]
-      ]
+      ],
+      "ef": "TRAPINCH"
     },
     {
       "n": "FLYGON",
@@ -6550,7 +6626,8 @@
           2,
           12
         ]
-      ]
+      ],
+      "ef": "VIBRAVA"
     },
     {
       "n": "SWABLU",
@@ -6638,7 +6715,8 @@
           0,
           5
         ]
-      ]
+      ],
+      "ef": "SWABLU"
     },
     {
       "n": "SHUPPET",
@@ -6726,7 +6804,8 @@
           15,
           3
         ]
-      ]
+      ],
+      "ef": "SHUPPET"
     },
     {
       "n": "ABSOL",
@@ -6946,7 +7025,8 @@
           5,
           4
         ]
-      ]
+      ],
+      "ef": "SPHEAL"
     },
     {
       "n": "WALREIN",
@@ -6990,7 +7070,8 @@
           5,
           4
         ]
-      ]
+      ],
+      "ef": "SEALEO"
     },
     {
       "n": "BAGON",
@@ -7078,7 +7159,8 @@
           4,
           4
         ]
-      ]
+      ],
+      "ef": "BAGON"
     },
     {
       "n": "SALAMENCE",
@@ -7122,7 +7204,8 @@
           4,
           4
         ]
-      ]
+      ],
+      "ef": "SHELGON"
     },
     {
       "n": "LATIAS",
@@ -7298,7 +7381,8 @@
           5,
           6
         ]
-      ]
+      ],
+      "ef": "TURTWIG"
     },
     {
       "n": "TORTERRA",
@@ -7342,7 +7426,8 @@
           5,
           6
         ]
-      ]
+      ],
+      "ef": "GROTLE"
     },
     {
       "n": "CHIMCHAR",
@@ -7430,7 +7515,8 @@
           13,
           3
         ]
-      ]
+      ],
+      "ef": "CHIMCHAR"
     },
     {
       "n": "INFERNAPE",
@@ -7474,7 +7560,8 @@
           13,
           3
         ]
-      ]
+      ],
+      "ef": "MONFERNO"
     },
     {
       "n": "PIPLUP",
@@ -7562,7 +7649,8 @@
           3,
           4
         ]
-      ]
+      ],
+      "ef": "PIPLUP"
     },
     {
       "n": "EMPOLEON",
@@ -7606,7 +7694,8 @@
           3,
           4
         ]
-      ]
+      ],
+      "ef": "PRINPLUP"
     },
     {
       "n": "SHINX",
@@ -7694,7 +7783,8 @@
           13,
           5
         ]
-      ]
+      ],
+      "ef": "SHINX"
     },
     {
       "n": "LUXRAY",
@@ -7738,7 +7828,8 @@
           13,
           5
         ]
-      ]
+      ],
+      "ef": "LUXIO"
     },
     {
       "n": "DRIFLOON",
@@ -7826,7 +7917,8 @@
           9,
           4
         ]
-      ]
+      ],
+      "ef": "DRIFLOON"
     },
     {
       "n": "HONCHKROW",
@@ -7870,7 +7962,8 @@
           10,
           4
         ]
-      ]
+      ],
+      "ef": "MURKROW"
     },
     {
       "n": "BONSLY",
@@ -8134,7 +8227,8 @@
           7,
           4
         ]
-      ]
+      ],
+      "ef": "RIOLU"
     },
     {
       "n": "CROAGUNK",
@@ -8214,7 +8308,8 @@
           4,
           8
         ]
-      ]
+      ],
+      "ef": "CROAGUNK"
     },
     {
       "n": "SNOVER",
@@ -8302,7 +8397,8 @@
           15,
           5
         ]
-      ]
+      ],
+      "ef": "SNOVER"
     },
     {
       "n": "WEAVILE",
@@ -8346,7 +8442,8 @@
           2,
           4
         ]
-      ]
+      ],
+      "ef": "SNEASEL"
     },
     {
       "n": "MAGNEZONE",
@@ -8386,7 +8483,8 @@
           10,
           3
         ]
-      ]
+      ],
+      "ef": "MAGNETON"
     },
     {
       "n": "TOGEKISS",
@@ -8430,7 +8528,8 @@
           12,
           3
         ]
-      ]
+      ],
+      "ef": "TOGETIC"
     },
     {
       "n": "LEAFEON",
@@ -8474,7 +8573,8 @@
           4,
           3
         ]
-      ]
+      ],
+      "ef": "EEVEE"
     },
     {
       "n": "GLACEON",
@@ -8518,7 +8618,8 @@
           4,
           3
         ]
-      ]
+      ],
+      "ef": "EEVEE"
     },
     {
       "n": "GALLADE",
@@ -8562,7 +8663,8 @@
           16,
           2
         ]
-      ]
+      ],
+      "ef": "KIRLIA"
     },
     {
       "n": "CRESSELIA",
@@ -8818,7 +8920,8 @@
           13,
           2
         ]
-      ]
+      ],
+      "ef": "MUNNA"
     },
     {
       "n": "DWEBBLE",
@@ -8906,7 +9009,8 @@
           8,
           5
         ]
-      ]
+      ],
+      "ef": "DWEBBLE"
     },
     {
       "n": "RUFFLET",
@@ -8994,7 +9098,8 @@
           13,
           2
         ]
-      ]
+      ],
+      "ef": "RUFFLET"
     },
     {
       "n": "TYRUNT",
@@ -9082,7 +9187,8 @@
           9,
           3
         ]
-      ]
+      ],
+      "ef": "TYRUNT"
     },
     {
       "n": "SYLVEON",
@@ -9126,7 +9232,8 @@
           4,
           3
         ]
-      ]
+      ],
+      "ef": "EEVEE"
     },
     {
       "n": "HAWLUCHA",
@@ -9434,7 +9541,8 @@
           9,
           15
         ]
-      ]
+      ],
+      "ef": "PUMPKABOO_JUMBO"
     },
     {
       "n": "GOURGEIST_LARGE",
@@ -9478,7 +9586,8 @@
           9,
           15
         ]
-      ]
+      ],
+      "ef": "PUMPKABOO_LARGE"
     },
     {
       "n": "GOURGEIST_MEDIUM",
@@ -9522,7 +9631,8 @@
           9,
           15
         ]
-      ]
+      ],
+      "ef": "PUMPKABOO_MEDIUM"
     },
     {
       "n": "GOURGEIST_SMALL",
@@ -9566,7 +9676,8 @@
           9,
           15
         ]
-      ]
+      ],
+      "ef": "PUMPKABOO_SMALL"
     },
     {
       "n": "NOIBAT",
@@ -9654,7 +9765,8 @@
           4,
           3
         ]
-      ]
+      ],
+      "ef": "NOIBAT"
     },
     {
       "n": "GRUBBIN",
@@ -9742,7 +9854,8 @@
           3,
           11
         ]
-      ]
+      ],
+      "ef": "GRUBBIN"
     },
     {
       "n": "VIKAVOLT",
@@ -9786,7 +9899,8 @@
           3,
           11
         ]
-      ]
+      ],
+      "ef": "CHARJABUG"
     },
     {
       "n": "CUTIEFLY",
@@ -9874,7 +9988,8 @@
           11,
           5
         ]
-      ]
+      ],
+      "ef": "CUTIEFLY"
     },
     {
       "n": "STUFFUL",
@@ -9962,7 +10077,8 @@
           7,
           9
         ]
-      ]
+      ],
+      "ef": "STUFFUL"
     },
     {
       "n": "COMFEY",
@@ -10270,7 +10386,8 @@
           16,
           2
         ]
-      ]
+      ],
+      "ef": "TOXEL"
     },
     {
       "n": "TOXTRICITY_LOW_KEY",
@@ -10314,7 +10431,8 @@
           16,
           2
         ]
-      ]
+      ],
+      "ef": "TOXEL"
     },
     {
       "n": "SPRIGATITO",
@@ -10402,7 +10520,8 @@
           5,
           8
         ]
-      ]
+      ],
+      "ef": "SPRIGATITO"
     },
     {
       "n": "MEOWSCARADA",
@@ -10446,7 +10565,8 @@
           5,
           8
         ]
-      ]
+      ],
+      "ef": "FLORAGATO"
     },
     {
       "n": "FUECOCO",
@@ -10534,7 +10654,8 @@
           10,
           5
         ]
-      ]
+      ],
+      "ef": "FUECOCO"
     },
     {
       "n": "SKELEDIRGE",
@@ -10578,7 +10699,8 @@
           10,
           5
         ]
-      ]
+      ],
+      "ef": "CROCALOR"
     },
     {
       "n": "QUAXLY",
@@ -10666,7 +10788,8 @@
           8,
           6
         ]
-      ]
+      ],
+      "ef": "QUAXLY"
     },
     {
       "n": "QUAQUAVAL",
@@ -10710,7 +10833,8 @@
           8,
           6
         ]
-      ]
+      ],
+      "ef": "QUAXWELL"
     },
     {
       "n": "PAWMI",
@@ -10798,7 +10922,8 @@
           7,
           5
         ]
-      ]
+      ],
+      "ef": "PAWMI"
     },
     {
       "n": "PAWMOT",
@@ -10842,7 +10967,8 @@
           7,
           5
         ]
-      ]
+      ],
+      "ef": "PAWMO"
     },
     {
       "n": "TINKATINK",
@@ -10930,7 +11056,8 @@
           9,
           3
         ]
-      ]
+      ],
+      "ef": "TINKATINK"
     },
     {
       "n": "TINKATON",
@@ -10974,7 +11101,8 @@
           9,
           3
         ]
-      ]
+      ],
+      "ef": "TINKATUFF"
     },
     {
       "n": "CETODDLE",
@@ -11062,7 +11190,8 @@
           17,
           4
         ]
-      ]
+      ],
+      "ef": "CETODDLE"
     },
     {
       "n": "CLODSIRE",
@@ -11106,7 +11235,8 @@
           9,
           9
         ]
-      ]
+      ],
+      "ef": "WOOPER_PALDEAN"
     }
   ],
   "recipes": [
@@ -14481,11 +14611,11 @@
     }
   },
   "meta": {
-    "schema": 5,
+    "schema": 6,
     "src": "nerolis-lab/nerolis-lab",
     "commit": "52157cb",
     "commitDate": "2026-09-14",
-    "builtAt": "2026-09-14",
+    "builtAt": "2026-09-23",
     "zhSrc": "RaenonX i18n + 52poke zh-hant",
     "typesSrc": "由樹果推導（Pokémon Sleep 每隻只有一個屬性，就是牠撿的樹果的屬性；18 顆樹果對 18 個屬性，來源是上游 berries.ts 的 Berry.type）",
     "msExtraSrc": "tools/skills-extra.json（本專案維護 —— 上游快照沒有這些表）"
