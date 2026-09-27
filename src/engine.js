@@ -21,7 +21,7 @@ if (!D || !D.ings || !D.dex || !D.recipes || !D.ms) {
    ASSET_V 擋到的路徑** —— 主執行緒載新引擎、worker 載到快取的舊引擎時，
    搜尋（worker）與 rehydrate／決賽（主執行緒）會用兩套不同的公式，
    不會報錯，只會靜靜地算出對不起來的分數。app.js 會比對這個值。 */
-const ENGINE_V = '20260923a';
+const ENGINE_V = '20260928a';
 
 const ING_NAME = D.ings.map(x=>x[0]);
 const ING_VAL  = D.ings.map(x=>x[1]);
@@ -1294,8 +1294,75 @@ function monPowerCached(m){
  *  | `self − skillNow` | 主技能等級練滿多產多少 | **技能糖果先給誰** | 全體（同一種資源） |
  *
  *  `skillNow` 只把主技能等級退回牠現在的值，其餘（等級、緞帶）維持規範化 ——
- *  這樣那個差額才是**單獨**技能等級的貢獻，不混進等級或緞帶。 */
+ *  這樣那個差額才是**單獨**技能等級的貢獻，不混進等級或緞帶。
+ *
+ *  **副技能也要規範化成「用種子升到最好」**（使用者 2026-09-28 指定）。副技能種子
+ *  可以把 S 升成 M，和等級糖果、技能糖果一樣是「練得起來的東西」—— 不規範化的話，
+ *  幫忙速度S 那一隻會因為「還沒吃種子」被當成比幫忙速度M 那一隻差的貨。
+ *  見 `ssSeedBest`。分母（理想個體）本來就能自由挑任何副技能，所以不受影響。 */
 const IDEAL_LEVEL = 60;
+
+/** 副技能種子：一顆升一階。遊戲規則（使用者 2026-09-28 確認）：
+ *
+ *  1. **一隻可以用無限顆。**
+ *  2. **同一隻不能有重複的副技能**，所以已經有幫忙速度M 的話，幫忙速度S 就升不上去。
+ *     重複檢查看**全部五格**（含還沒解鎖的 —— 那一格的副技能仍然是牠的）。
+ *  3. **一次一階**：持有上限 S → L 要兩顆。
+ *  4. 技能等級提升 S → M 可以（銀 → 金）。
+ *  5. 沒解鎖的格子不能升 —— 但評價等級（Lv60 以上）下已解鎖的格子才會生效，
+ *     沒解鎖的那格升不升都不影響數字。
+ *
+ *  金色的（樹果數量S、幫忙獎勵、活力回復獎勵、三個 EXP／碎片獎勵）沒有更高階。
+ *  上游完全沒有這份資料（沒有種子的概念），所以比照 `BAD_DREAMS_DRAIN` 寫成具名常數。
+ *  第 20 節斷言每個名字都真的在 `D.subskills` 裡。 */
+const SS_UPGRADE = {
+  'Helping Speed S':     'Helping Speed M',
+  'Ingredient Finder S': 'Ingredient Finder M',
+  'Skill Trigger S':     'Skill Trigger M',
+  'Inventory Up S':      'Inventory Up M',
+  'Inventory Up M':      'Inventory Up L',
+  'Skill Level Up S':    'Skill Level Up M',
+};
+/** 用種子把副技能升到「這個專長的主指標最高」的狀態。
+ *
+ *  **不是「能升的全部升」**：有些升階會讓主指標變低（樹果型的食材機率S → M 會把
+ *  樹果換成食材），有些完全沒有差（技能等級提升在主技能已滿級時被 clamp 掉）——
+ *  那些升了只是白花種子。所以把**所有到得了的狀態**列出來逐一評分，同分取種子少的。
+ *
+ *  **一定要照規則一步一步走，不能只列「最終狀態」**：持有上限S＋持有上限M 要升成
+ *  M＋L，只能**先把 M 升成 L**，S 才升得上 M（反過來會卡在重複）。所以這裡是 BFS，
+ *  回傳的 `steps` 就是一條**遊戲裡真的走得通**的順序 —— UI 照著寫，使用者照著做。
+ *
+ *  狀態空間很小（每格最多 3 階、最多 5 格），實際上通常只有 1~8 個狀態。
+ *
+ *  回傳 `{ss, steps:[{slot, from, to}], n}`；`n` ＝ 用掉的種子數（＝ steps.length）。 */
+function ssSeedBest(m, lvl, val){
+  const start = [0,1,2,3,4].map(s => m.ss[s] || null);
+  const key = ss => ss.join('|');
+  const seen = new Map([[key(start), {ss: start, steps: []}]]);
+  const q = [start];
+  while (q.length){
+    const ss = q.shift(), steps = seen.get(key(ss)).steps;
+    for (let s = 0; s < 5; s++){
+      if (lvl < SS_SLOT_LV[s]) continue;               // 沒解鎖的格子不能升
+      const to = SS_UPGRADE[ss[s]];
+      if (!to || ss.includes(to)) continue;             // 沒有下一階，或會變成重複
+      const t = ss.slice(); t[s] = to;
+      const k = key(t);
+      if (seen.has(k)) continue;
+      seen.set(k, {ss: t, steps: [...steps, {slot: s, from: ss[s], to}]});
+      q.push(t);
+    }
+  }
+  let best = null, bestV = -Infinity;
+  for (const st of seen.values()){
+    const v = val({...m, ss: st.ss});
+    /* 相對容差：同分（升了沒差）就保留種子少的那個。BFS 的順序本來就是種子少的先進來。 */
+    /* `best` 為 null 時一定要收：bestV = -Infinity 的話 `-Inf + Inf*1e-9` 是 NaN，比不進去。 */
+    if (!best || v > bestV + Math.abs(bestV) * 1e-9){ bestV = v; best = st; }
+  }
+  return {ss: best.ss, steps: best.steps, n: best.steps.length};
+}
 function monIdeal(m){
   const p = D.dex[m.sp];
   const maxSkillLv = (D.ms[p.ms] || {max: 6}).max;
@@ -1303,12 +1370,15 @@ function monIdeal(m){
   /* 評價等級：至少 60，已經更高就用牠自己的 —— 分子分母都在這個等級上。 */
   const lvl = Math.max(IDEAL_LEVEL, m.level);
   const at = {...m, level: lvl};
-  /* 分子的基準：等級、緞帶、主技能等級**全部**規範化，只留下改不掉的資質。 */
-  const atFull = {...at, ribbon: 4, skillLv: maxSkillLv};
+  const val = x => powerMain(monPower(x));
+  /* 分子的基準：等級、緞帶、主技能等級、**副技能的階級**全部規範化，
+     只留下改不掉的資質（性格、副技能的種類、食材組合）。 */
+  const atNoSeed = {...at, ribbon: 4, skillLv: maxSkillLv};
+  const seed = ssSeedBest(atNoSeed, lvl, val);
+  const atFull = {...atNoSeed, ss: seed.ss};
   const slots = [0,1,2,3,4].filter(s => lvl >= SS_SLOT_LV[s]);
   const ingOpts = [p.i0, p.i30, p.i60].map(l => (l || []).length);
   const nIngSlots = Math.min(Math.floor(lvl/30) + 1, 3);
-  const val = x => powerMain(monPower(x));
 
   let cur = {...at, ribbon: 4, skillLv: maxSkillLv,
              ss: [null,null,null,null,null], ingSet: m.ingSet.slice()};
@@ -1352,10 +1422,14 @@ function monIdeal(m){
     const v = val(c); if (v > bestScore){ bestScore = v; best = c; }
   }
   /* 三個數字一起回，UI 不用自己再算一次（兩份一定會走鐘）。
-     `skillNow` 只退主技能等級，所以 `self − skillNow` 就是技能等級**單獨**的貢獻。 */
+     `skillNow` 只退主技能等級，所以 `self − skillNow` 就是技能等級**單獨**的貢獻。
+     `seeds` 是 UI 要講的「得花幾顆種子、哪一格怎麼升」—— 數字建立在它上面，
+     不講就是文案說謊（畫面上的副技能是 S，練滿卻是照 M 算的）。
+     `noSeed` 是不用種子時的練滿，給「種子能多產多少」用。 */
   return {...monPower(best), member: best, lvl, maxSkillLv,
           self: monPower(atFull),
-          skillNow: monPower({...atFull, skillLv: m.skillLv})};
+          skillNow: monPower({...atFull, skillLv: m.skillLv}),
+          seeds: seed, noSeed: monPower(atNoSeed)};
 }
 
 /* ================= SEARCH ================= */

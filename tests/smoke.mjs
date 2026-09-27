@@ -4762,6 +4762,94 @@ console.log('\n[19] 新抓比較（view-cmp）');
   ok('截圖校對區的「拿去新抓比較」帶得過來，而且原本的草稿還留著', r.fromImp);
 }
 
+/* 副技能種子（使用者 2026-09-28）：練滿與資質以「副技能用種子升到最好」計算。
+   規則：一次一階、一隻無限顆、同一隻不能有重複（已有 M 的話 S 升不上去）、
+   沒解鎖的格子不能升。前半段用**自訂的評分函式**直接驅動 ssSeedBest —— 測的是
+   遊戲規則本身，不受引擎數值影響；後半段才走 monIdeal 與畫面。 */
+console.log('\n[20] 副技能種子：練滿與資質以升階後的副技能計算');
+{
+  const r = await page.evaluate(() => {
+    const names = new Set(D.subskills.map(s => s.n));
+    const amt = new Map(D.subskills.map(s => [s.n, s.a]));
+    const upNames = Object.entries(SS_UPGRADE).every(([a, b]) => names.has(a) && names.has(b));
+    const upBigger = Object.entries(SS_UPGRADE).every(([a, b]) => amt.get(b) > amt.get(a));
+    /* 評分：每升一階 +1（S=1、M=2、L=3），金色的不在表裡所以不動。 */
+    const tier = n => !n ? 0 : / L$/.test(n) ? 3 : / M$/.test(n) ? 2 : / S$/.test(n) ? 1 : 0;
+    const up = x => x.ss.reduce((a, n) => a + (Object.values(SS_UPGRADE).includes(n) || SS_UPGRADE[n] ? tier(n) : 0), 0);
+    const run = (ss, lvl = 60, val = up) => ssSeedBest({ss}, lvl, val);
+    const invPair = run(['Inventory Up S', 'Inventory Up M', null, null, null]);
+    const invOne  = run(['Inventory Up S', null, null, null, null]);
+    const dup     = run(['Helping Speed S', 'Helping Speed M', null, null, null]);
+    const lockBlk = run(['Helping Speed S', null, null, null, 'Helping Speed M']);    // 第 5 格 Lv80 未解鎖
+    const lockUp  = run([null, null, null, 'Helping Speed S', null]);                 // 第 4 格 Lv70 未解鎖
+    const gold    = run(['Berry Finding S', 'Helping Bonus', 'Skill Level Up M', null, null]);
+    const slvS    = run(['Skill Level Up S', null, null, null, null]);
+    const flat    = run(['Helping Speed S', 'Skill Trigger S', null, null, null], 60, () => 1);
+
+    /* 引擎：同一隻，只差幫忙速度 S／M → 練滿與資質都要相同，S 那隻要標 1 顆種子。 */
+    const mk = (hs, o) => ({sp:'VENUSAUR', level:60, nature:'Adamant',
+      ss:[hs, 'Ingredient Finder M', 'Helping Bonus', null, null],
+      ingSet:[0,0,0], skillLv:1, ribbon:0, pin:false, ex:false, nick:'', ...(o||{})});
+    deserialize({roster: [mk('Helping Speed S'), mk('Helping Speed M'),
+                          mk('Helping Speed S', {nick:'種子測試'})]});
+    monOpen.clear(); renderBox(); showView('box'); clearBoxFilter();
+    roster.forEach(m => idealOf(m, true));
+    renderBox();
+    const [iS, iM] = [idealOf(roster[0]), idealOf(roster[1])];
+    const cell = (i, cls) => { const e = $('boxList').querySelector(`[data-i="${i}"] .${cls}`); return e ? e.textContent.trim() : null; };
+    const fullTip = ($('boxList').querySelector('[data-i="0"] .mon-full') || {}).title || '';
+    /* 當場讀 —— 下面的新抓比較會換掉 roster 並重畫箱子（寫測試的坑第 4 條）。 */
+    const chipS = cell(0, 'mon-seed'), chipM = cell(1, 'mon-seed');
+    /* 新抓比較：新抓的是 S、箱子裡是 M → 兩項都相同，而且新抓的那一方要寫出要花種子。 */
+    /* cmpDraft 不經過 deserialize，所以 sp 要自己換成 dex 索引（寫測試的坑第 2 條）。 */
+    cmpDraft = mk('Helping Speed S', {nick:'新抓', sp: D.dex.findIndex(p => p.n === 'VENUSAUR')});
+    deserialize({roster: [mk('Helping Speed M')]});
+    renderBox(); showView('cmp'); renderCmp();
+    const cmpTxt = $('cmpResult').textContent;
+    showView('box');
+    return {
+      upNames, upBigger,
+      invPair: {ss: invPair.ss.slice(0,2), steps: invPair.steps.map(s => `${s.slot}:${s.from}>${s.to}`), n: invPair.n},
+      invOne: {s0: invOne.ss[0], n: invOne.n},
+      dup: {ss: dup.ss.slice(0,2), n: dup.n},
+      lockBlk: {s0: lockBlk.ss[0], n: lockBlk.n},
+      lockUp: {s3: lockUp.ss[3], n: lockUp.n},
+      gold: gold.n, slvS: slvS.ss[0], flat: flat.n,
+      pctEq: idealPctFrom(mk('Helping Speed S'), iS) === idealPctFrom(mk('Helping Speed M'), iM),
+      fullEq: Math.abs(fullMain(iS) - fullMain(iM)) < 1e-9,
+      seedS: iS.seeds.n, seedM: iM.seeds.n,
+      gain: powerMain(iS.self) > powerMain(iS.noSeed),
+      chipS, chipM,
+      fullTip, sum: $('scoreNote').querySelector('.sum').textContent,
+      cmpEq: /兩項都相同/.test(cmpTxt), cmpSeed: /需要 1 顆副技能種子/.test(cmpTxt),
+    };
+  });
+  ok('SS_UPGRADE 的名字都在 game.json 裡，而且升上去的數值比較大', r.upNames && r.upBigger);
+  /* 持有上限 S＋M：只有「先把 M 升成 L、S 才升得上 M」走得通。反過來會卡在重複。 */
+  ok('持有上限 S＋M → M＋L，步驟是先升 M 再升 S（遊戲裡走得通的順序）',
+     r.invPair.ss.join() === 'Inventory Up M,Inventory Up L' && r.invPair.n === 2
+     && r.invPair.steps.join() === '1:Inventory Up M>Inventory Up L,0:Inventory Up S>Inventory Up M',
+     JSON.stringify(r.invPair));
+  ok('持有上限 S → L 要兩顆', r.invOne.s0 === 'Inventory Up L' && r.invOne.n === 2, JSON.stringify(r.invOne));
+  ok('已經有幫忙速度M → 幫忙速度S 升不上去', r.dup.ss.join() === 'Helping Speed S,Helping Speed M' && r.dup.n === 0, JSON.stringify(r.dup));
+  ok('重複檢查包含還沒解鎖的格子', r.lockBlk.s0 === 'Helping Speed S' && r.lockBlk.n === 0, JSON.stringify(r.lockBlk));
+  ok('沒解鎖的格子不升', r.lockUp.s3 === 'Helping Speed S' && r.lockUp.n === 0, JSON.stringify(r.lockUp));
+  ok('金色副技能沒有下一階', r.gold === 0, r.gold);
+  ok('技能等級提升S 可以升成 M', r.slvS === 'Skill Level Up M', r.slvS);
+  ok('升了沒差的不算（不白花種子）', r.flat === 0, r.flat);
+  /* 這是整組改動的核心：只差「還沒吃種子」的兩隻，資質與練滿必須相同。 */
+  ok('只差幫忙速度 S／M 的兩隻：資質相同', r.pctEq);
+  ok('只差幫忙速度 S／M 的兩隻：練滿相同', r.fullEq);
+  ok('S 那隻要花 1 顆、M 那隻 0 顆，而且種子真的有提高數字', r.seedS === 1 && r.seedM === 0 && r.gain,
+     `${r.seedS} / ${r.seedM} / ${r.gain}`);
+  ok('摺疊列上看得到「🌱 種子 ×1」，不用種子的沒有', /種子\s*×1/.test(r.chipS || '') && r.chipM === null,
+     `${r.chipS} / ${r.chipM}`);
+  ok('練滿的 tooltip 寫出哪一格怎麼升', /1 顆副技能種子：第 1 格 .+ → /.test(r.fullTip), r.fullTip.slice(0, 200));
+  ok('摘要寫出練滿與資質假設副技能已用種子升階', /種子/.test(r.sum), r.sum);
+  ok('新抓比較：只差 S／M → 兩項相同', r.cmpEq);
+  ok('新抓比較：要花種子的那一方寫出顆數', r.cmpSeed);
+}
+
 console.log('\n[13] 窄螢幕（390px）：任何分頁都不准整頁橫向捲動');
 {
   const mob = await browser.newPage({ viewport: { width: 390, height: 844 } });

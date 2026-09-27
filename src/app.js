@@ -68,7 +68,7 @@ const SCHEMA = 6;   // 4: 新增 msExtra{}（上游沒有的主技能數值表�
    「新的 index.html ＋ 舊的 app.js」—— 畫面畫出舊版 UI，而使用者只會覺得
    「你根本沒改」，完全不知道是快取。有了這個斷言，過期的 app.js 會直接被擋下來
    並要求強制重新整理。tests/smoke.mjs 第 11 節會斷言三處一致。 */
-const APP_V = '20260923a';
+const APP_V = '20260928a';
 
 /** 致命錯誤：整頁換成一段說明。這種狀況下繼續跑只會產生錯的數字。 */
 function fatal(html){
@@ -1075,7 +1075,8 @@ function scoreNote(){
               + `<b>不含本週加成樹果</b>）；<b>三種專長的數字不能互相比較</b>。`
               + `摺疊列的三個數字各答一個問題：<b>練滿</b>＝等級糖果先餵誰（同專長內比）、`
               + `<b>資質</b>＝性格與副技能是不是好貨（<b>同物種內</b>比）、`
-              + `<b>技能</b>＝技能糖果先給誰。<b>這些數字不影響推演。</b>`;
+              + `<b>技能</b>＝技能糖果先給誰。練滿與資質都假設<b>副技能已用種子升到最好</b>`
+              + `（要花種子的會標 🌱）。<b>這些數字不影響推演。</b>`;
   const full = `基準就是遊戲寶可夢詳細頁顯示幫忙間隔時的那個情境：單獨一隻、無露營券、睡 8.5 小時、`
        + `不含本週加成樹果，所以跨週可比。`
        + `<b>三種專長各有自己的軸</b>，因為職責不同：`
@@ -1084,15 +1085,21 @@ function scoreNote(){
        + `<b>技能型</b>看主技能發動次數（不同技能給的東西不同，換算成能量只會是憑空的假設）。`
        + `單位不同就是在提醒別跨專長比 —— 能比的是<b>同專長內的名次</b>。`
        + `<br><br>`
-       + `三個投資數字**共用同一個基準**：<b>Lv${IDEAL_LEVEL} 以上、緞帶4、主技能滿級</b>。`
+       + `三個投資數字**共用同一個基準**：<b>Lv${IDEAL_LEVEL} 以上、緞帶4、主技能滿級、副技能用種子升到最好</b>。`
        + `等級要規範化是因為第 3 格食材要 Lv60、第 3 格副技能要 Lv50 才解鎖 ——`
        + `用當前等級當基準的話，那一格是好是壞會等到升上去<b>那一刻</b>才被算進去。`
        + `<b>緞帶與主技能等級也要規範化</b>，否則同一份資質會因為「還沒練」而顯示低分`
        + `（實測妙蛙花 51% vs 78%），於是照百分比排序的人剛好略過最該投資的那幾隻。`
+       + `<b>副技能的階級</b>也是同一個道理：副技能種子可以把 S 升成 M（持有上限可以一路升到 L），`
+       + `所以幫忙速度S 那一隻不該因為還沒吃種子就被當成比較差的貨。`
+       + `規則是一次升一階、一隻可以用無限顆、<b>同一隻不能有重複的副技能</b>`
+       + `（已經有幫忙速度M 的話，幫忙速度S 就升不上去）。`
+       + `升了反而變差或沒差的（例如樹果型的食材機率）<b>不會</b>算進去 —— 那只是白花種子。`
+       + `要花種子的會標 🌱，tooltip 裡寫出哪一格、照什麼順序升。`
        + `<br><br>`
        + `<b>練滿</b>是絕對值，和左邊的當前產能同單位，所以<b>同專長內</b>可以直接比大小 ——`
        + `這是「等級糖果先餵誰」。`
-       + `<b>資質</b>是<b>牠 ÷ 同物種的理想個體</b>，規範化之後只剩性格、副技能、食材組合的差；`
+       + `<b>資質</b>是<b>牠 ÷ 同物種的理想個體</b>，規範化之後只剩性格、副技能的種類、食材組合的差；`
        + `它是比值，<b>只在同物種之間有意義</b>：100% 的皮卡丘不會比 70% 的妙蛙花強。`
        + `副技能還有空格沒填時分子只會被低估，所以那種會標成 <b>≥</b>。`
        + `<b>技能</b>是主技能等級練到滿之後每天多產的能量 —— 技能糖果是同一種資源，`
@@ -1157,6 +1164,35 @@ const fullMain = ideal => powerMain(ideal.self);
  *  所以食材型（食材獲取S 那類）在這個軸上被低估。tooltip 一定要寫出來 ——
  *  換算率是憑空的判斷，寧可標明低估也不要編一個係數。 */
 const skillRoom = ideal => Math.max(0, ideal.self.total - ideal.skillNow.total);
+/** 練滿與資質**假設副技能已經用種子升到最好**（`monIdeal` → `ssSeedBest`）。
+ *  所以要花種子的那幾隻，畫面上一定要講出來：摺疊列上的副技能還是 S，數字卻是照 M
+ *  算的 —— 不講就是文案說謊（和空格的 `≥` 同一類）。
+ *
+ *  步驟照 `steps` 的順序寫，那是**遊戲裡走得通**的順序（持有上限S＋M 要先升 M）；
+ *  同一格連續升兩階（S → L）併成一句並寫出顆數。 */
+function seedSteps(ideal){
+  const st = (ideal && ideal.seeds && ideal.seeds.steps) || [];
+  const out = [];
+  for (const x of st){
+    const last = out[out.length - 1];
+    if (last && last.slot === x.slot){ last.to = x.to; last.n++; }
+    else out.push({slot: x.slot, from: x.from, to: x.to, n: 1});
+  }
+  return out.map(g => `第 ${g.slot+1} 格 ${ssz(g.from)} → ${ssz(g.to)}${g.n > 1 ? `（${g.n} 顆）` : ''}`);
+}
+const seedCount = ideal => (ideal && ideal.seeds) ? ideal.seeds.n : 0;
+/** 種子讓主指標多了多少（同專長的單位）。 */
+const seedGain = ideal => Math.max(0, powerMain(ideal.self) - powerMain(ideal.noSeed));
+/** tooltip 用的一段話（`&#10;` 換行）。沒有要花種子就回空字串。 */
+function seedTip(ideal){
+  const n = seedCount(ideal);
+  if (!n) return '';
+  const u = powerText(ideal.self).u, g = seedGain(ideal);
+  /* 技能型的主指標是發動次數（小數），用 num() 會四捨五入成「少 0」。和 powerText 同格式。 */
+  const gt = ideal.self.spec === 'skill' ? g.toFixed(2) : num(g);
+  return `🌱 這個數字假設用了 ${n} 顆副技能種子：${seedSteps(ideal).join('、')}（照這個順序升）。&#10;`
+       + `不用種子的話練滿是 ${powerText(ideal.noSeed).v}（少 ${gt} ${u}）。&#10;`;
+}
 /** 評價等級下「還空著、但已經生效」的副技能格數。
  *
  *  空格只會讓分子變小（副技能沒有負值），所以有空格時顯示的百分比是**下界** ——
@@ -1246,10 +1282,11 @@ function idealChip(m){
   const unk = idealUnknownSlots(m, ideal);
   const t = powerText(ideal.self), it = powerText(ideal), lv = ideal.lvl;
   return `<span class="mon-idl ${band}${unk?' lb':''}" title="`
-       + `這一隻是不是好貨 —— 只比性格、副技能、食材組合這些改不掉的東西。&#10;`
+       + `這一隻是不是好貨 —— 只比性格、副技能的種類、食材組合這些改不掉的東西。&#10;`
        + `牠 ${t.v} ÷ 同物種理想個體 ${it.v}（${t.u}）&#10;`
-       + `兩邊都在同一個基準：Lv${lv}${lv > m.level ? `（牠現在 Lv${m.level}）` : ''}、緞帶4、主技能滿級 ——`
-       + `所以「還沒練」不會讓這個數字變低。&#10;`
+       + `兩邊都在同一個基準：Lv${lv}${lv > m.level ? `（牠現在 Lv${m.level}）` : ''}、緞帶4、主技能滿級、`
+       + `副技能用種子升到最好 —— 所以「還沒練」不會讓這個數字變低。&#10;`
+       + seedTip(ideal)
        + `理想個體 ＝ 同物種的最佳性格＋最佳副技能＋最佳食材組合：&#10;`
        + `${natZ(NAT[ideal.member.nature]||NAT.Bashful)}／${ideal.member.ss.filter(Boolean).map(ssz).join('、')||'（無副技能）'}&#10;`
        + (unk ? `⚠ 還有 ${unk} 格副技能沒填 —— 填了只會讓分子變高，所以這是下界（≥）。&#10;` : '')
@@ -1280,10 +1317,14 @@ function investChip(m){
   const maxed = m.skillLv >= ideal.maxSkillLv;
   const room = skillRoom(ideal);
   return `<span class="mon-inv">`
-    + `<span class="mon-full" title="牠練滿之後的產能：Lv${ideal.lvl}、緞帶4、主技能滿級。&#10;`
+    + `<span class="mon-full" title="牠練滿之後的產能：Lv${ideal.lvl}、緞帶4、主技能滿級、副技能用種子升到最好。&#10;`
     + `這是「等級糖果先餵誰」的答案 —— 和左邊的當前產能同一個單位（${fu.u}），`
     + `所以同專長內可以直接比大小。&#10;`
+    + seedTip(ideal)
     + `牠現在是 ${now.v}。">練滿 <b>${fu.v}</b></span>`
+    /* 要花種子的一定要在摺疊列上**看得到**，不能只藏在 tooltip —— 畫面上的副技能
+       還是 S，練滿與資質卻是照 M 算的。 */
+    + (seedCount(ideal) ? `<span class="mon-seed" title="${seedTip(ideal)}練滿與資質都已經算進去了。">🌱 種子 ×${seedCount(ideal)}</span>` : '')
     + (maxed
       ? `<span class="mon-room done" title="主技能已經滿級（Lv${ideal.maxSkillLv}）—— 技能糖果餵給別隻。">技能滿級</span>`
       : `<span class="mon-room" title="主技能等級從 Lv${m.skillLv} 練到滿級 Lv${ideal.maxSkillLv}，每天多產的能量。&#10;`
@@ -1339,11 +1380,13 @@ function scoreRow(m, allowIdeal){
     const pct = idealPctFrom(m, ideal) ?? 0;    // 摺疊列的「資質 N%」用的是同一條算式
     const it = powerText(ideal), unk = idealUnknownSlots(m, ideal);
     const room = skillRoom(ideal), maxed = m.skillLv >= ideal.maxSkillLv;
-    cmp = `<span class="mon-ideal" title="基準：Lv${ideal.lvl}${ideal.lvl > m.level ? `（牠現在 Lv${m.level}）` : ''}、緞帶4、主技能滿級。&#10;`
+    const sn = seedCount(ideal);
+    cmp = `<span class="mon-ideal" title="基準：Lv${ideal.lvl}${ideal.lvl > m.level ? `（牠現在 Lv${m.level}）` : ''}、緞帶4、主技能滿級、副技能用種子升到最好。&#10;`
+        + seedTip(ideal)
         + `所以左邊那個當前產能和這裡的數字不是同一個狀態的東西 ——`
         + `左邊是「現在有多好」，這裡是「練滿之後」。&#10;`
         + `練滿 ${powerText(ideal.self).v}：等級糖果先餵誰（同專長內比）。&#10;`
-        + `資質 ${pct}%：牠 ÷ 同物種理想個體，只剩性格／副技能／食材組合的差（同物種內比）。&#10;`
+        + `資質 ${pct}%：牠 ÷ 同物種理想個體，只剩性格／副技能的種類／食材組合的差（同物種內比）。&#10;`
         + (maxed ? `主技能已經滿級（Lv${ideal.maxSkillLv}）。&#10;`
                  : `技能成長 +${num(room)}：主技能練到 Lv${ideal.maxSkillLv} 每天多產的能量（全體可比）。&#10;`)
         + `理想個體 ＝ 同物種的最佳性格＋最佳副技能＋最佳食材組合，目標是這個專長的主指標（${t.u}）。&#10;`
@@ -1352,7 +1395,8 @@ function scoreRow(m, allowIdeal){
         + (unk ? `⚠ 還有 ${unk} 格副技能沒填，所以資質是下界（≥）。&#10;` : '')
         + `這是貪婪搜尋，不是證明過的上限 —— 當參考線看，別當天花板。">`
         + `練滿 ${powerText(ideal.self).v} · 理想 ${it.v} · 資質 <b>${unk?'≥':''}${pct}%</b>`
-        + (maxed ? ` · 技能滿級` : ` · 技能 <b>+${num(room)}</b>`) + `</span>`;
+        + (maxed ? ` · 技能滿級` : ` · 技能 <b>+${num(room)}</b>`)
+        + (sn ? ` · 🌱 種子 ×${sn}（${seedSteps(ideal).join('、')}）` : '') + `</span>`;
   }
   const ings = p.ingTypes.length
     ? p.ingTypes.map(([n, v]) => `${iz(n)} ${v.toFixed(1)}`).join('、') : '無';
@@ -3477,13 +3521,15 @@ function cmpMetrics(m, sp){
   const pct = idealPctFrom(x, ideal);
   if (pct == null) return null;
   return {pct, full: fullMain(ideal), fullT: powerText(ideal.self),
-          unk: idealUnknownSlots(x, ideal), lvl: ideal.lvl};
+          unk: idealUnknownSlots(x, ideal), lvl: ideal.lvl,
+          seeds: seedCount(ideal), seedSteps: seedSteps(ideal)};
 }
 /** 基準說明。和箱子的 scoreNote 同一條理由：沒有出處的數字比沒有數字更糟。 */
 function cmpNote(){
   return `<b>資質</b>與<b>練滿</b>就是寶可夢箱摺疊列上的那兩個數字，<b>算式完全相同</b>：`
-       + `兩邊都規範化到 <b>Lv${IDEAL_LEVEL}（已經超過就用實際等級）・緞帶4・主技能滿級</b>，`
-       + `所以「還沒練」不會吃虧 —— 比的是<b>性格、副技能、食材組合</b>這些改不掉的東西。`
+       + `兩邊都規範化到 <b>Lv${IDEAL_LEVEL}（已經超過就用實際等級）・緞帶4・主技能滿級・副技能用種子升到最好</b>，`
+       + `所以「還沒練」不會吃虧 —— 比的是<b>性格、副技能的種類、食材組合</b>這些改不掉的東西。`
+       + `要花副技能種子才到得了的那一方會標 🌱 與顆數。`
        + `和箱子裡<b>同一條進化系</b>的比；新抓的還沒進化時，以<b>進化後的種類</b>計算`
        + `（進化不會改性格、副技能、食材）。<b>副技能要填到 Lv${SS_SLOT_LV[2]} 那一格</b>（第 3 格）才比得準 ——`
        + `空著的格子只會讓那一方被低估，會標成 <b>≥</b>。`;
@@ -3511,6 +3557,9 @@ function cmpVerdict(nm, bm, b){
   return {cls: 'mix', t: `互有勝負：資質${sq > 0 ? '新的' : '箱中的'}好、練滿${sf > 0 ? '新的' : '箱中的'}高`
        + (lvHi.length ? ` —— ${lvHi.join('、')}已經超過 Lv${IDEAL_LEVEL}，練滿是照實際等級算的` : '')};
 }
+/** 要花種子才到得了的一方：寫出顆數與哪一格。兩邊都要 —— 比較的結論建立在它上面。 */
+const cmpSeed = x => x && x.seeds
+  ? `<div class="cmpseed">🌱 需要 ${x.seeds} 顆副技能種子：${x.seedSteps.join('、')}</div>` : '';
 const cmpStat = (label, v, unit, tip) =>
   `<div class="cmpstat" title="${tip}"><span>${label}</span><b>${v}</b>${unit ? `<i>${unit}</i>` : ''}</div>`;
 function cmpWho(m){
@@ -3548,8 +3597,8 @@ function renderCmpResult(){
         <div class="mon-sum">${ssTags(n) || '<span class="muted">（沒填副技能）</span>'}</div>
         ${nm ? `<div class="cmpstats">`
           + cmpStat('資質', `${nm.unk ? '≥' : ''}${nm.pct}%`, '', `牠 ÷ ${pz(p)}的理想個體（同物種內比）`)
-          + cmpStat('練滿', nm.fullT.v, nm.fullT.u, `以 ${pz(p)} Lv${nm.lvl}・緞帶4・主技能滿級計算`)
-          + `</div>` : `<div class="muted">理想個體算不出來</div>`}
+          + cmpStat('練滿', nm.fullT.v, nm.fullT.u, `以 ${pz(p)} Lv${nm.lvl}・緞帶4・主技能滿級・副技能用種子升到最好計算`)
+          + `</div>` + cmpSeed(nm) : `<div class="muted">理想個體算不出來</div>`}
       </div>`;
   };
   let wins = 0, total = 0;
@@ -3571,6 +3620,7 @@ function renderCmpResult(){
             <span>資質 <b>${bm.unk ? '≥' : ''}${bm.pct}%</b> ${cmpDiff(nm.pct - bm.pct, '點')}</span>
             <span>練滿 <b>${bm.fullT.v}</b> <i class="muted">${bm.fullT.u}</i> ${cmpDiff(bm.full > 0 ? (nm.full / bm.full - 1) * 100 : 0, '%')}</span>
           </div>
+          ${cmpSeed(bm)}
           <div class="cmpverdict ${v.cls}">${v.t}</div>
         </div>`;
     }).join('');

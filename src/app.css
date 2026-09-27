@@ -313,6 +313,10 @@ td.n{font-family:var(--mono);font-variant-numeric:tabular-nums}
 .mon-room b{color:var(--skill)}
 /* 已經滿級 ＝ 這一項對牠沒有意義了，淡掉但**不隱藏** —— 藏起來會讓人以為是還沒算完。 */
 .mon-room.done{opacity:.45;font-family:inherit}
+/* 🌱 種子 ×N：練滿與資質是「副技能用種子升到最好」之後的數字（見 monIdeal）。
+   要花種子的一定要在摺疊列上看得到 —— 畫面上的副技能還是 S，數字卻是照 M 算的。 */
+.mon-seed{font-size:11px;padding:2px 6px;border-radius:5px;white-space:nowrap;cursor:help;
+  border:1px dashed var(--pos);color:var(--pos);flex:0 0 auto}
 /* 食材篩選：攤平的可複選 chips。20 種攤開需要整行，所以自己一列，不擠在 .boxbar 裡。 */
 .ingflt{margin-top:10px;padding-top:10px;border-top:1px dashed var(--line)}
 .ingflt-hd{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center;margin-bottom:7px}
@@ -515,6 +519,7 @@ details.notes li{margin:5px 0;max-width:74ch}
 .cmpvals{display:flex;flex-wrap:wrap;gap:4px 18px;font-size:13px}
 .cmpvals b{font-family:var(--mono);font-variant-numeric:tabular-nums}
 .cmpvals i{font-style:normal;font-size:11px}
+.cmpseed{font-size:12px;color:var(--pos)}
 .cmpverdict{font-size:12.5px;font-weight:700;padding:4px 9px;border-radius:7px;background:var(--surface-3);color:var(--ink-2)}
 .cmpverdict.good{background:color-mix(in srgb,var(--pos) 15%,transparent);color:var(--pos)}
 .cmpverdict.bad{background:color-mix(in srgb,var(--neg) 12%,transparent);color:var(--neg)}
