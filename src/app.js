@@ -68,7 +68,7 @@ const SCHEMA = 6;   // 4: 新增 msExtra{}（上游沒有的主技能數值表�
    「新的 index.html ＋ 舊的 app.js」—— 畫面畫出舊版 UI，而使用者只會覺得
    「你根本沒改」，完全不知道是快取。有了這個斷言，過期的 app.js 會直接被擋下來
    並要求強制重新整理。tests/smoke.mjs 第 11 節會斷言三處一致。 */
-const APP_V = '20260928d';
+const APP_V = '20260928e';
 
 /** 致命錯誤：整頁換成一段說明。這種狀況下繼續跑只會產生錯的數字。 */
 function fatal(html){
@@ -2947,10 +2947,15 @@ function unlockNotice(r){
   const inPlan = list.filter(x => x.planned > 0), other = list.filter(x => !x.planned);
   const names = (xs, f) => xs.slice(0, UNLOCK_LIST_MAX).map(f).join('、')
     + (xs.length > UNLOCK_LIST_MAX ? ` …等 ${xs.length} 道` : '');
+  /* 每一道都寫出食材組合（使用者 2026-09-28 要求）：提醒是要人去遊戲裡煮它，而遊戲裡
+     選食譜看的就是食材。直接寫在名稱後面（手機沒有 hover），滑上去再補「這隊一週產多少」。 */
+  const ings = rec => `<span class="muted" title="${rec.ings.map(([i,a]) =>
+      `${iz(ING_NAME[i])}：每次要 ${a} 個・這隊一週產 ${f1(r.wIng[i])} 個`).join('&#10;')}">［${
+      rec.ings.map(([i,a]) => iz(ING_NAME[i]) + '×' + a).join('・')}］</span>`;
   return `<div class="notice" data-unl>🔓 <b>這週的食材湊得出 ${list.length} 道還沒解鎖的食譜</b>`
     + ` —— 在遊戲裡煮一次就會解鎖。推演先以 Lv${RECIPE_NEW_LV} 計算。`
-    + (inPlan.length ? `<br><b>排程裡已經會煮到</b>：${names(inPlan, x => `${recipeZh(x.rec.n)} ×${x.planned}`)}` : '')
-    + (other.length ? `<br><b>湊得出但排程沒選</b>：${names(other, x => `${recipeZh(x.rec.n)}（可煮 ${x.n} 次）`)}`
+    + (inPlan.length ? `<br><b>排程裡已經會煮到</b>：${names(inPlan, x => `${recipeZh(x.rec.n)} ×${x.planned}${ings(x.rec)}`)}` : '')
+    + (other.length ? `<br><b>湊得出但排程沒選</b>：${names(other, x => `${recipeZh(x.rec.n)}（可煮 ${x.n} 次）${ings(x.rec)}`)}`
         + `<span class="muted">　—— 拿一餐去煮就能解鎖，代價是那一餐的分數比排程選的低、也會用掉別道的食材</span>` : '')
     + `<br><span class="muted">煮過之後，記得到「食譜等級」分頁按「解鎖」並填上等級，之後的推演才會用實際等級算。</span></div>`;
 }

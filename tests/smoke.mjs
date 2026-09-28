@@ -3201,8 +3201,10 @@ console.log('\n[2g] 這週湊得出還沒解鎖的食譜時要提醒');
     showView('plan');
     wk.recipeLevels = saved; renderResults();
     const after = !!$('results').querySelector('[data-unl]');
+    const ingTxt = c => c.r.ings.map(([i,a]) => `${iz(ING_NAME[i])}×${a}`).join('・');
     return {before, after, team, txt,
-            A: A && recipeZh(A.r.n), nA, B: B && recipeZh(B.r.n), C: C && recipeZh(C.r.n)};
+            A: A && recipeZh(A.r.n), nA, B: B && recipeZh(B.r.n), C: C && recipeZh(C.r.n),
+            ingA: A && ingTxt(A), ingB: B && ingTxt(B), tipOk: !!(el && el.querySelector('[title*="一週產"]'))};
   });
   ok('全部解鎖時不出聲', r.before === false && r.after === false, `${r.before} ${r.after}`);
   ok('排程裡會煮到的未解鎖食譜要列出來，含次數',
@@ -3210,6 +3212,9 @@ console.log('\n[2g] 這週湊得出還沒解鎖的食譜時要提醒');
   ok('湊得出但排程沒選的也要列出來，並寫出代價',
      !r.B || (r.txt.includes('湊得出但排程沒選') && r.txt.includes(r.B) && /代價/.test(r.txt)), `B=${r.B}`);
   ok('湊不出來的不列', !r.C || !r.txt.includes(r.C), `C=${r.C}`);
+  ok('每一道都寫出食材組合（手機沒有 hover，不能只放 tooltip）',
+     r.txt.includes(r.ingA) && (!r.B || r.txt.includes(r.ingB)), `${r.ingA} / ${r.ingB}`);
+  ok('食材滑上去看得到這隊一週產多少', r.tipOk === true);
   ok('提醒要講「煮過之後去食譜等級分頁解鎖」', /食譜等級/.test(r.txt) && /解鎖/.test(r.txt));
   ok('自組隊伍也看得到同一份提醒', r.team === true);
 }
