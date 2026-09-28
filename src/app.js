@@ -68,7 +68,7 @@ const SCHEMA = 6;   // 4: 新增 msExtra{}（上游沒有的主技能數值表�
    「新的 index.html ＋ 舊的 app.js」—— 畫面畫出舊版 UI，而使用者只會覺得
    「你根本沒改」，完全不知道是快取。有了這個斷言，過期的 app.js 會直接被擋下來
    並要求強制重新整理。tests/smoke.mjs 第 11 節會斷言三處一致。 */
-const APP_V = '20260928c';
+const APP_V = '20260928d';
 
 /** 致命錯誤：整頁換成一段說明。這種狀況下繼續跑只會產生錯的數字。 */
 function fatal(html){
@@ -259,6 +259,10 @@ function deserialize(o, opts){
   if (o.wk && !(opts && opts.append)){
     const f = o.wk.fav||[];
     wk = {...wk, ...o.wk, fav:new Set(f), recipeLevels:reviveRecipeLevels(o.wk.recipeLevels)};
+    /* 「手動指定一道食譜」的 UI 已經拿掉（使用者 2026-09-28：用不太到）。舊存檔若是
+       'manual'，畫面上已經沒有任何地方切得回來，而推演會一直圍著一道看不到的食譜算 ——
+       所以一律收回自動。引擎的手動分支還在（第 2b 節直接驅動它），只是 UI 不再給。 */
+    wk.recipePick = 'auto';
     /* EX 欄位的正規化。舊資料沒有這兩個欄位（`{...wk, ...o.wk}` 會保留預設的 null），
        但**認不得的島名**會讓 `exOf` 回 null，整個 EX 就靜靜地不生效 —— 使用者看到的
        是「我明明選了 EX，數字卻沒變」，而畫面上沒有任何提示。所以直接退回萌綠之島。
@@ -717,13 +721,13 @@ function buildWeekly(){
   });
   $('favMain').addEventListener('change', e=>{ wk.favMain = e.target.value || null; syncWeeklyUI(); weeklyChanged(); });
   $('exBonus').addEventListener('change', e=>{ wk.exBonus = e.target.value || null; syncWeeklyUI(); weeklyChanged(); });
-  $('dishType').addEventListener('change', e=>{ wk.dishType = e.target.value; wk.recipeName = null; fillRecipes(); weeklyChanged(); });
-  $('recipe').addEventListener('change', e=>{ wk.recipeName = e.target.value; syncRecipeIngs(); weeklyChanged(); });
-  for (const [id, key, num] of [['areaBonus','areaBonus',1],['pot','pot',1],['sleepH','sleepH',1],['collectH','collectH',1],['recipeLv','recipeLv',1],['camp','camp',1]]){
+  $('dishType').addEventListener('change', e=>{ wk.dishType = e.target.value; wk.recipeName = null; weeklyChanged(); });
+  /* `recipeLv`（食譜頁按「解鎖」時先填的等級）已經不在這一區 —— 使用者 2026-09-28
+     說用不太到。值還在 wk 裡（預設 20），解鎖之後在食譜頁逐道改就好。 */
+  for (const [id, key, num] of [['areaBonus','areaBonus',1],['pot','pot',1],['sleepH','sleepH',1],['collectH','collectH',1],['camp','camp',1]]){
     $(id).addEventListener('change', e=>{ wk[key] = num ? Number(e.target.value) : e.target.value; weeklyChanged(); });
   }
   $('mode').addEventListener('change', e=>{ wk.mode = e.target.value; weeklyChanged(); });
-  $('recipePick').addEventListener('change', e=>{ wk.recipePick = e.target.value; syncWeeklyUI(); weeklyChanged(); });
   $('recipeScope').addEventListener('change', e=>{ wk.recipeScope = e.target.value; syncWeeklyUI(); weeklyChanged(); });
   /* 本週活動加成：九組「勾選 ＋ 數值」，其中三組多一個屬性下拉。
      **不勾就完全不計入，但數值留著** —— 下週同一個活動不必重打（使用者 2026-09-11 指定）。 */
@@ -751,52 +755,22 @@ function buildWeekly(){
   $('teamType').addEventListener('change', e=>{ wk.teamType = e.target.value || null; teamTypeBad = null; syncWeeklyUI(); weeklyChanged(); });
   $('runBtn').addEventListener('click', run);
 }
-/* option 只放名稱與食材數。完整食材清單放在 select 下方的 #recipeIngs ——
-   最長的食譜（絕對睡眠奶油咖哩）連食材清單要 555px，而這一欄就算 span2 也只有
-   約 320px，塞進 option 會被裁掉，而被裁掉的資訊等於沒有。 */
-function fillRecipes(){
-  /* **沒解鎖的也列，但要寫出「以 Lv1 計」。** 湊得出食材就煮得出來（見 engine 的
-     `recipeOn`），所以推演會拿它當 Lv1 算 —— 選單不列的話，自動配對挑得到、手動
-     指定卻選不到，兩種模式的食譜範圍就不一樣了。 */
-  const list = D.recipes.filter(r=>r.t===wk.dishType).sort((a,b)=>a.cnt-b.cnt);
-  $('recipe').innerHTML = list.length
-    ? list.map(r=>`<option value="${r.n}">${recipeZh(r.n)}（${r.cnt} 材${recipeOn(r, wk)?'':'・未解鎖，以 Lv1 計'}）</option>`).join('')
-    : `<option value="">（這個類型沒有食譜）</option>`;
-  if (!wk.recipeName || !list.some(r=>r.n===wk.recipeName)){
-    const pick = list.find(r=>r.cnt>=21) || list[list.length-1];
-    wk.recipeName = pick ? pick.n : null;
-  }
-  $('recipe').value = wk.recipeName || '';
-  syncRecipeIngs();
-}
-function syncRecipeIngs(){
-  const r = D.recipes.find(x=>x.n===wk.recipeName);
-  $('recipeIngs').textContent = r
-    ? r.ings.map(([i,a])=>iz(ING_NAME[i])+'×'+a).join('・') + `（共 ${r.cnt}）`
-    : '';
-}
 function syncWeeklyUI(){
   $('island').value = wk.island; $('areaBonus').value = wk.areaBonus; $('pot').value = wk.pot;
   $('sleepH').value = wk.sleepH; $('camp').value = wk.camp; $('mode').value = wk.mode;
   /* 舊資料沒有 collectH —— deserialize 的 {...wk, ...o.wk} 會保留預設值，這裡只是畫出來 */
   $('collectH').value = wk.collectH != null ? wk.collectH : DEFAULT_COLLECT_H;
-  $('dishType').value = wk.dishType; $('recipeLv').value = wk.recipeLv;
-  $('recipePick').value = wk.recipePick; $('recipeScope').value = wk.recipeScope;
+  $('dishType').value = wk.dishType; $('recipeScope').value = wk.recipeScope;
   $('strictBerry').checked = wk.strictBerry !== false;
   $('oneSpecial').checked = wk.oneSpecial !== false;
   syncRecipeCount();
-  const auto = wk.recipePick === 'auto';
-  $('recipe').disabled = auto;
-  $('recipe').style.opacity = auto ? .5 : 1;
-  $('recipeAutoNote').textContent = auto ? '（自動模式下由推演決定，這裡只是備援）' : '';
-  $('recipeIngs').style.opacity = auto ? .5 : 1;
-  $('dishType').disabled = auto && wk.recipeScope === 'all';
+  /* 三類都比較時「料理類型」不影響推演，留著可改會讓人以為有作用。 */
+  $('dishType').disabled = wk.recipeScope === 'all';
   for (const el of $('favBerries').querySelectorAll('[data-berry]'))
     el.setAttribute('aria-pressed', wk.fav.has(el.dataset.berry) ? 'true' : 'false');
   syncTeamTypeUI();
   syncExUI();
   syncEvtUI();
-  fillRecipes();
 }
 /** 整隊限定屬性的下拉與說明。
  *
@@ -825,7 +799,7 @@ function syncTeamTypeUI(){
   sel.value = wk.teamType || '';
   const n = wk.teamType ? hit(wk.teamType) : 0;
   $('teamTypeNote').textContent = !wk.teamType
-    ? '不限＝照常推演'
+    ? '要整隊同一種屬性時才選'
     : `只推薦每一隻都有${tyz(wk.teamType)}屬性的隊伍（雙屬性任一符合即可）・目前可用 ${n} 隻`;
   /* 三件事要講，而且**要分岔**（收斂成同一句就是 2e 節那一類 bug 的溫床）：
        ① 讀進來的值認不得 → 已經退回「不限」（放寬了，一定要出聲）
@@ -873,8 +847,9 @@ function syncExUI(){
     msg.push(`EX 營地是 <b>1 種主要 ＋ 2 種其他</b>喜好樹果（共 3 種），你現在勾了 <b>${fav.length}</b> 種`
       + ` —— 照樣算得出來，但那和遊戲裡的狀態不一樣。`);
   note.hidden = !msg.length;
-  /* 'span2' 要一起寫回去 —— 這個 div 在 .wk 的 grid 裡，掉了就只佔一欄。 */
-  note.className = 'notice warn span2';
+  /* 'wide' 要一起寫回去 —— 這個 div 在 .wkplan 的 grid 裡，掉了就只佔一欄
+     （而且會擠在研究區域那一列的角落，手機上變成窄長的一條）。 */
+  note.className = 'notice warn wide';
   note.innerHTML = msg.join('<br>');
 }
 /** 本週活動加成的五組控制項。**任何島都生效**，所以不像 EX 那兩個會整個藏起來 ——
@@ -2583,7 +2558,9 @@ async function run(){
   const active = roster.filter(m => !m.ex);
   if (active.length < 5){ $('results').innerHTML = `<div class="notice warn">${RUN_ERR.few(active.length)}</div>`; return; }
   if (EX_ISLANDS[wk.island] && !wk.favMain){ $('results').innerHTML = `<div class="notice warn">${RUN_ERR.exNoMain()}</div>`; return; }
-  wk.recipe = D.recipes.find(r=>r.n===wk.recipeName) || D.recipes[0];
+  /* `wk.recipe` 在自動模式下只是「一道都煮不出來」時的備援。挑本週類型的，
+     不要退回 D.recipes[0]（那可能是別的類型）。 */
+  wk.recipe = D.recipes.find(r=>r.n===wk.recipeName) || D.recipes.find(r=>r.t===wk.dishType) || D.recipes[0];
   buildPool(wk);                       // renderResults 的 rankRecipesForTeam 需要 POOL
   if (!POOL.length){ $('results').innerHTML = `<div class="notice warn">${RUN_ERR.nopool()}</div>`; return; }
   roster.forEach(m => { m._bs = baseStats(m, wk); });   // memberCard 需要 _bs
@@ -2939,6 +2916,45 @@ function recipeNewTag(r){
     : ` <span class="tag rnew" title="這道還沒解鎖。隊伍湊得出食材就煮得出來，煮第一次就解鎖，&#10;所以推演以 Lv${RECIPE_NEW_LV} 計算（實際煮幾次之後等級會往上爬，這裡是保守估計）。">未解鎖・Lv${RECIPE_NEW_LV}</span>`;
 }
 
+/** 這支隊伍一週的食材**湊得出**、但還沒解鎖的食譜（使用者 2026-09-28 要求提醒）。
+ *
+ *  「湊得出」＝ 放得進鍋子，而且一週產出的每一味都夠煮一次。看的是**整週的產出**，
+ *  不是排完程之後剩下的 —— 排程沒選的那幾道，拿一餐去煮就會搶走別道的食材，
+ *  所以文案要講出那個代價。
+ *
+ *  範圍是 `POOL`（本週的料理類型／考慮範圍）：遊戲裡一週只煮一種類型，別的類型
+ *  湊得出也煮不到。`planned` 是 21 餐排程裡煮了幾次（0 ＝ 排程沒選）。 */
+function lockedCookable(r){
+  const planned = new Map();
+  if (r.mp) for (const x of r.mp.plan) planned.set(x.r.n, (planned.get(x.r.n) || 0) + x.n);
+  const out = [];
+  for (const c of POOL){
+    if (recipeOn(c.r, wk) || c.cnt > r.potEff) continue;
+    let n = Infinity;
+    for (const [i,a] of c.r.ings) n = Math.min(n, Math.floor(r.wIng[i]/a));
+    if (n < 1) continue;
+    out.push({rec: c.r, n: Math.min(MEALS_WEEK, n), planned: planned.get(c.r.n) || 0});
+  }
+  /* 排程裡有的排前面（照次數），其餘維持 POOL 的順序（單道能量高→低）。 */
+  out.sort((a,b) => (b.planned > 0) - (a.planned > 0) || b.planned - a.planned);
+  return out;
+}
+const UNLOCK_LIST_MAX = 6;
+/** 「這週可以解鎖新食譜」的提醒。沒有就不出聲。 */
+function unlockNotice(r){
+  const list = lockedCookable(r);
+  if (!list.length) return '';
+  const inPlan = list.filter(x => x.planned > 0), other = list.filter(x => !x.planned);
+  const names = (xs, f) => xs.slice(0, UNLOCK_LIST_MAX).map(f).join('、')
+    + (xs.length > UNLOCK_LIST_MAX ? ` …等 ${xs.length} 道` : '');
+  return `<div class="notice" data-unl>🔓 <b>這週的食材湊得出 ${list.length} 道還沒解鎖的食譜</b>`
+    + ` —— 在遊戲裡煮一次就會解鎖。推演先以 Lv${RECIPE_NEW_LV} 計算。`
+    + (inPlan.length ? `<br><b>排程裡已經會煮到</b>：${names(inPlan, x => `${recipeZh(x.rec.n)} ×${x.planned}`)}` : '')
+    + (other.length ? `<br><b>湊得出但排程沒選</b>：${names(other, x => `${recipeZh(x.rec.n)}（可煮 ${x.n} 次）`)}`
+        + `<span class="muted">　—— 拿一餐去煮就能解鎖，代價是那一餐的分數比排程選的低、也會用掉別道的食材</span>` : '')
+    + `<br><span class="muted">煮過之後，記得到「食譜等級」分頁按「解鎖」並填上等級，之後的推演才會用實際等級算。</span></div>`;
+}
+
 /* 一支隊伍的完整詳情：5 個 panel（成員卡＋能量拆解／食材缺口／最能煮的食譜／21 餐排程）。
  *
  * **推演分頁與「自組隊伍」分頁共用這一份。** 和 `monCard` 同時給寶可夢箱與截圖校對區用、
@@ -2965,8 +2981,9 @@ function teamDetailHTML(r, opts){
   for (let k=0;k<NING;k++) if (!recipeIngs.has(k) && r.wIng[k] > 15) extra.push([k, r.wIng[k]]);
   extra.sort((a,b)=>b[1]-a[1]);
 
-  const warn = !r.fits ? `<div class="notice warn">鍋子容量不足：這道食譜需要 ${TR.cnt} 個食材，你目前平日有效容量 ${r.potEff}。換小一點的食譜，或把「食譜選擇」切到自動配對讓它自己挑。</div>` : '';
+  const warn = !r.fits ? `<div class="notice warn">鍋子容量不足：這道食譜需要 ${TR.cnt} 個食材，你目前平日有效容量 ${r.potEff}。加大鍋子容量，或帶好露營券（鍋 ×1.5）。</div>` : '';
   const util = ingUtilNotice(r);
+  const unl = unlockNotice(r);
   const bn = r.bottleneck!=null ? iz(ING_NAME[r.bottleneck]) : '—';
 
   /* 「多久上去收一次」是**整隊**的問題 —— 一次上線全部一起收，所以由**最先到頂的
@@ -2989,8 +3006,8 @@ function teamDetailHTML(r, opts){
   ].join('&#10;');
 
   return `
-  ${warn}${util}
-  <div class="panel hero" style="margin-top:${warn||util?'12px':'0'}">
+  ${warn}${util}${unl && (warn||util) ? `<div style="margin-top:8px">${unl}</div>` : unl}
+  <div class="panel hero" style="margin-top:${warn||util||unl?'12px':'0'}">
     <div class="roster">
       <div class="eyebrow">${O.rosterLabel || '建議先發 5 隻'}</div>
       ${r.idxs.map((i,n)=>memberCard(n+1, i, r, r.outs[n])).join('')}
@@ -3038,13 +3055,12 @@ function teamDetailHTML(r, opts){
     <div class="panel">
       <div class="phead"><h3>這隊最能煮的食譜</h3><span class="muted" style="font-size:12px">以目前產量排序 ·「卡在」＝最缺的那一味</span></div>
       <div class="pbody" style="padding:0"><div class="scroll" style="border:0">
-      <table><thead><tr><th>食譜</th><th style="text-align:right">煮/週</th><th>卡在</th><th style="text-align:right">週能量</th><th></th></tr></thead>
-      <tbody>${rankRecipesForTeam(r, wk).slice(0,7).map(x=>`<tr${x.rec.n===wk.recipe.n?' style="background:color-mix(in srgb,var(--accent) 12%,transparent)"':''}>
+      <table><thead><tr><th>食譜</th><th style="text-align:right">煮/週</th><th>卡在</th><th style="text-align:right">週能量</th></tr></thead>
+      <tbody>${rankRecipesForTeam(r, wk).slice(0,7).map(x=>`<tr${x.rec.n===TR.n?' style="background:color-mix(in srgb,var(--accent) 12%,transparent)"':''}>
         <td>${recipeZh(x.rec.n)} <span class="muted num">共${x.rec.cnt}</span>${recipeNewTag(x.rec)}${x.fits?'':' <span class="tag pin">鍋子不足</span>'}</td>
         <td class="n" style="text-align:right">${x.capped}</td>
         <td class="muted" style="font-size:11.5px">${x.capped < MEALS_WEEK && x.bn != null ? iz(ING_NAME[x.bn]) : '—'}</td>
-        <td class="n" style="text-align:right">${fmt(x.strength)}</td>
-        <td><button class="btn sm ghost" data-setrecipe="${x.rec.n}">設為目標</button></td></tr>`).join('')}
+        <td class="n" style="text-align:right">${fmt(x.strength)}</td></tr>`).join('')}
       </tbody></table></div></div>
     </div>
   </div>
@@ -3069,14 +3085,10 @@ function teamDetailHTML(r, opts){
   </div>` : ''}`;
 }
 
-/* 「設為目標」按鈕。詳情 HTML 掛在哪裡就在哪裡綁。
-   `after` 是改完食譜之後要做的事 —— 推演分頁要重跑整個推演（3 萬組，很貴），
-   自組隊伍分頁只要重畫（單隊 scoreTeam 是毫秒級）。 */
-function bindTeamDetail(host, after){
-  host.querySelectorAll('[data-setrecipe]').forEach(b=>b.addEventListener('click', ()=>{
-    wk.recipeName = b.dataset.setrecipe; $('recipe').value = wk.recipeName; syncRecipeIngs(); save();
-    (after || run)();
-  }));
+/* 詳情 HTML 掛在哪裡就在哪裡綁。
+   （以前還有「設為目標」按鈕，隨著「手動指定食譜」的 UI 一起拿掉了 —— 自動模式下
+   它只會重跑一次、得到同樣的結果。） */
+function bindTeamDetail(host){
   /* 成員卡 → 寶可夢箱。回來的時候要回到**這個**分頁（推演或自組隊伍）。 */
   const from = (host.closest('.view') || {id:'view-plan'}).id.replace(/^view-/, '');
   host.querySelectorAll('[data-goto]').forEach(c=>{
@@ -3201,7 +3213,9 @@ function sanitizeTeams(){
  *  把不同原因收斂成同一句正是 2e 節那一類 bug 的溫床（五格都填滿了卻說「還差 0 隻」）。 */
 function prepTeamCalc(){
   if (EX_ISLANDS[wk.island] && !wk.favMain) return 'exNoMain';
-  wk.recipe = D.recipes.find(r=>r.n===wk.recipeName) || D.recipes[0];
+  /* `wk.recipe` 在自動模式下只是「一道都煮不出來」時的備援。挑本週類型的，
+     不要退回 D.recipes[0]（那可能是別的類型）。 */
+  wk.recipe = D.recipes.find(r=>r.n===wk.recipeName) || D.recipes.find(r=>r.t===wk.dishType) || D.recipes[0];
   buildPool(wk);
   if (!POOL.length) return 'nopool';
   roster.forEach(m => { m._bs = baseStats(m, wk); });
@@ -3427,7 +3441,7 @@ function renderTeamDetailPane(){
     : '';
   host.innerHTML = `<div style="margin-top:16px">${tabs}</div>`
     + teamDetailHTML(teams[teamShown].result, {rosterLabel:`隊伍 ${teamShown+1} 的 5 隻`});
-  bindTeamDetail(host, renderTeamsView);
+  bindTeamDetail(host);
 }
 function syncTeamBar(){
   $('tmAdd').disabled = teams.length >= TEAMS_MAX;

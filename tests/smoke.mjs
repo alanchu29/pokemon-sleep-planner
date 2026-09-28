@@ -2873,19 +2873,16 @@ console.log('\n[11p] 食譜等級：沒解鎖的以 Lv1 計');
     togOf(names[0]).click();                       // 再點一次 → 鎖上，等級一起清掉
     const afterOff = {has: names[0] in wk.recipeLevels, on: recipesOn(wk)};
 
-    // ⑤ 「指定食譜」的選單：沒解鎖的也列，但寫明以 Lv1 計
-    wk.recipeLevels = {}; wk.dishType = D.recipes[0].t; fillRecipes();
-    const ofType = D.recipes.filter(x => x.t === wk.dishType).map(x => x.n);
-    const emptyPicker = [...$('recipe').options].map(o => o.value).sort();
-    const curry = ofType.slice(0, 2);
-    wk.recipeLevels = {[curry[0]]: 20}; fillRecipes();
-    const optTxt = n => [...$('recipe').options].find(o => o.value === n).textContent;
-    const label = {on: optTxt(curry[0]), off: optTxt(curry[1])};
+    // ⑤ 「手動指定食譜」與「新解鎖時的等級」已經從 UI 拿掉（使用者 2026-09-28）；
+    //    舊存檔帶 'manual' 進來要收回自動 —— 畫面上已經沒有地方切得回來。
+    const removed = ['recipe', 'recipePick', 'recipeLv', 'recipeIngs'].filter(id => $(id));
+    deserialize({wk: {recipePick: 'manual'}});
+    const pick = wk.recipePick;
+    const countInRecipes = !!$('view-recipes').querySelector('#rlvCount');
 
     wk.recipeLevels = {}; save(); showView('plan');
     return {none, some, dirty, offRow, noneWarn, noneWarnTxt, countTxt, afterOn, afterOff,
-            emptyPicker, want: ofType.slice().sort(), label,
-            total: D.recipes.length};
+            removed, pick, countInRecipes, total: D.recipes.length};
   });
   ok('一道都沒解鎖 → 全部進池子，而且全部以 Lv1 計（不是退回「新解鎖時的等級」）',
      r.none.pool === r.total && r.none.on === 0 && r.none.allLv1 && r.none.rvOk, JSON.stringify(r.none));
@@ -2912,11 +2909,9 @@ console.log('\n[11p] 食譜等級：沒解鎖的以 Lv1 計');
   /* 等級的有無就是解鎖狀態 —— 鎖上必須把 key 刪掉，留著就是第二份狀態。 */
   ok('再按一次 = 鎖上，等級一起清掉（沒有第二份狀態）',
      r.afterOff.has === false && r.afterOff.on === 0, JSON.stringify(r.afterOff));
-  /* 自動配對挑得到、手動指定卻選不到的話，兩種模式的食譜範圍就不一樣了。 */
-  ok('「指定食譜」的選單列出這個類型的全部食譜（含沒解鎖的）',
-     r.emptyPicker.join(',') === r.want.join(','), `${r.emptyPicker.length} vs ${r.want.length}`);
-  ok('選單裡沒解鎖的寫明「以 Lv1 計」，已解鎖的不寫',
-     /以 Lv1 計/.test(r.label.off) && !/Lv1/.test(r.label.on), JSON.stringify(r.label));
+  ok('「目標食譜」「食譜選擇」「新解鎖時的等級」都不在畫面上', r.removed.length === 0, r.removed.join(','));
+  ok('舊存檔的「手動指定」收回自動', r.pick === 'auto', r.pick);
+  ok('「已解鎖 N / 78」移到食譜等級分頁', r.countInRecipes === true);
   /* 等級的有無就是解鎖狀態，一個字串髒值會讓 Lv35 的食譜靜靜地退成 Lv1 ——
      所以入口要正規化。舊 JSON／Sheet 都可能帶字串進來。 */
   const rv = await page.evaluate(() => {
@@ -3177,6 +3172,46 @@ console.log('\n[2f] 點成員卡跳到寶可夢箱的那一隻');
   ok('自組隊伍的成員卡也可以跳，而且回到自組隊伍',
      r.team.box && r.team.open[0] === r.team.want && /自組隊伍/.test(r.team.back) && r.team.returned,
      JSON.stringify(r.team));
+}
+
+/* 「這週湊得出還沒解鎖的食譜」要提醒（使用者 2026-09-28 要求）。
+   直接拿同一份結果 renderResults()，只改解鎖狀態 —— 重跑的話最佳隊伍可能換掉，
+   「排程裡有／沒有」就不受控了。 */
+console.log('\n[2g] 這週湊得出還沒解鎖的食譜時要提醒');
+{
+  await doRun();
+  const r = await page.evaluate(() => {
+    const r0 = lastResults[0];
+    renderResults();
+    const before = !!$('results').querySelector('[data-unl]');
+    const cook = c => c.cnt <= r0.potEff && c.r.ings.every(([i,a]) => r0.wIng[i] >= a);
+    const inPlan = new Set(r0.mp.plan.map(x => x.r.n));
+    const A = POOL.find(c => cook(c) && inPlan.has(c.r.n));
+    const B = POOL.find(c => cook(c) && !inPlan.has(c.r.n));
+    const C = POOL.find(c => !cook(c));
+    const saved = {...wk.recipeLevels};
+    for (const c of [A, B, C]) if (c) delete wk.recipeLevels[c.r.n];
+    renderResults();
+    const el = $('results').querySelector('[data-unl]');
+    const txt = el ? el.textContent : '';
+    const nA = A ? r0.mp.plan.filter(x => x.r.n === A.r.n).reduce((s, x) => s + x.n, 0) : 0;
+    // 同一份提醒也要出現在自組隊伍
+    teams = [newTeam()]; teams[0].members = r0.idxs.slice(); teamShown = 0; showView('team');
+    const team = !!$('teamDetail').querySelector('[data-unl]');
+    showView('plan');
+    wk.recipeLevels = saved; renderResults();
+    const after = !!$('results').querySelector('[data-unl]');
+    return {before, after, team, txt,
+            A: A && recipeZh(A.r.n), nA, B: B && recipeZh(B.r.n), C: C && recipeZh(C.r.n)};
+  });
+  ok('全部解鎖時不出聲', r.before === false && r.after === false, `${r.before} ${r.after}`);
+  ok('排程裡會煮到的未解鎖食譜要列出來，含次數',
+     !!r.A && r.txt.includes(`排程裡已經會煮到`) && r.txt.includes(`${r.A} ×${r.nA}`), r.txt.slice(0, 160));
+  ok('湊得出但排程沒選的也要列出來，並寫出代價',
+     !r.B || (r.txt.includes('湊得出但排程沒選') && r.txt.includes(r.B) && /代價/.test(r.txt)), `B=${r.B}`);
+  ok('湊不出來的不列', !r.C || !r.txt.includes(r.C), `C=${r.C}`);
+  ok('提醒要講「煮過之後去食譜等級分頁解鎖」', /食譜等級/.test(r.txt) && /解鎖/.test(r.txt));
+  ok('自組隊伍也看得到同一份提醒', r.team === true);
 }
 
 /* 推演結果存的是**跑那一刻**的 roster 索引。刪掉一隻會讓後面的索引整批前移，

@@ -14,7 +14,7 @@
      這裡、下面載入器的 ASSET_V、以及 src/app.js 的 APP_V。
      光靠 ?v= 只是降低機率，APP_V 的斷言才會真的擋下過期的 app.js。
      tests/smoke.mjs 第 11 節會斷言三處一致。 -->
-<link rel="stylesheet" href="./src/app.css?v=20260928c">
+<link rel="stylesheet" href="./src/app.css?v=20260928d">
 </head>
 <body>
 <div class="wrap">
@@ -45,40 +45,20 @@
     <span class="muted" style="font-size:12.5px">每週一重置後更新這一區</span>
   </div>
   <div class="panel"><div class="pbody">
-    <div class="wk">
+    <!-- 分組是按「這個值從哪裡來」：前三組是**遊戲裡這一週的事實**（照著遊戲畫面填），
+         最後一組是**你想要什麼樣的推薦**（偏好）。混在同一個 grid 裡的時候，使用者分不出
+         哪些是「照抄就好」、哪些是「要想一下」。
+         三個 .wk 共用同一個欄寬（auto-fill），所以跨組的欄位會上下對齊。 -->
+    <div class="wkseg">島嶼與樹果</div>
+    <div class="wk wkplan">
       <label class="f">研究區域
         <select id="island"></select>
       </label>
       <label class="f">地區加成 %
         <input type="number" id="areaBonus" min="0" max="85" step="5" value="15">
       </label>
-      <label class="f">鍋子容量
-        <input type="number" id="pot" min="21" max="81" step="1" value="57">
-      </label>
-      <label class="f">睡眠時數
-        <input type="number" id="sleepH" min="1.5" max="13" step="0.5" value="8.5">
-      </label>
-      <label class="f">白天多久收一次
-        <input type="number" id="collectH" min="0.5" max="16" step="0.5" value="4">
-        <span class="hint">上線點收的間隔（小時）</span>
-      </label>
-      <label class="f">好露營券
-        <select id="camp"><option value="0">沒有</option><option value="1">有</option></select>
-        <span class="hint">頻率／容量 ×1.2、鍋 ×1.5</span>
-      </label>
-      <label class="f">最佳化目標
-        <select id="mode">
-          <option value="total">綜合週能量</option>
-          <option value="dish">衝料理</option>
-          <option value="berry">衝樹果</option>
-        </select>
-        <span class="hint">綜合 ＝ 樹果＋料理＋技能</span>
-      </label>
-      <label class="f span2">本週加成樹果（萌綠之島／EX 營地自選 3 種）
-        <div class="chips" id="favBerries" style="padding-top:2px"></div>
-      </label>
       <!-- EX 營地（專家模式）。**只有選到 EX 島才顯示** —— 這兩個值在普通島不生效，
-           留在畫面上會讓人以為有作用（和「沒解鎖的食譜不列進食譜選單」同一條規則）。
+           留在畫面上會讓人以為有作用。
            三檔的分界是「主要 / 其他喜好 / 非喜好」，副喜好樹果既不加速也不被罰。 -->
       <label class="f" id="favMainWrap" hidden
         title="EX 營地的「幫忙間隔縮短、發動的主技能等級 +1」只有這一種樹果吃得到。&#10;其他喜好樹果不加速也不被罰；非喜好樹果的幫忙間隔會被延長。&#10;選項只列你在「本週加成樹果」勾起來的那幾種。">主要樹果
@@ -95,129 +75,158 @@
         </select>
         <span class="hint">每次移動到 EX 營地重抽</span>
       </label>
-      <div class="span2" id="exNote" hidden></div>
-      <label class="f">料理類型
-        <select id="dishType"><option value="curry">咖哩／燉菜</option><option value="salad">沙拉</option><option value="dessert">甜點／飲料</option></select>
+      <div class="wide" id="exNote" hidden></div>
+      <label class="f wide">本週加成樹果（萌綠之島／EX 營地自選 3 種）
+        <div class="chips" id="favBerries" style="padding-top:2px"></div>
       </label>
-      <label class="f">食譜選擇
-        <select id="recipePick">
-          <option value="auto">自動配對</option>
-          <option value="manual">手動指定一道</option>
-        </select>
-        <span class="hint">自動 ＝ 隊伍與食譜一起算</span>
-      </label>
-      <label class="f">考慮範圍
-        <select id="recipeScope">
-          <option value="type">只限本週類型</option>
-          <option value="all">三類都比較</option>
-        </select>
-        <span class="hint">比較哪些料理類型</span>
-      </label>
-      <label class="f span2">目標食譜<span id="recipeAutoNote" class="muted" style="font-weight:400"></span>
-        <select id="recipe"></select>
-        <span class="hint" id="recipeIngs"></span>
-      </label>
-      <label class="f" title="按下食譜頁的「解鎖」時，等級先填這個值（之後可以一道一道改）。&#10;沒解鎖的食譜不吃這個值：隊伍湊得出食材就煮得出來（煮第一次就解鎖），推演一律以 Lv1 計。">新解鎖時的等級<span class="muted" style="font-weight:400" id="rlvCount"></span>
-        <input type="number" id="recipeLv" min="1" max="70" step="1" value="20">
-      </label>
-      <!-- 本週活動加成（自訂）。遊戲會辦期間限定的活動，數值每次都不一樣，所以沒有內建表。
-           九個分項分成兩段：**全員**（發動率／樹果／食材／料理／大成功／持有上限）與
-           **屬性限定**（撿來的食材／發動率／主技能等級，各自帶一個屬性下拉）。
-
-           **和「地區加成」的分別**：地區加成是乘在樹果＋技能＋料理全部上面的總乘數，
-           表示不出「只有料理 +25%」這種活動。**和 EX 營地效果的分別**：EX 那三種是
-           固定數值而且只打喜好樹果；這幾項任何島都生效，和 EX 獨立相乘。
-
-           **分兩段是刻意的**：「打全員還是只打某屬性」是讀這塊 UI 時第一個要知道的事，
-           混在同一個 grid 裡就只能靠使用者自己記得哪三項有下拉。 -->
-
-      <!-- 摺起來時 summary 會寫出生效項目（含是哪一個屬性）—— 這個 repo 的紅線是
-           「不能讓人看不出為什麼那個數字沒被算」，只要 summary 講出來，摺起來也騙不了人。 -->
-      <details class="span2 evtbox" id="evtBox">
-        <summary>本週活動加成<span class="evtsum" id="evtSum"></span></summary>
-        <div class="evtgrid">
-          <div class="evtrow">
-            <label class="evtck"><input type="checkbox" id="evtSkillOn">主技能發動率</label>
-            <span class="evtnum">+<input type="number" id="evtSkillV" min="0" max="300" step="5" value="0">%</span>
-            <span class="hint">和 EX 的 &times;1.25 相乘。已經撞到「每段最多累積 1~2 次」上限的高頻技能型吃不到，那是對的。</span>
-          </div>
-          <div class="evtrow">
-            <label class="evtck"><input type="checkbox" id="evtBerryOn">樹果能量</label>
-            <span class="evtnum">+<input type="number" id="evtBerryV" min="0" max="300" step="5" value="0">%</span>
-            <span class="hint">只算<b>幫忙撿來</b>的樹果；主技能發出的樹果（樹果遽增／流星群）不吃。</span>
-          </div>
-          <div class="evtrow">
-            <label class="evtck"><input type="checkbox" id="evtIngOn">食材獲得量</label>
-            <span class="evtnum">+<input type="number" id="evtIngV" min="0" max="300" step="5" value="0">%</span>
-            <span class="hint">只算<b>幫忙撿來</b>的食材；主技能灑的（食材獲取S 那類）不吃。背包會更快滿。</span>
-          </div>
-          <div class="evtrow">
-            <label class="evtck"><input type="checkbox" id="evtDishOn">料理能量</label>
-            <span class="evtnum">+<input type="number" id="evtDishV" min="0" max="300" step="5" value="0">%</span>
-            <span class="hint">整鍋一起放大，含填進鍋子空位的食材。樹果與主技能不受影響。</span>
-          </div>
-          <div class="evtrow">
-            <label class="evtck"><input type="checkbox" id="evtCritOn">大成功機率</label>
-            <span class="evtnum">+<input type="number" id="evtCritV" min="0" max="90" step="5" value="0"><span class="evtpp">個百分點</span></span>
-            <span class="hint">平日 10%&rarr;10+N%、週日 30%&rarr;30+N%。<b>單位是百分點，不是倍率</b>。</span>
-          </div>
-          <div class="evtrow">
-            <label class="evtck"><input type="checkbox" id="evtCarryOn">持有上限</label>
-            <span class="evtnum">+<input type="number" id="evtCarryV" min="0" max="50" step="1" value="0"><span class="evtpp">個</span></span>
-            <span class="hint">全隊每一隻都加。和副技能／緞帶同一層，所以<b>好露營券的 &times;1.2 會一起放大它</b>（+8 變 +9.6）。背包會更慢滿。</span>
-          </div>
-        </div>
-        <!-- 屬性限定的三項另成一段。**「打全員還是只打某屬性」是讀這塊 UI 時第一個要知道的事** ——
-             混在同一個 grid 裡，就只能靠使用者自己記得哪三項有下拉。分段小標比註解可靠。 -->
-        <div class="evtseg">只有特定屬性吃得到</div>
-        <div class="evtgrid">
-          <div class="evtrow">
-            <label class="evtck"><input type="checkbox" id="evtTyIngOn">撿來的食材</label>
-            <span class="evtnum">+<input type="number" id="evtTyIngV" min="0" max="3" step="1" value="0"><span class="evtpp">個</span></span>
-            <select class="evtty" id="evtTyIngTy"></select>
-            <span class="hint">每次幫忙多撿 N 個，和 EX 營地的「食材 +1」同一個位置。背包會更快滿。</span>
-          </div>
-          <div class="evtrow">
-            <label class="evtck"><input type="checkbox" id="evtTySkillOn">主技能發動率</label>
-            <span class="evtnum">+<input type="number" id="evtTySkillV" min="0" max="300" step="5" value="0">%</span>
-            <select class="evtty" id="evtTySkillTy"></select>
-            <span class="hint">和上面那個全員的發動率加成<b>獨立相乘</b>（各 +50% 就是 &times;2.25，不是 +100%）。</span>
-          </div>
-          <div class="evtrow">
-            <label class="evtck"><input type="checkbox" id="evtTySkillLvOn">主技能等級</label>
-            <span class="evtnum">+<input type="number" id="evtTySkillLvV" min="0" max="7" step="1" value="0"><span class="evtpp">級</span></span>
-            <select class="evtty" id="evtTySkillLvTy"></select>
-            <span class="hint">發動時的等級提升 N 級，已經滿級的不會超出。<b>會讓截圖匯入解出錯的技能等級</b>，開著時匯入頁會擋下來。</span>
-          </div>
-        </div>
-        <div class="notice" id="evtNote" hidden></div>
-      </details>
     </div>
-    <label style="display:flex;gap:8px;align-items:flex-start;margin-top:14px;cursor:pointer">
-      <input type="checkbox" id="strictBerry" checked style="margin-top:2px">
-      <span>樹果型只考慮本週加成樹果
-        <span class="muted" style="display:block;font-weight:400;font-size:12.5px;margin-top:2px">
-          樹果型寶可夢的職責是產樹果，不符合本週加成就不列入候選。<b>食材型／技能型／全能型不受影響。</b>
-          關掉的話，樹果型也可能因為主技能（例如食材磁鐵）而入選 —— 總能量會高一些，但那不見得是你要的隊伍。
-        </span>
-      </span>
-    </label>
-    <label style="display:flex;gap:8px;align-items:flex-start;margin-top:10px;cursor:pointer">
-      <input type="checkbox" id="oneSpecial" checked style="margin-top:2px">
-      <span>特別寶可夢同隊最多一隻
-        <span class="muted" style="display:block;font-weight:400;font-size:12.5px;margin-top:2px">
-          傳說／幻獸那一類（箱子裡標 <b>⭐ 特別</b>）在遊戲裡<b>同一隊只能放一隻</b>。
-          <b>這一條和上面那條不同 —— 它是遊戲的規則，不是取捨</b>：關掉的話推演算得出更高的分數，
-          但那支隊伍你在遊戲裡根本組不出來。
-          <b>📌 固定的成員不受此限</b>：固定兩隻就是兩隻，你的個別指定優先。
-        </span>
-      </span>
-    </label>
-    <label class="f" style="margin-top:12px">整隊限定屬性
-      <select id="teamType"></select>
-      <span class="hint" id="teamTypeNote">不限＝照常推演</span>
-    </label>
+    <div class="wkpair">
+      <div>
+        <div class="wkseg">料理</div>
+        <div class="wk wkplan">
+          <label class="f">料理類型
+            <select id="dishType"><option value="curry">咖哩／燉菜</option><option value="salad">沙拉</option><option value="dessert">甜點／飲料</option></select>
+          </label>
+          <label class="f">考慮範圍
+            <select id="recipeScope">
+              <option value="type">只限本週類型</option>
+              <option value="all">三類都比較</option>
+            </select>
+            <span class="hint">比較哪些料理類型</span>
+          </label>
+          <label class="f">鍋子容量
+            <input type="number" id="pot" min="21" max="81" step="1" value="57">
+          </label>
+        </div>
+      </div>
+      <div>
+        <div class="wkseg">作息與道具</div>
+        <div class="wk wkplan">
+          <label class="f">睡眠時數
+            <input type="number" id="sleepH" min="1.5" max="13" step="0.5" value="8.5">
+          </label>
+          <label class="f">白天多久收一次
+            <input type="number" id="collectH" min="0.5" max="16" step="0.5" value="4">
+            <span class="hint">上線點收的間隔（小時）</span>
+          </label>
+          <label class="f">好露營券
+            <select id="camp"><option value="0">沒有</option><option value="1">有</option></select>
+            <span class="hint">頻率／容量 ×1.2、鍋 ×1.5</span>
+          </label>
+        </div>
+      </div>
+    </div>
+    <!-- 本週活動加成（自訂）。遊戲會辦期間限定的活動，數值每次都不一樣，所以沒有內建表。
+         九個分項分成兩段：**全員**（發動率／樹果／食材／料理／大成功／持有上限）與
+         **屬性限定**（撿來的食材／發動率／主技能等級，各自帶一個屬性下拉）。
+
+         **和「地區加成」的分別**：地區加成是乘在樹果＋技能＋料理全部上面的總乘數，
+         表示不出「只有料理 +25%」這種活動。**和 EX 營地效果的分別**：EX 那三種是
+         固定數值而且只打喜好樹果；這幾項任何島都生效，和 EX 獨立相乘。
+
+         **分兩段是刻意的**：「打全員還是只打某屬性」是讀這塊 UI 時第一個要知道的事，
+         混在同一個 grid 裡就只能靠使用者自己記得哪三項有下拉。 -->
+
+    <!-- 摺起來時 summary 會寫出生效項目（含是哪一個屬性）—— 這個 repo 的紅線是
+         「不能讓人看不出為什麼那個數字沒被算」，只要 summary 講出來，摺起來也騙不了人。 -->
+    <details class="evtbox" id="evtBox">
+      <summary>本週活動加成<span class="evtsum" id="evtSum"></span></summary>
+      <div class="evtgrid">
+        <div class="evtrow">
+          <label class="evtck"><input type="checkbox" id="evtSkillOn">主技能發動率</label>
+          <span class="evtnum">+<input type="number" id="evtSkillV" min="0" max="300" step="5" value="0">%</span>
+          <span class="hint">和 EX 的 &times;1.25 相乘。已經撞到「每段最多累積 1~2 次」上限的高頻技能型吃不到，那是對的。</span>
+        </div>
+        <div class="evtrow">
+          <label class="evtck"><input type="checkbox" id="evtBerryOn">樹果能量</label>
+          <span class="evtnum">+<input type="number" id="evtBerryV" min="0" max="300" step="5" value="0">%</span>
+          <span class="hint">只算<b>幫忙撿來</b>的樹果；主技能發出的樹果（樹果遽增／流星群）不吃。</span>
+        </div>
+        <div class="evtrow">
+          <label class="evtck"><input type="checkbox" id="evtIngOn">食材獲得量</label>
+          <span class="evtnum">+<input type="number" id="evtIngV" min="0" max="300" step="5" value="0">%</span>
+          <span class="hint">只算<b>幫忙撿來</b>的食材；主技能灑的（食材獲取S 那類）不吃。背包會更快滿。</span>
+        </div>
+        <div class="evtrow">
+          <label class="evtck"><input type="checkbox" id="evtDishOn">料理能量</label>
+          <span class="evtnum">+<input type="number" id="evtDishV" min="0" max="300" step="5" value="0">%</span>
+          <span class="hint">整鍋一起放大，含填進鍋子空位的食材。樹果與主技能不受影響。</span>
+        </div>
+        <div class="evtrow">
+          <label class="evtck"><input type="checkbox" id="evtCritOn">大成功機率</label>
+          <span class="evtnum">+<input type="number" id="evtCritV" min="0" max="90" step="5" value="0"><span class="evtpp">個百分點</span></span>
+          <span class="hint">平日 10%&rarr;10+N%、週日 30%&rarr;30+N%。<b>單位是百分點，不是倍率</b>。</span>
+        </div>
+        <div class="evtrow">
+          <label class="evtck"><input type="checkbox" id="evtCarryOn">持有上限</label>
+          <span class="evtnum">+<input type="number" id="evtCarryV" min="0" max="50" step="1" value="0"><span class="evtpp">個</span></span>
+          <span class="hint">全隊每一隻都加。和副技能／緞帶同一層，所以<b>好露營券的 &times;1.2 會一起放大它</b>（+8 變 +9.6）。背包會更慢滿。</span>
+        </div>
+      </div>
+      <!-- 屬性限定的三項另成一段。**「打全員還是只打某屬性」是讀這塊 UI 時第一個要知道的事** ——
+           混在同一個 grid 裡，就只能靠使用者自己記得哪三項有下拉。分段小標比註解可靠。 -->
+      <div class="evtseg">只有特定屬性吃得到</div>
+      <div class="evtgrid">
+        <div class="evtrow">
+          <label class="evtck"><input type="checkbox" id="evtTyIngOn">撿來的食材</label>
+          <span class="evtnum">+<input type="number" id="evtTyIngV" min="0" max="3" step="1" value="0"><span class="evtpp">個</span></span>
+          <select class="evtty" id="evtTyIngTy"></select>
+          <span class="hint">每次幫忙多撿 N 個，和 EX 營地的「食材 +1」同一個位置。背包會更快滿。</span>
+        </div>
+        <div class="evtrow">
+          <label class="evtck"><input type="checkbox" id="evtTySkillOn">主技能發動率</label>
+          <span class="evtnum">+<input type="number" id="evtTySkillV" min="0" max="300" step="5" value="0">%</span>
+          <select class="evtty" id="evtTySkillTy"></select>
+          <span class="hint">和上面那個全員的發動率加成<b>獨立相乘</b>（各 +50% 就是 &times;2.25，不是 +100%）。</span>
+        </div>
+        <div class="evtrow">
+          <label class="evtck"><input type="checkbox" id="evtTySkillLvOn">主技能等級</label>
+          <span class="evtnum">+<input type="number" id="evtTySkillLvV" min="0" max="7" step="1" value="0"><span class="evtpp">級</span></span>
+          <select class="evtty" id="evtTySkillLvTy"></select>
+          <span class="hint">發動時的等級提升 N 級，已經滿級的不會超出。<b>會讓截圖匯入解出錯的技能等級</b>，開著時匯入頁會擋下來。</span>
+        </div>
+      </div>
+      <div class="notice" id="evtNote" hidden></div>
+    </details>
+
+    <div class="wkseg">推薦偏好</div>
+    <div class="wk wkplan">
+      <label class="f">最佳化目標
+        <select id="mode">
+          <option value="total">綜合週能量</option>
+          <option value="dish">衝料理</option>
+          <option value="berry">衝樹果</option>
+        </select>
+        <span class="hint">綜合 ＝ 樹果＋料理＋技能</span>
+      </label>
+      <label class="f w2">整隊限定屬性
+        <select id="teamType"></select>
+        <span class="hint" id="teamTypeNote">不限＝照常推演</span>
+      </label>
+    </div>
     <div class="notice" id="teamTypeWarnBox" hidden></div>
+    <div class="wkcks">
+      <label class="wkck">
+        <input type="checkbox" id="strictBerry" checked>
+        <span>樹果型只考慮本週加成樹果
+          <span class="muted" style="display:block;font-weight:400;font-size:12.5px;margin-top:2px">
+            樹果型寶可夢的職責是產樹果，不符合本週加成就不列入候選。<b>食材型／技能型／全能型不受影響。</b>
+            關掉的話，樹果型也可能因為主技能（例如食材磁鐵）而入選 —— 總能量會高一些，但那不見得是你要的隊伍。
+          </span>
+        </span>
+      </label>
+      <label class="wkck">
+        <input type="checkbox" id="oneSpecial" checked>
+        <span>特別寶可夢同隊最多一隻
+          <span class="muted" style="display:block;font-weight:400;font-size:12.5px;margin-top:2px">
+            傳說／幻獸那一類（箱子裡標 <b>⭐ 特別</b>）在遊戲裡<b>同一隊只能放一隻</b>。
+            <b>這一條和「樹果型只考慮本週加成樹果」不同 —— 它是遊戲的規則，不是取捨</b>：關掉的話推演算得出更高的分數，
+            但那支隊伍你在遊戲裡根本組不出來。
+            <b>📌 固定的成員不受此限</b>：固定兩隻就是兩隻，你的個別指定優先。
+          </span>
+        </span>
+      </label>
+    </div>
     <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-top:16px">
       <button class="btn primary" id="runBtn" type="button">推演最佳隊伍</button>
       <button class="btn" id="cancelBtn" type="button" hidden>取消</button>
@@ -542,6 +551,7 @@
       </label>
       <button class="btn sm" id="rlvAllOn" type="button" title="把目前篩選看得到的那幾道全部解鎖（已經有等級的不會被蓋掉）">全部解鎖</button>
       <button class="btn sm" id="rlvAllOff" type="button" title="把目前篩選看得到的那幾道全部標成「還沒解鎖」—— 會清掉它們的等級，所以會再問一次">全部鎖上</button>
+      <span class="status" id="rlvCount"></span>
     </div>
     <div class="notice" style="margin-bottom:12px"><b>有填等級 ＝ 已解鎖。</b>沒解鎖的食譜在遊戲裡<b>只要鍋子裡湊得齊食材就煮得出來</b>（煮第一次就解鎖），所以推演<b>以 Lv1 計算</b> —— 隊伍的食材剛好湊得出一道還沒煮過的菜時，它照樣會被選進排程，並標上「未解鎖・Lv1」。<br>把你<b>已經解鎖</b>的那幾道按「解鎖」並填上實際等級；其餘維持「鎖上」就好。</div>
     <!-- 一道都沒解鎖 → 推演照跑，但每一道都以 Lv1 計，料理分數明顯偏低。
@@ -594,7 +604,7 @@
       白天的段長就是上面「白天多久收一次」，夜間則是一整段（睡眠時數）。
       <b>技能觸發率越高的越吃虧</b>：哥達鴨（觸發率 20.4%，全圖鑑第 2）在「隨時收取」下算出 18.5 次／日，每 4 小時收一次就只剩 <b>9.75 次（53%）</b>；而觸發率低的達克萊伊（3.8%）幾乎不受影響。
       實測同一支隊伍的總能量：每 3 小時收一次 −6.9%、4 小時 −15.4%、6 小時 −27.1%。</li>
-    <li><b>料理</b>：以「本週能煮成幾次目標食譜」計分，一週上限 21 餐。<b>大成功</b>採週平均 <code class="num">1.171</code>
+    <li><b>料理</b>：以「本週能煮成幾次主食譜」計分，一週上限 21 餐。<b>大成功</b>採週平均 <code class="num">1.171</code>
       ——「平日 10% 機率／能量 ×2、週日 30%／×3」，21 餐 ＝ 18 平日 ＋ 3 週日 加權而來。星期日的鍋子 ×2 與大成功 ×3 已含在平均裡，但<b>沒有</b>單獨最佳化週日那一餐。
       <b>「料理機率提升」系主技能（美味機會S、怪力鉗）的修正（2026-09-11）</b>：這類技能讓<b>下一餐</b>的大成功機率 +4~10 個百分點，
       以前把「每日發動次數」直接當成「每一餐的加成」（少除了一天 3 餐），配上一個對不上平日／週日加權的係數，
@@ -741,7 +751,7 @@ try {
      也放到 window 上：app.js 有一份自己的 APP_V，兩者不符就整頁擋下來。
      理由和 game.json 的 SCHEMA 一樣 —— 過期的 app.js 會靜靜地畫出舊版 UI，
      而使用者只會覺得「你根本沒改」，完全不知道是快取。 */
-  const ASSET_V = '20260928c';
+  const ASSET_V = '20260928d';
   window.ASSET_V = ASSET_V;
   for (const src of ['./src/engine.js', './src/import.js', './src/app.js']) {
     await new Promise((ok, bad) => {

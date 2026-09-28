@@ -87,6 +87,27 @@ input[type=range]{width:100%;accent-color:var(--accent)}
 .wk .span2{grid-column:span 2}
 @media(max-width:640px){.wk .span2{grid-column:span 1}}
 
+/* ---- 本週條件的分組版面（.wkplan）----
+   四組：島嶼與樹果／料理／作息與道具（這三組是照遊戲畫面填的事實）＋ 推薦偏好。
+   用 auto-**fill** 而不是 auto-fit：欄位少的那組不會被撐成三四百 px 寬的輸入框，
+   而且各組的欄寬一致，看起來是對齊的。
+   ⚠ 不要用 `span N`（N>1）排寬欄位 —— 欄數不夠時會長出隱含欄，整頁橫向捲動（第 13 節）。
+   要寬就 `1/-1`；`.w2` 只在確定至少有 2 欄的地方用（手機版固定 2 欄）。 */
+.wkplan{grid-template-columns:repeat(auto-fill,minmax(160px,1fr))}
+.wkplan .wide{grid-column:1/-1}
+.wkplan .w2{grid-column:span 2}
+.wkseg{font-size:12px;font-weight:700;letter-spacing:.04em;color:var(--ink-2);
+  margin:18px 0 10px;padding-bottom:5px;border-bottom:1px solid var(--line)}
+.pbody>.wkseg:first-child,.wkpair .wkseg{margin-top:0}
+.wkpair{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,400px),1fr));gap:18px 28px;margin-top:18px}
+.pbody>.evtbox{margin-top:18px}
+.wkplan+.notice{margin-top:10px}
+.wkcks{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,380px),1fr));gap:12px 28px;margin-top:14px}
+.wkck{display:flex;gap:8px;align-items:flex-start;cursor:pointer}
+.wkck input{margin-top:2px}
+/* 手機：短欄位兩個一排，不要一個欄位佔一整行把這一區拉成三個螢幕長。 */
+@media(max-width:640px){.wkplan{grid-template-columns:repeat(2,minmax(0,1fr))}}
+
 /* ---- 本週活動加成（自訂）----
    自己一塊框線，**刻意不長得像旁邊的料理欄** —— 它擺在料理控制項下方，沒有框線的話
    會被讀成「料理設定的一部分」，而裡面有三項（技能／樹果／食材）和料理無關。 */
