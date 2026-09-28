@@ -74,9 +74,8 @@ await page.evaluate(() => {
     island: 'greengrass', fav: new Set(['ORAN', 'PAMTRE', 'PECHA']), areaBonus: 15, pot: 57,
     sleepH: 8.5, camp: 0, mode: 'total', dishType: 'curry', recipeName: null, recipeLv: 20,
     recipePick: 'auto', recipeScope: 'all', strictBerry: false,
-    /* 沒填等級 ＝ 沒解鎖 ＝ 完全不進池子（engine 的 `recipeOn`），而預設是空的 ——
-       所以這裡一定要自己解鎖，否則 POOL 是空的、searchTeams 直接回 'nopool'，
-       整份驗證會變成在跑一個沒有料理分數的世界。 */
+    /* 沒填等級 ＝ 沒解鎖 ＝ 以 Lv1 計（engine 的 `recipeOn`），而預設是空的 ——
+       所以這裡自己解鎖成 Lv20，驗證的前提才和歷來的量測一致。 */
     recipeLevels: Object.fromEntries(D.recipes.map(r => [r.n, 20])),
   });
   window.__shuffle = (arr, seed) => {

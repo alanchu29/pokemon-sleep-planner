@@ -21,7 +21,7 @@ if (!D || !D.ings || !D.dex || !D.recipes || !D.ms) {
    ASSET_V 擋到的路徑** —— 主執行緒載新引擎、worker 載到快取的舊引擎時，
    搜尋（worker）與 rehydrate／決賽（主執行緒）會用兩套不同的公式，
    不會報錯，只會靜靜地算出對不起來的分數。app.js 會比對這個值。 */
-const ENGINE_V = '20260928a';
+const ENGINE_V = '20260928c';
 
 const ING_NAME = D.ings.map(x=>x[0]);
 const ING_VAL  = D.ings.map(x=>x[1]);
@@ -828,33 +828,48 @@ function getOut(i, roster, wk, ctx, memo){
 }
 
 /* -------- recipe scoring -------- */
-/** 這道食譜**現在煮得出來嗎**。
+/** 這道食譜**已經解鎖了嗎**。
  *
- *  **有設等級 ＝ 已解鎖；沒設 ＝ 還沒解鎖，整個排除。**（使用者 2026-09-10 指定）
- *
- *  以前沒設的會退回 `wk.recipeLv` 那個預設等級，等於假設「你 78 道全都會煮」——
- *  於是推演會圍著使用者**根本煮不出來**的食譜去配隊，而且畫面上完全看不出來。
- *  遊戲裡食譜要煮過才解鎖，沒解鎖的等級欄本來就是空的。
- *
+ *  **有設等級 ＝ 已解鎖；沒設 ＝ 還沒解鎖。**（使用者 2026-09-10 指定）
  *  **單一真實來源：`wk.recipeLevels[r.n]` 的有無。** 不另外開一份「停用清單」——
  *  同一件事有兩個來源就一定會有一個在說謊（和「文案不能寫死檔名」同一類）。
  *
- *  這是**產品規則，不是效能手段**（陷阱 4），所以那三條配套一樣要守：
- *    · **排除的道數要顯示出來**（結果頁的 `comboCount`、食譜頁的 `rlvCount`）
- *    · **一道都沒解鎖時要講清楚**，不可以靜靜地把料理算成 0
- *    · **「指定食譜」的選單只能列出已解鎖的** —— 選得到卻煮不出來就是自相矛盾 */
+ *  ## 沒解鎖 ≠ 煮不出來：湊得出食材就以 Lv1 計（使用者 2026-09-28 指定）
+ *
+ *  2026-09-10 那一版是「沒解鎖 ＝ 整個排除」。但遊戲裡沒解鎖的食譜**只要鍋子裡的
+ *  食材湊得齊就煮得出來**，煮第一次就解鎖成 Lv1 —— 排除它等於假設「你永遠不會煮
+ *  新菜」，而一支新隊伍帶來的食材組合常常正好就是那道還沒煮過的菜。
+ *
+ *  所以現在：**沒解鎖的一律以 `RECIPE_NEW_LV`（Lv1）進池子**，推薦、決賽、21 餐
+ *  排程、「這隊最能煮的食譜」全部用同一個等級（都走 `rlvl`）。「湊得出食材」這個
+ *  條件不用另外寫 —— `rankSingle` / `mealPlan` 本來就只挑 `cooks >= 1` 且
+ *  `cnt <= potEff` 的，湊不齊的那道自然不會被排進去。
+ *
+ *  ⚠ **Lv1 是保守的下界。** 遊戲裡煮過之後等級會隨經驗往上爬，同一週內第 2、3 次
+ *  煮可能已經不是 Lv1 —— 但那要看經驗值曲線，快照沒有。寧可低估也不要編一個係數。
+ *
+ *  配套（改動之後仍然要守）：
+ *    · **解鎖道數要顯示出來**（結果頁的 `comboCount`、食譜頁的 `rlvCount`），
+ *      而且要寫明「其餘以 Lv1 計」—— 不講的話使用者會以為沒解鎖的被排除了
+ *    · **排程表／食譜表裡被選中的未解鎖食譜要標出來**（`recipeNewTag`）——
+ *      「要你去煮一道你還沒煮過的菜」是一個需要被看見的建議
+ *    · **一道都沒解鎖時要講清楚**：推演照跑，但全部以 Lv1 計、數字會偏低 */
 const recipeOn = (r, wk) => {
   const v = wk.recipeLevels && wk.recipeLevels[r.n];
   return typeof v === 'number' && v >= 1;
 };
-/** 已解鎖的道數（給 UI 顯示排除了多少用）。 */
+/** 沒解鎖的食譜第一次煮就解鎖成這個等級，推演一律用它計算。 */
+const RECIPE_NEW_LV = 1;
+/** 已解鎖的道數（給 UI 顯示用）。 */
 const recipesOn = wk => D.recipes.reduce((n, r) => n + (recipeOn(r, wk) ? 1 : 0), 0);
 /* wk 是參數，不是全域 —— 引擎要能在 Worker 裡跑，那裡沒有 app.js 的狀態。
-   **注意 `rlvl` 不管解鎖與否**：它只回答「等級是多少」，要不要納入由 `recipeOn` 決定。
-   食譜頁會拿它顯示「解鎖之後會是幾級」，所以那個 `wk.recipeLv` 的退路要留著。 */
+   **`rlvl` 就是推演採用的等級**：已解鎖回傳填的那個，沒解鎖回傳 `RECIPE_NEW_LV`。
+   以前沒解鎖時退回 `wk.recipeLv`（「按解鎖時先填的等級」），那個值現在只在食譜頁
+   按「解鎖」的那一刻用到，不再是任何計算的輸入 —— 留著退路會讓兩個「沒解鎖時
+   的等級」同時存在，一定有一個在說謊。 */
 const rlvl = (r, wk) => {
   const v = wk.recipeLevels && wk.recipeLevels[r.n];
-  return (typeof v === 'number' && v >= 1) ? Math.min(70, v) : wk.recipeLv;
+  return (typeof v === 'number' && v >= 1) ? Math.min(70, v) : RECIPE_NEW_LV;
 };
 function recipeValue(r, lv){
   let sum = 0; for (const [i,a] of r.ings) sum += a*ING_VAL[i];
@@ -938,10 +953,11 @@ function scoreTeam(idxs, roster, wk, memo){
 let POOL = [];
 function buildPool(wk){
   const all = wk.recipeScope === 'all';
-  /* **沒解鎖的完全不進池子。** 這是候選過濾裡唯一合法的那一種：產品規則
-     （遊戲裡真的煮不出來），不是為了加速。見 recipeOn 的說明與陷阱 4。 */
-  POOL = D.recipes.filter(r => recipeOn(r, wk) && (all || r.t === wk.dishType))
-    .map(r => ({r, rv: recipeValue(r, rlvl(r, wk)), lv: rlvl(r, wk), cnt: r.cnt}))
+  /* **沒解鎖的也進池子，以 Lv1 計**（`rlvl` 已經處理，見 recipeOn 的說明）。
+     湊不湊得出食材由 `rankSingle` / `mealPlan` 的 `cooks >= 1` 決定，這裡不篩。
+     `locked` 只給 UI 標記「這道還沒煮過」用，計算完全不看它。 */
+  POOL = D.recipes.filter(r => all || r.t === wk.dishType)
+    .map(r => ({r, rv: recipeValue(r, rlvl(r, wk)), lv: rlvl(r, wk), cnt: r.cnt, locked: !recipeOn(r, wk)}))
     .sort((a,b) => b.rv - a.rv);
 }
 /** Every recipe this team can sustain, ranked by what spamming it alone would yield. */

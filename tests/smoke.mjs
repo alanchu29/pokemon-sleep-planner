@@ -116,10 +116,9 @@ await page.waitForTimeout(2500);
 /* run() 是非同步的（推演跑在 Worker 裡），所以絕對不要用 waitForTimeout 等結果 ——
    在慢一點的 CI 機器上會 flaky。統一先清掉 lastResults 再等它被填回來。
 
-   **一定要先解鎖食譜。** 產品規則是「沒填等級 ＝ 沒解鎖 ＝ 完全不進池子」
-   （engine 的 `recipeOn`），而 `wk.recipeLevels` 的預設值是空的 —— 所以不補這一段，
-   `run()` 會直接拒跑，`waitForFunction` 就會在每一節 timeout。實際踩過：
-   `recipeOn` 那次改動之後整套測試從第 2 節就掛住。
+   **先把食譜解鎖成 Lv20。** 沒填等級 ＝ 沒解鎖 ＝ 以 Lv1 計（engine 的 `recipeOn`），
+   而 `wk.recipeLevels` 的預設值是空的 —— 不補這一段的話各節都在「全部 Lv1」的世界跑，
+   和這些節寫的時候的前提（2026-09-10 起一直是全部 Lv20）不同。
    只補**沒填過的**，第 3 節的單調性測試才還能自己指定等級。
    「沒解鎖會怎樣」由第 2e 與 11p 節各自涵蓋，不走這條。 */
 const UNLOCK_ALL = `wk.recipeLevels = wk.recipeLevels || {};
@@ -377,7 +376,7 @@ console.log('\n[4] 窮舉不變量 — 結果只能取決於箱子內容，不�
     const mkWk = (strictBerry) => ({ island:'greengrass', fav:new Set(FAV), areaBonus:15,
       pot:57, sleepH:8.5, camp:0, mode:'total', dishType:'curry', recipeName:null, recipeLv:20,
       recipePick:'auto', recipeScope:'all', strictBerry,
-      // 沒填等級 = 沒解鎖 = 不進池子，所以這裡要自己解鎖（見 doRun 的 UNLOCK_ALL）
+      // 沒填等級 = 沒解鎖 = 以 Lv1 計，所以這裡要自己解鎖成 Lv20（見 doRun 的 UNLOCK_ALL）
       recipeLevels: Object.fromEntries(D.recipes.map(r => [r.n, 20])) });
     const shuffle = (arr, seed) => {
       const a = arr.slice(); let s = seed;
@@ -2822,27 +2821,31 @@ console.log('\n[11n] 結果卡：三句話要挑對，代價不准被擠掉');
      `發 ${r.giving.join(',')} / 扣 ${r.drain.join(',')}`);
 }
 
-/* 食譜要「解鎖」才煮得出來（使用者 2026-09-10）。
+/* 食譜的解鎖狀態（使用者 2026-09-10 → 2026-09-28 改）。
    **單一真實來源：`wk.recipeLevels[name]` 的有無就是解鎖狀態**，沒有第二份停用清單。
-   這是候選過濾，所以陷阱 4 的三條配套都要測：排除的道數看得見、一道都沒有時要出聲、
-   「指定食譜」的選單不能列出煮不出來的。 */
-console.log('\n[11p] 食譜等級：沒解鎖的完全不列入推演');
+   2026-09-28 起：沒解鎖的**不排除**，以 `RECIPE_NEW_LV`（Lv1）進池子 —— 遊戲裡湊得出
+   食材就煮得出來、煮第一次就解鎖。所以這裡測：沒解鎖 ＝ Lv1、有填 ＝ 填的等級、
+   UI 照實顯示 Lv1 的數字、「指定食譜」的選單也列得到（並寫明以 Lv1 計）。 */
+console.log('\n[11p] 食譜等級：沒解鎖的以 Lv1 計');
 {
   const r = await page.evaluate(() => {
     const names = D.recipes.slice(0, 4).map(x => x.n);
     wk.recipeLevels = {}; wk.recipeScope = 'all'; wk.recipeLv = 25;
-    // ① 一道都沒解鎖：池子必須是空的，而且不能炸
+    // ① 一道都沒解鎖：全部進池子、全部 Lv1、全部標 locked
     buildPool(wk);
-    const none = {pool: POOL.length, on: recipesOn(wk)};
-    // ② 設了等級的才進池子
+    const none = {pool: POOL.length, on: recipesOn(wk),
+                  allLv1: POOL.every(c => c.lv === RECIPE_NEW_LV && c.locked === true),
+                  rvOk: POOL.every(c => c.rv === recipeValue(c.r, RECIPE_NEW_LV))};
+    // ② 設了等級的用設的那個，其餘仍是 Lv1
     wk.recipeLevels = {[names[0]]: 30, [names[1]]: 10};
     buildPool(wk);
-    const some = {pool: POOL.length, names: POOL.map(c => c.r.n).sort(),
-                  lv: POOL.map(c => [c.r.n, c.lv]).sort()};
-    // ③ 等級是 0／負數／非數字都不算解鎖（舊資料可能有髒值）
+    const lvOf = n => POOL.find(c => c.r.n === n);
+    const some = {pool: POOL.length, a: lvOf(names[0]).lv, b: lvOf(names[1]).lv,
+                  c: lvOf(names[2]).lv, aLocked: lvOf(names[0]).locked, cLocked: lvOf(names[2]).locked};
+    // ③ 等級是 0／負數／非數字都不算解鎖（舊資料可能有髒值）→ 一樣是 Lv1
     wk.recipeLevels = {[names[0]]: 0, [names[1]]: -3, [names[2]]: '20', [names[3]]: null};
     buildPool(wk);
-    const dirty = {pool: POOL.length, on: recipesOn(wk)};
+    const dirty = {on: recipesOn(wk), allLv1: POOL.every(c => c.lv === RECIPE_NEW_LV)};
 
     // ④ UI：解鎖鈕就是在寫 recipeLevels，沒有第二份狀態
     wk.recipeLevels = {}; save();
@@ -2850,62 +2853,72 @@ console.log('\n[11p] 食譜等級：沒解鎖的完全不列入推演');
     renderRecipeLevels();
     const rowOf = n => $('rlvBody').querySelector(`[data-r="${n}"]`);
     const togOf = n => rowOf(n).querySelector('[data-tog]');
+    const cells = n => [...rowOf(n).querySelectorAll('td')].map(td => td.textContent.trim());
+    const r0 = D.recipes[0];
     const offRow = {cls: rowOf(names[0]).className,
                     btn: togOf(names[0]).textContent.trim(),
-                    inputDisabled: rowOf(names[0]).querySelector('[data-rlv]').disabled};
+                    inputDisabled: rowOf(names[0]).querySelector('[data-rlv]').disabled,
+                    mul: cells(names[0])[5], val: cells(names[0])[6],
+                    wantVal: fmt(recipeValue(r0, RECIPE_NEW_LV))};
     const noneWarn = $('rlvNone').hidden === false;
+    const noneWarnTxt = $('rlvNone').textContent;
     const countTxt = $('rlvCount').textContent;
     togOf(names[0]).click();                       // 解鎖 → 填入預設等級
     const afterOn = {lv: wk.recipeLevels[names[0]],
                      btn: togOf(names[0]).textContent.trim(),
                      cls: rowOf(names[0]).className,
                      warnHidden: $('rlvNone').hidden,
-                     count: $('rlvCount').textContent};
+                     count: $('rlvCount').textContent,
+                     val: cells(names[0])[6], wantVal: fmt(recipeValue(r0, 25))};
     togOf(names[0]).click();                       // 再點一次 → 鎖上，等級一起清掉
     const afterOff = {has: names[0] in wk.recipeLevels, on: recipesOn(wk)};
 
-    // ⑤ 「指定食譜」的選單只列已解鎖的
+    // ⑤ 「指定食譜」的選單：沒解鎖的也列，但寫明以 Lv1 計
     wk.recipeLevels = {}; wk.dishType = D.recipes[0].t; fillRecipes();
-    const emptyPicker = [...$('recipe').options].map(o => o.value);
-    const curry = D.recipes.filter(x => x.t === wk.dishType).slice(0, 2).map(x => x.n);
-    wk.recipeLevels = {[curry[0]]: 20, [curry[1]]: 20}; fillRecipes();
-    const picker = [...$('recipe').options].map(o => o.value).sort();
+    const ofType = D.recipes.filter(x => x.t === wk.dishType).map(x => x.n);
+    const emptyPicker = [...$('recipe').options].map(o => o.value).sort();
+    const curry = ofType.slice(0, 2);
+    wk.recipeLevels = {[curry[0]]: 20}; fillRecipes();
+    const optTxt = n => [...$('recipe').options].find(o => o.value === n).textContent;
+    const label = {on: optTxt(curry[0]), off: optTxt(curry[1])};
 
     wk.recipeLevels = {}; save(); showView('plan');
-    return {none, some, dirty, offRow, noneWarn, countTxt, afterOn, afterOff,
-            emptyPicker, picker, want: curry.slice().sort(), n0: names[0],
+    return {none, some, dirty, offRow, noneWarn, noneWarnTxt, countTxt, afterOn, afterOff,
+            emptyPicker, want: ofType.slice().sort(), label,
             total: D.recipes.length};
   });
-  ok('一道都沒解鎖 → 池子是空的（不是退回預設等級全開）',
-     r.none.pool === 0 && r.none.on === 0, JSON.stringify(r.none));
-  ok('有設等級的才進池子，而且等級就是設的那個',
-     r.some.pool === 2 && r.some.lv.every(([, v]) => v === 30 || v === 10),
-     JSON.stringify(r.some));
-  /* 舊資料可能有 0／負數／字串 —— 那些都不是「已解鎖」，不能靜靜地當成 Lv1。 */
-  ok('0／負數／字串／null 都不算解鎖', r.dirty.pool === 0 && r.dirty.on === 0,
+  ok('一道都沒解鎖 → 全部進池子，而且全部以 Lv1 計（不是退回「新解鎖時的等級」）',
+     r.none.pool === r.total && r.none.on === 0 && r.none.allLv1 && r.none.rvOk, JSON.stringify(r.none));
+  ok('有設等級的用設的那個，沒設的仍是 Lv1；locked 旗標跟著解鎖狀態',
+     r.some.pool === r.total && r.some.a === 30 && r.some.b === 10 && r.some.c === 1 &&
+     r.some.aLocked === false && r.some.cLocked === true, JSON.stringify(r.some));
+  /* 舊資料可能有 0／負數／字串 —— 那些都不是「已解鎖」，要當成 Lv1（沒解鎖的預設）。 */
+  ok('0／負數／字串／null 都不算解鎖 → Lv1', r.dirty.on === 0 && r.dirty.allLv1,
      JSON.stringify(r.dirty));
-  /* 藏起來就看不出「為什麼它沒被算」，顯示成正常數字又是說謊 —— 所以變淡但照樣列。 */
-  ok('沒解鎖的那一列變淡、按鈕寫「鎖上」、等級欄不能填',
-     /rlv-off/.test(r.offRow.cls) && /鎖上/.test(r.offRow.btn) && r.offRow.inputDisabled === true,
+  /* 變淡但照樣列，而且倍率／單道能量顯示推演實際採用的 Lv1 數字 —— 顯示「—」的話，
+     使用者會以為它沒被算進去（它有）。 */
+  ok('沒解鎖的那一列變淡、按鈕寫「鎖上」、等級欄不能填，但數字是 Lv1 的',
+     /rlv-off/.test(r.offRow.cls) && /鎖上/.test(r.offRow.btn) && r.offRow.inputDisabled === true &&
+     r.offRow.mul === '×1.00' && r.offRow.val === r.offRow.wantVal,
      JSON.stringify(r.offRow));
-  /* 一道都沒解鎖 ＝ 料理必然 0 分。那是懸崖，不可以靜靜地發生。 */
-  ok('一道都沒解鎖時要跳警告', r.noneWarn === true, String(r.noneWarn));
+  ok('一道都沒解鎖時要跳警告，而且講的是「以 Lv1 計」而不是「推演停下來」',
+     r.noneWarn === true && /Lv1/.test(r.noneWarnTxt) && !/停下來/.test(r.noneWarnTxt), r.noneWarnTxt.slice(0, 80));
   ok('解鎖道數要寫出來（N / 全部）',
      new RegExp(`已解鎖 0 / ${r.total}`).test(r.countTxt), r.countTxt);
-  ok('按「解鎖」= 填入預設等級，按鈕與列同時變狀態',
+  ok('按「解鎖」= 填入預設等級，按鈕、列、單道能量同時變狀態',
      r.afterOn.lv === 25 && /已解鎖/.test(r.afterOn.btn) && !/rlv-off/.test(r.afterOn.cls) &&
-     r.afterOn.warnHidden === true && /已解鎖 1 /.test(r.afterOn.count),
+     r.afterOn.warnHidden === true && /已解鎖 1 /.test(r.afterOn.count) && r.afterOn.val === r.afterOn.wantVal,
      JSON.stringify(r.afterOn));
   /* 等級的有無就是解鎖狀態 —— 鎖上必須把 key 刪掉，留著就是第二份狀態。 */
   ok('再按一次 = 鎖上，等級一起清掉（沒有第二份狀態）',
      r.afterOff.has === false && r.afterOff.on === 0, JSON.stringify(r.afterOff));
-  /* 選得到卻煮不出來就是自相矛盾。 */
-  ok('「指定食譜」的選單只列已解鎖的',
-     r.picker.join(',') === r.want.join(','), `${r.picker.join(',')} vs ${r.want.join(',')}`);
-  ok('一道都沒解鎖時選單要說出來，而不是列一堆煮不出來的',
-     r.emptyPicker.length === 1 && r.emptyPicker[0] === '', JSON.stringify(r.emptyPicker));
-  /* 改成「沒填＝沒解鎖」之後，一個字串髒值的後果從「等級不準」變成「那道菜整個
-     不見」—— 所以入口要正規化。舊 JSON／Sheet 都可能帶字串進來。 */
+  /* 自動配對挑得到、手動指定卻選不到的話，兩種模式的食譜範圍就不一樣了。 */
+  ok('「指定食譜」的選單列出這個類型的全部食譜（含沒解鎖的）',
+     r.emptyPicker.join(',') === r.want.join(','), `${r.emptyPicker.length} vs ${r.want.length}`);
+  ok('選單裡沒解鎖的寫明「以 Lv1 計」，已解鎖的不寫',
+     /以 Lv1 計/.test(r.label.off) && !/Lv1/.test(r.label.on), JSON.stringify(r.label));
+  /* 等級的有無就是解鎖狀態，一個字串髒值會讓 Lv35 的食譜靜靜地退成 Lv1 ——
+     所以入口要正規化。舊 JSON／Sheet 都可能帶字串進來。 */
   const rv = await page.evaluate(() => {
     const n = D.recipes[0].n, m = D.recipes[1].n, z = D.recipes[2].n;
     deserialize({wk: {recipeLevels: {[n]: '35', [m]: 0, [z]: 'abc'}}});
@@ -2913,7 +2926,7 @@ console.log('\n[11p] 食譜等級：沒解鎖的完全不列入推演');
     wk.recipeLevels = {}; save();
     return {got, keys: Object.keys(got), n};
   });
-  ok('反序列化把數字字串救回來，0／非數字則丟掉（不然那道菜會靜靜消失）',
+  ok('反序列化把數字字串救回來，0／非數字則丟掉（不然那道菜會靜靜退成 Lv1）',
      rv.keys.length === 1 && rv.got[rv.n] === 35, JSON.stringify(rv.got));
 }
 
@@ -3062,11 +3075,11 @@ console.log('\n[11q] 收取間隔：每一隻多久滿包、整隊多久該上�
   await doRun(`wk.collectH = DEFAULT_COLLECT_H; syncWeeklyUI()`);
 }
 
-/* 一道食譜都沒解鎖是**全新使用者的預設狀態**（`wk.recipeLevels` 是空的），
-   所以它不是邊緣情況，是第一次打開這個工具的人一定會撞到的那一面牆。
-   以前撞上去只會看到「目前的料理類型／範圍下沒有任何食譜可比較」——
-   那句話會把人推去改「料理類型」和「考慮範圍」兩個下拉，怎麼改都一樣。 */
-console.log('\n[2e] 一道食譜都沒解鎖時，要說得出真正的原因');
+/* 一道食譜都沒解鎖是**全新使用者的預設狀態**（`wk.recipeLevels` 是空的）。
+   2026-09-10～09-28 那一版在這裡撞牆（推演拒跑、自組隊伍「算不出來」）；
+   2026-09-28 起沒解鎖的以 Lv1 進池子（使用者指定：湊得出食材就煮得出來），所以
+   這裡改測：**推演照跑、數字就是 Lv1 的數字、而且排程裡看得出哪幾道還沒解鎖**。 */
+console.log('\n[2e] 一道食譜都沒解鎖：以 Lv1 照算，而且要標出來');
 {
   const r = await page.evaluate(async () => {
     const mk = n => ({sp: D.dex.findIndex(x => x.n === n), level:55, nature:'Bashful',
@@ -3075,24 +3088,95 @@ console.log('\n[2e] 一道食譜都沒解鎖時，要說得出真正的原因');
     wk.recipeLevels = {}; wk.recipeScope = 'all'; wk.recipePick = 'auto'; renderBox();
     lastResults = null;
     await run();
-    const plan = $('results').textContent;
-    // 自組隊伍也是同一面牆：五格都填滿了，卻算不出東西
+    const best = lastResults && lastResults[0];
+    const plan = best && best.mp ? best.mp.plan : [];
+    const planOk = plan.length > 0 && plan.every(x =>
+      !recipeOn(x.r, wk) && x.each === recipeValue(x.r, RECIPE_NEW_LV) && x.n >= 1 && x.r.cnt <= best.potEff);
+    const resTxt = $('results').textContent;
+    const tags = $('results').querySelectorAll('.tag.rnew').length;
+    const combo = $('comboCount').textContent;
+    // 「沒解鎖」和「解鎖成 Lv1」必須逐位相同 —— Lv1 就是唯一的那個等級，不能有第二套算法
+    const idxs = best ? best.idxs.slice() : [0,1,2,3,4];
+    const a = scoreTeam(idxs, roster, wk, new Map()).total;
+    const saved = wk.recipeLevels;
+    wk.recipeLevels = Object.fromEntries(D.recipes.map(x => [x.n, 1])); buildPool(wk);
+    const b = scoreTeam(idxs, roster, wk, new Map()).total;
+    wk.recipeLevels = saved; buildPool(wk);
+    // 自組隊伍：五格都填滿就要算得出來，不能 blocked
     teams = [newTeam()]; teams[0].members = [0,1,2,3,4]; teamShown = 0;
     showView('team');
     const card = $('teamList').textContent.replace(/\s+/g, ' ');
-    const detail = $('teamDetail').textContent.replace(/\s+/g, ' ');
+    const blocked = teams[0].blocked, hasRes = !!teams[0].result;
     showView('plan');
-    return {on: recipesOn(wk), pool: POOL.length, ran: !!lastResults, plan, card, detail};
+    return {on: recipesOn(wk), ran: !!best, planN: plan.length, planOk, tags, resTxt: resTxt.slice(0, 90),
+            combo, a, b, card: card.slice(0, 80), blocked, hasRes};
   });
-  ok('確實是「一道都沒解鎖」的狀態', r.on === 0 && r.pool === 0 && !r.ran,
-     `on=${r.on} pool=${r.pool}`);
-  ok('推演的錯誤訊息要指名「沒解鎖」，不是講料理類型／範圍',
-     /解鎖/.test(r.plan) && /食譜等級/.test(r.plan), r.plan.trim().slice(0, 90));
+  ok('一道都沒解鎖時推演照跑（不再撞牆）', r.on === 0 && r.ran, `on=${r.on} ran=${r.ran} ${r.resTxt}`);
+  ok('排程裡每一道都是湊得出食材、放得進鍋子的，單道能量就是 Lv1 的值',
+     r.planOk, `plan=${r.planN}`);
+  ok('被選中的未解鎖食譜要標「未解鎖・Lv1」', r.tags >= r.planN && r.tags > 0, `tags=${r.tags} plan=${r.planN}`);
+  ok('結果頁要寫出「其餘以 Lv1 計」，不然看起來像被排除了', /以 Lv1 計/.test(r.combo), r.combo);
+  ok('「沒解鎖」與「解鎖成 Lv1」逐位相同', r.a === r.b && r.a > 0, `${r.a} vs ${r.b}`);
   /* 「還差 0 隻」是實際出現過的畫面 —— 五格都填滿了還說你少人，那是文案說謊。 */
-  ok('自組隊伍不能說「還差 0 隻」', !/還差 ?0 ?隻/.test(r.card), r.card.slice(0, 80));
-  ok('自組隊伍也要指名「沒解鎖」，而不是「湊滿 5 隻才會算」',
-     /解鎖/.test(r.card + r.detail) && !/湊滿 5 隻才會算/.test(r.detail),
-     r.detail.slice(0, 90));
+  ok('自組隊伍五格填滿就算得出來，不是「算不出來」也不是「還差 0 隻」',
+     r.blocked === false && r.hasRes && !/還差 ?0 ?隻/.test(r.card) && !/算不出來/.test(r.card), r.card);
+}
+
+/* 結果卡 → 寶可夢箱（使用者 2026-09-28 要求）。成員卡整張可點，跳到箱子並展開那一隻。
+   推演與自組隊伍共用 `teamDetailHTML`／`bindTeamDetail`，所以兩邊都要測。 */
+console.log('\n[2f] 點成員卡跳到寶可夢箱的那一隻');
+{
+  await doRun();
+  const r = await page.evaluate(() => {
+    const vis = v => !$('view-'+v).hidden;
+    const i = lastResults[0].idxs[0];
+    // 先設一個會把牠藏起來的篩選，排序設成「等級」—— 篩選要被清掉、排序要留著
+    boxFlt.sort = 'level'; boxFlt.q = '不可能中的字串zz'; $('fltName').value = boxFlt.q;
+    monOpen.clear(); monOpen.add((i + 1) % roster.length);
+    renderBox(); showView('plan'); renderResults();
+    const cards = $('results').querySelectorAll('.mem[data-goto]');
+    const nCards = cards.length, firstGoto = +cards[0].dataset.goto;
+    cards[0].click();
+    const card = $('boxList').querySelector(`[data-i="${i}"]`);
+    const onBox = {box: vis('box'), open: [...monOpen], cardOpen: card.classList.contains('open'),
+                   focus: card.classList.contains('focus'), hidden: card.hidden,
+                   q: boxFlt.q, sort: boxFlt.sort, bar: !$('jumpBar').hidden,
+                   note: $('jumpNote').textContent, back: $('jumpBack').textContent, label: monLabel(i)};
+    $('jumpBack').click();
+    const back = {plan: vis('plan'), bar: $('jumpBar').hidden};
+    // 篩選本來就看得到牠 → 不清、也不講
+    boxFlt.q = ''; $('fltName').value = ''; boxFlt.spec = ''; renderBox(); renderResults();
+    $('results').querySelector('.mem[data-goto]').dispatchEvent(new KeyboardEvent('keydown', {key:'Enter', bubbles:true}));
+    const kb = {box: vis('box'), note: $('jumpNote').textContent};
+    // 用導覽列切走 → 回去列要收起來
+    showView('recipes');
+    const navHide = $('jumpBar').hidden;
+    // 自組隊伍：回去要回到自組隊伍
+    teams = [newTeam()]; teams[0].members = lastResults[0].idxs.slice(); teamShown = 0;
+    showView('team');
+    const tc = $('teamDetail').querySelector('.mem[data-goto]');
+    const tIdx = tc ? +tc.dataset.goto : -1;
+    if (tc) tc.click();
+    const team = {box: vis('box'), open: [...monOpen], want: tIdx, back: $('jumpBack').textContent};
+    $('jumpBack').click();
+    team.returned = vis('team');
+    boxFlt.sort = 'added'; monOpen.clear(); renderBox(); showView('plan');
+    return {i, nCards, firstGoto, onBox, back, kb, navHide, team};
+  });
+  ok('推演結果的 5 張成員卡都可以點，data-goto 就是 roster 索引',
+     r.nCards === 5 && r.firstGoto === r.i, `${r.nCards} ${r.firstGoto} vs ${r.i}`);
+  ok('點下去切到寶可夢箱、只展開那一隻、標示出來',
+     r.onBox.box && r.onBox.open.length === 1 && r.onBox.open[0] === r.i && r.onBox.cardOpen &&
+     r.onBox.focus && !r.onBox.hidden, JSON.stringify(r.onBox));
+  ok('篩選擋住牠 → 清掉篩選並講出來，排序保留',
+     r.onBox.q === '' && r.onBox.sort === 'level' && /清掉/.test(r.onBox.note), r.onBox.note);
+  ok('回去列寫出看的是哪一隻（暱稱與學名）', r.onBox.bar && r.onBox.note.includes(r.onBox.label), r.onBox.note);
+  ok('「回到推演結果」回得去，回去列收起來', /推演結果/.test(r.onBox.back) && r.back.plan && r.back.bar, JSON.stringify(r.back));
+  ok('鍵盤 Enter 也可以跳，篩選沒擋住時不講「清掉」', r.kb.box && !/清掉/.test(r.kb.note), r.kb.note);
+  ok('用導覽列切走時回去列收起來', r.navHide === true);
+  ok('自組隊伍的成員卡也可以跳，而且回到自組隊伍',
+     r.team.box && r.team.open[0] === r.team.want && /自組隊伍/.test(r.team.back) && r.team.returned,
+     JSON.stringify(r.team));
 }
 
 /* 推演結果存的是**跑那一刻**的 roster 索引。刪掉一隻會讓後面的索引整批前移，

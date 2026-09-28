@@ -132,6 +132,11 @@ input[type=range]{width:100%;accent-color:var(--accent)}
 
 /* ---- member row ---- */
 .mem{display:grid;grid-template-columns:22px minmax(0,1fr) auto;gap:12px;align-items:center;padding:9px 11px;border-radius:9px;background:var(--surface-2);border:1px solid var(--line)}
+/* 結果卡整張可點 → 跳到寶可夢箱的那一隻（gotoBoxMon）。推演與自組隊伍共用。 */
+.mem.go{cursor:pointer;transition:border-color .12s}
+.mem.go:hover{border-color:var(--accent)}
+.mem.go:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+.mem .mem-go{font-size:11px;font-weight:600;color:var(--accent);white-space:nowrap}
 .mem .rank{font-family:var(--mono);font-size:12px;color:var(--muted);text-align:center}
 .mem .nm{font-weight:700;font-size:14px;display:flex;flex-wrap:wrap;gap:6px;align-items:center}
 /* 取了暱稱時並列學名 —— 暱稱認得出是哪一隻，學名才知道要看哪一隻的數值 */
@@ -150,6 +155,8 @@ input[type=range]{width:100%;accent-color:var(--accent)}
 .tag.all{background:color-mix(in srgb,var(--pos) 18%,transparent);color:var(--pos)}
 .tag.fav{background:color-mix(in srgb,var(--berry) 90%,var(--ink));color:#fff}
 .tag.pin{background:var(--surface-3);color:var(--ink-2)}
+/* 還沒解鎖、推演以 Lv1 計的食譜。虛線框：「還沒煮過」是暫時狀態，不是這道菜的屬性。 */
+.tag.rnew{background:transparent;color:var(--ink-2);border:1px dashed currentColor;padding:0 5px}
 /* EX 營地（專家模式）的三檔。中間那一檔（其他喜好樹果）刻意沒有標籤 ——
    它既不加速也不被罰，標了只是雜訊。 */
 /* 特別寶可夢（傳說／幻獸）。用強調色 —— 它會影響「能不能和另一隻同隊」，
@@ -197,6 +204,10 @@ td.n{font-family:var(--mono);font-variant-numeric:tabular-nums}
    只在展開時才出現 —— 選單每個都要 ~150px，全部攤開一隻就吃掉半個螢幕。 */
 .mon{border:1px solid var(--line);border-radius:9px;background:var(--surface);margin-bottom:6px}
 .mon[hidden]{display:none}
+/* 從結果卡跳過來的那一隻：閃一下再留一圈外框（下次 renderBox 就自然消失）。
+   閃的那一下會被 prefers-reduced-motion 關掉，所以外框要是靜態的。 */
+.mon.focus{outline:2px solid var(--accent);outline-offset:1px;animation:monflash 1.4s ease-out;scroll-margin-top:12px}
+@keyframes monflash{from{box-shadow:0 0 0 6px color-mix(in srgb,var(--accent) 35%,transparent)}to{box-shadow:0 0 0 0 transparent}}
 .mon.is-ex{opacity:.5}
 .mon.is-pin{border-color:var(--accent);box-shadow:inset 3px 0 0 var(--accent)}
 .mon.open{background:var(--surface-2);border-color:var(--line-2)}
@@ -493,6 +504,12 @@ details.notes li{margin:5px 0;max-width:74ch}
 .pk-1 b{font-weight:700}
 .pk-1 .num{font-size:11px;color:var(--muted)}
 .pk-2{font-size:11px;color:var(--muted);font-family:var(--mono);margin-top:1px}
+/* 從結果卡跳到箱子之後的「回去」列。fixed 在底部，所以放在 .wrap 之外（和 .picker 同理）。 */
+.jumpbar{position:fixed;z-index:55;left:50%;bottom:14px;transform:translateX(-50%);
+  width:max-content;max-width:calc(100vw - 32px);display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center;
+  padding:8px 10px 8px 14px;background:var(--surface);border:1px solid var(--line-2);border-radius:11px;
+  box-shadow:0 12px 40px -12px rgba(0,0,0,.45);font-size:12.5px}
+.jumpbar[hidden]{display:none}
 .pickfoot{font-size:11px;padding:6px 10px;border-top:1px solid var(--line)}
 
 @media(max-width:820px){.grid[style*="1.1fr"]{grid-template-columns:1fr!important}}

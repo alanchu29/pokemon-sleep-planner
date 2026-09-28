@@ -68,7 +68,7 @@ const SCHEMA = 6;   // 4: 新增 msExtra{}（上游沒有的主技能數值表�
    「新的 index.html ＋ 舊的 app.js」—— 畫面畫出舊版 UI，而使用者只會覺得
    「你根本沒改」，完全不知道是快取。有了這個斷言，過期的 app.js 會直接被擋下來
    並要求強制重新整理。tests/smoke.mjs 第 11 節會斷言三處一致。 */
-const APP_V = '20260928a';
+const APP_V = '20260928c';
 
 /** 致命錯誤：整頁換成一段說明。這種狀況下繼續跑只會產生錯的數字。 */
 function fatal(html){
@@ -313,11 +313,11 @@ function deserialize(o, opts){
   return {badSp};
 }
 /** 還原食譜等級。**等級的有無就是解鎖狀態**（見 engine 的 `recipeOn`），所以這裡
- *  的正規化不只是整潔問題 —— 一個 `"20"` 字串會讓那道食譜**靜靜地從推演裡消失**。
+ *  的正規化不只是整潔問題 —— 一個 `"20"` 字串會讓那道 Lv20 的食譜**靜靜地退成 Lv1**。
  *
- *  舊語意下沒填的會退回 `wk.recipeLv`，髒值頂多讓等級不準；改成「沒填 ＝ 沒解鎖」
- *  之後，同一個髒值的後果變成「那道菜整個不見」。**改動讓既有失效模式變嚴重時，
- *  就要在入口補一道正規化。**
+ *  （2026-09-10～09-28 之間「沒解鎖 ＝ 整個排除」，同一個髒值會讓那道菜整個不見；
+ *  現在沒解鎖的以 Lv1 計，後果輕一點，但仍然是靜靜地算錯。**改動讓既有失效模式
+ *  變嚴重時，就要在入口補一道正規化** —— 那道正規化留著。）
  *
  *  認得的：數字、以及看得出是數字的字串（Sheet／舊 JSON 都可能出現）。
  *  其餘（0、負數、null、NaN）一律當成沒解鎖 —— 那本來就是它們的意思。 */
@@ -755,12 +755,13 @@ function buildWeekly(){
    最長的食譜（絕對睡眠奶油咖哩）連食材清單要 555px，而這一欄就算 span2 也只有
    約 320px，塞進 option 會被裁掉，而被裁掉的資訊等於沒有。 */
 function fillRecipes(){
-  /* **只列已解鎖的。** 選得到卻煮不出來就是自相矛盾 —— 推演會把它排除，畫面上
-     卻還寫著「指定食譜：某某」，那是最糟的一種文案說謊。 */
-  const list = D.recipes.filter(r=>r.t===wk.dishType && recipeOn(r, wk)).sort((a,b)=>a.cnt-b.cnt);
+  /* **沒解鎖的也列，但要寫出「以 Lv1 計」。** 湊得出食材就煮得出來（見 engine 的
+     `recipeOn`），所以推演會拿它當 Lv1 算 —— 選單不列的話，自動配對挑得到、手動
+     指定卻選不到，兩種模式的食譜範圍就不一樣了。 */
+  const list = D.recipes.filter(r=>r.t===wk.dishType).sort((a,b)=>a.cnt-b.cnt);
   $('recipe').innerHTML = list.length
-    ? list.map(r=>`<option value="${r.n}">${recipeZh(r.n)}（${r.cnt} 材）</option>`).join('')
-    : `<option value="">（這個類型還沒有解鎖任何食譜）</option>`;
+    ? list.map(r=>`<option value="${r.n}">${recipeZh(r.n)}（${r.cnt} 材${recipeOn(r, wk)?'':'・未解鎖，以 Lv1 計'}）</option>`).join('')
+    : `<option value="">（這個類型沒有食譜）</option>`;
   if (!wk.recipeName || !list.some(r=>r.n===wk.recipeName)){
     const pick = list.find(r=>r.cnt>=21) || list[list.length-1];
     wk.recipeName = pick ? pick.n : null;
@@ -2541,22 +2542,15 @@ function setRunning(on){
 
 const RUN_ERR = {
   few:    n => `箱子裡至少要有 5 隻可用的寶可夢（目前 ${n} 隻）。`,
-  /* **最常見的原因是「一道都沒解鎖」，所以那句要先講。**
-     預設的 `wk.recipeLevels` 是空的（＝全部沒解鎖），全新的使用者按下推演就會走到
-     這裡 —— 而舊的文案只講「料理類型／範圍」，使用者只會去改那兩個下拉，怎麼改都
-     一樣。這是陷阱 4 的同一條規則：候選被過濾掉就要說得出是被什麼過濾掉的。 */
-  nopool: () => recipesOn(wk) === 0
-    ? `你目前<b>一道食譜都還沒解鎖</b>，所以沒有東西可以煮 —— 到右上角的`
-      + `<b>「食譜等級」</b>分頁，把你會煮的那幾道按「解鎖」並填上等級`
-      + `（或先按「全部解鎖」再逐一調整）。`
-    : `目前的「料理類型／考慮範圍」下沒有任何<b>已解鎖</b>的食譜`
-      + `（整體已解鎖 ${recipesOn(wk)} / ${D.recipes.length} 道）—— `
-      + `把「考慮範圍」改成<b>三類都比較</b>，或到「食譜等級」分頁解鎖這個類型的食譜。`,
+  /* 沒解鎖的食譜現在以 Lv1 進池子（engine 的 `recipeOn`），所以「一道都沒解鎖」
+     **不再是**走到這裡的原因 —— 以前那句「你一道食譜都還沒解鎖」如果留著，就是在
+     指名一個已經不會擋人的規則。現在池子空掉只可能是料理類型／範圍底下沒有食譜。 */
+  nopool: () => `目前的「料理類型／考慮範圍」下沒有任何食譜可以比較 —— `
+    + `把「考慮範圍」改成<b>三類都比較</b>，或換一個料理類型。`,
   pins:   n => `固定（📌）的寶可夢超過 5 隻，請減少到 5 隻以內。`,
   /* EX 營地沒指定主要樹果 ＝ 那 10%／+1 沒有對象。**不可以靜靜地當成「全部都是
      其他喜好樹果」硬算** —— 那會給出一份看起來正常、實際少了整個主要樹果加成的
-     推薦，而畫面上完全看不出來。和「一道食譜都沒解鎖」同一條規則：撞牆時的訊息
-     要指名真正的原因。 */
+     推薦，而畫面上完全看不出來。撞牆時的訊息要指名真正的原因。 */
   exNoMain: () => `你選的是 <b>${islName(wk.island)}</b>，但還沒指定<b>主要樹果</b> —— `
     + `EX 營地的「幫忙間隔縮短、發動的主技能等級 +1」只有主要那一種吃得到，`
     + `沒指定等於整個加成沒有對象。請在上面的<b>「主要樹果」</b>選一種`
@@ -2681,10 +2675,12 @@ async function run(){
   const cut = res.excluded ? res.excluded.length : 0;
   const cutTy = res.excludedTy ? res.excludedTy.length : 0;
   const offTy = res.pinnedOffType || [];
-  /* **煮得出來的只有幾道，一定要寫在這裡。** 沒解鎖的食譜整個不進池子，那是候選
-     過濾 —— 陷阱 4：靜靜地少算候選就是「文案說謊」那一類的 bug。 */
+  /* **解鎖道數與「其餘以 Lv1 計」一定要寫在這裡。** 沒解鎖的食譜是以 Lv1 進池子的
+     （engine 的 `recipeOn`）—— 只寫「N 道已解鎖」會讓人以為其餘被排除了。 */
+  const nOn = recipesOn(wk);
   $('comboCount').textContent = `${res.count.toLocaleString()} 種組合 · ${Math.round(performance.now()-t0)}ms`
-    + ` · 食譜 ${recipesOn(wk)}/${D.recipes.length} 道已解鎖`
+    + ` · 食譜 ${nOn}/${D.recipes.length} 道已解鎖`
+    + (nOn < D.recipes.length ? `（其餘湊得出食材就以 Lv${RECIPE_NEW_LV} 計）` : '')
     /* EX 的設定會整個改變答案（非喜好樹果被罰 15%／35%），所以**這一行一定要寫出來
        算的是哪一種狀態** —— 不然回頭看一份結果根本分不出它是不是 EX 下算的。 */
     + (EX_ISLANDS[wk.island] ? ` · ${islName(wk.island)}（主要 ${bz(wk.favMain)}・${exBonusLabel()}）` : '')
@@ -2836,14 +2832,18 @@ function memberCard(rank, i, r, o){
   const act = bs.act.map(a=>sss(a));
   const ingList = [];
   for (let k=0;k<NING;k++) if (o.ing[k]*7 > 12) ingList.push(iz(ING_NAME[k])+' '+f1(o.ing[k]*7));
-  return `<div class="mem">
+  /* 整張卡可點 → 寶可夢箱的那一隻（gotoBoxMon，綁在 bindTeamDetail）。
+     卡片上只有摘要，完整的欄位／資質／練滿都在箱子裡 —— 與其在這裡再畫一份
+     （兩份一定會走鐘），不如直接帶過去。「箱子 ↗」是給手機看的：沒有 hover 的話
+     根本看不出這張卡可以點。 */
+  return `<div class="mem go" data-goto="${i}" role="button" tabindex="0" title="點一下到寶可夢箱看這一隻的完整資料">
     <div class="rank">${rank}</div>
     <div>
       <div class="nm">${esc(monName(m))}${
         /* 推演結果是**最需要暱稱的地方**：箱子裡有兩隻妙蛙花時，選中的是哪一隻只有
            暱稱分得出來。但學名也一定要在（不然不知道要看哪一隻的數值），所以並列。 */
         (m.nick||'').trim() ? `<span class="nm-sci">${pz(p)}</span>` : ''
-      }<span class="tag ${SPEC_TAG[p.sp]}">${SPEC_ZH[p.sp]}</span>${specialTag(p)}${wk.fav.has(p.b)?`<span class="tag fav" title="本週加成樹果：幫忙撿來的樹果能量 ×${mulTxt(berryMulShown(p.b))}">加成樹果</span>`:''}${exTag(bs)}${typeTags(p)}${m.pin?`<span class="tag pin">固定</span>`:''}</div>
+      }<span class="tag ${SPEC_TAG[p.sp]}">${SPEC_ZH[p.sp]}</span>${specialTag(p)}${wk.fav.has(p.b)?`<span class="tag fav" title="本週加成樹果：幫忙撿來的樹果能量 ×${mulTxt(berryMulShown(p.b))}">加成樹果</span>`:''}${exTag(bs)}${typeTags(p)}${m.pin?`<span class="tag pin">固定</span>`:''}<span class="mem-go" aria-hidden="true">箱子 ↗</span></div>
       <div class="meta">Lv${m.level} · ${natZ(NAT[m.nature]||NAT.Bashful)} · ${act.length?act.join('／'):'無副技能'} · 頻率 ${Math.round(o.sim.freqBase/60*10)/10}分</div>\n      <div class="meta">${msz(p.ms)} Lv${bs.skillLv} · 每日發動 ${f1(o.sim.procs)} 次 ${msCaveat(p.ms)}</div>
       <div class="meta" style="color:var(--ing)">${ingList.length?ingList.join('　'):'（無食材產出）'}</div>
       <div class="why">${pickReason(rank-1, r)}</div>
@@ -2931,6 +2931,14 @@ function ingUtilNotice(r){
     + `</div>`;
 }
 
+/** 還沒解鎖、推演以 Lv1 計的食譜要標出來（主食譜、「這隊最能煮的食譜」、21 餐排程
+ *  三處共用）。**「去煮一道你還沒煮過的菜」本身就是建議的一部分** —— 不標的話，
+ *  使用者照著排程去找那道菜時會發現清單上沒有等級，以為工具算錯了。 */
+function recipeNewTag(r){
+  return recipeOn(r, wk) ? ''
+    : ` <span class="tag rnew" title="這道還沒解鎖。隊伍湊得出食材就煮得出來，煮第一次就解鎖，&#10;所以推演以 Lv${RECIPE_NEW_LV} 計算（實際煮幾次之後等級會往上爬，這裡是保守估計）。">未解鎖・Lv${RECIPE_NEW_LV}</span>`;
+}
+
 /* 一支隊伍的完整詳情：5 個 panel（成員卡＋能量拆解／食材缺口／最能煮的食譜／21 餐排程）。
  *
  * **推演分頁與「自組隊伍」分頁共用這一份。** 和 `monCard` 同時給寶可夢箱與截圖校對區用、
@@ -3010,7 +3018,7 @@ function teamDetailHTML(r, opts){
       </div>
       <div>
         <div class="eyebrow">${wk.recipePick==='auto'?'自動選中的主食譜':'指定食譜'}</div>
-        <div style="font-size:13.5px;font-weight:700;margin:3px 0 2px">${recipeZh(TR.n)}</div>
+        <div style="font-size:13.5px;font-weight:700;margin:3px 0 2px">${recipeZh(TR.n)}${recipeNewTag(TR)}</div>
         <div class="subfig"><span>主食譜可煮</span><b>${r.cooksCapped} / 21 餐</b></div>
         <div class="subfig"><span>單道能量 (Lv${rlvl(TR, wk)})</span><b>${fmt(r.rv)}</b></div>
         <div class="subfig"><span>瓶頸食材</span><b>${bn}</b></div>
@@ -3032,7 +3040,7 @@ function teamDetailHTML(r, opts){
       <div class="pbody" style="padding:0"><div class="scroll" style="border:0">
       <table><thead><tr><th>食譜</th><th style="text-align:right">煮/週</th><th>卡在</th><th style="text-align:right">週能量</th><th></th></tr></thead>
       <tbody>${rankRecipesForTeam(r, wk).slice(0,7).map(x=>`<tr${x.rec.n===wk.recipe.n?' style="background:color-mix(in srgb,var(--accent) 12%,transparent)"':''}>
-        <td>${recipeZh(x.rec.n)} <span class="muted num">共${x.rec.cnt}</span>${x.fits?'':' <span class="tag pin">鍋子不足</span>'}</td>
+        <td>${recipeZh(x.rec.n)} <span class="muted num">共${x.rec.cnt}</span>${recipeNewTag(x.rec)}${x.fits?'':' <span class="tag pin">鍋子不足</span>'}</td>
         <td class="n" style="text-align:right">${x.capped}</td>
         <td class="muted" style="font-size:11.5px">${x.capped < MEALS_WEEK && x.bn != null ? iz(ING_NAME[x.bn]) : '—'}</td>
         <td class="n" style="text-align:right">${fmt(x.strength)}</td>
@@ -3047,7 +3055,7 @@ function teamDetailHTML(r, opts){
     <table><thead><tr><th>餐次</th><th>食譜</th><th style="text-align:right">次數</th><th style="text-align:right">單道</th><th style="text-align:right">小計</th></tr></thead>
     <tbody>${r.mp.plan.map((x,n)=>`<tr>
       <td class="n">${n+1}</td>
-      <td>${recipeZh(x.r.n)} <span class="muted num">共${x.r.cnt}</span>${(x.primary || x.r.n===TR.n)?' <span class="tag pin">主食譜</span>':''}</td>
+      <td>${recipeZh(x.r.n)} <span class="muted num">共${x.r.cnt}</span>${(x.primary || x.r.n===TR.n)?' <span class="tag pin">主食譜</span>':''}${recipeNewTag(x.r)}</td>
       <td class="n" style="text-align:right">${x.n}</td>
       <td class="n" style="text-align:right">${fmt(x.each)}</td>
       <td class="n" style="text-align:right">${fmt(x.n*x.each*r.mul)}</td></tr>`).join('')}
@@ -3069,7 +3077,49 @@ function bindTeamDetail(host, after){
     wk.recipeName = b.dataset.setrecipe; $('recipe').value = wk.recipeName; syncRecipeIngs(); save();
     (after || run)();
   }));
+  /* 成員卡 → 寶可夢箱。回來的時候要回到**這個**分頁（推演或自組隊伍）。 */
+  const from = (host.closest('.view') || {id:'view-plan'}).id.replace(/^view-/, '');
+  host.querySelectorAll('[data-goto]').forEach(c=>{
+    const go = () => gotoBoxMon(+c.dataset.goto, from);
+    c.addEventListener('click', go);
+    c.addEventListener('keydown', e=>{ if (e.key === 'Enter' || e.key === ' '){ e.preventDefault(); go(); } });
+  });
 }
+
+/** 從結果卡跳到寶可夢箱，展開並捲到那一隻（使用者 2026-09-28 要求）。
+ *
+ *  三件事：
+ *  1. **篩選擋住牠就清掉篩選，而且要講出來。** 靜靜地清掉會讓使用者回箱子時發現
+ *     篩選不見了；不清的話就是「跳過去卻什麼都沒看到」。排序保留（`clearBoxFilter`
+ *     的規則）。
+ *  2. **只展開那一隻**（`monOpen` 清掉再加）—— 其他攤開的卡會把牠推走，捲到位之後
+ *     一重畫就找不到了。
+ *  3. **要回得去。** 分頁沒有瀏覽器歷史，所以 `#jumpBar` 記住從哪個分頁、捲到哪裡。 */
+let jumpFrom = null;
+const JUMP_BACK = {plan: '← 回到推演結果', team: '← 回到自組隊伍'};
+function gotoBoxMon(i, from){
+  if (!roster[i]) return;
+  const cleared = !monMatch(roster[i], i);
+  if (cleared) clearBoxFilter();
+  monOpen.clear(); monOpen.add(i);
+  const y = window.scrollY;
+  renderBox();
+  showView('box');
+  jumpFrom = {view: from || 'plan', y};
+  const card = $('boxList').querySelector(`[data-i="${i}"]`);
+  /* 對齊卡片**頂端**，不是置中：展開的卡在手機上比螢幕還高，置中會把名字那一行
+     捲出畫面，看起來像跳到了別隻。 */
+  if (card){ card.classList.add('focus'); card.scrollIntoView({block:'start'}); }
+  $('jumpNote').innerHTML = `正在看 <b>${esc(monLabel(i))}</b>`
+    + (cleared ? `<span class="muted">　· 原本的篩選會把牠藏起來，所以先清掉了</span>` : '');
+  $('jumpBack').textContent = JUMP_BACK[jumpFrom.view] || JUMP_BACK.plan;
+  $('jumpBar').hidden = false;
+}
+$('jumpBack').addEventListener('click', ()=>{
+  const f = jumpFrom || {view:'plan', y:0};
+  showView(f.view);
+  window.scrollTo({top: f.y, behavior: 'instant'});
+});
 
 function renderResults(){
   if (!lastResults || !lastResults.length){
@@ -3160,8 +3210,10 @@ function prepTeamCalc(){
 /** `t.blocked` 的每一種原因各自的話：短的給隊伍卡、長的給詳情區。 */
 const TEAM_BLOCK = {
   nopool: {
-    short: '算不出來（沒有解鎖的食譜）',
-    long:  '這支隊伍已經滿 5 隻，但<b>一道食譜都沒有解鎖</b>，所以算不出料理分數 —— 到右上角的<b>「食譜等級」</b>分頁，把你會煮的那幾道按「解鎖」並填上等級（或先按「全部解鎖」再逐一調整）。',
+    /* 沒解鎖的食譜以 Lv1 進池子之後，池子空掉只剩「料理類型／範圍底下沒有食譜」
+       這一種可能 —— 文案跟著 RUN_ERR.nopool 改，不能還在講「沒解鎖」。 */
+    short: '算不出來（沒有可比較的食譜）',
+    long:  '這支隊伍已經滿 5 隻，但目前的「料理類型／考慮範圍」下沒有任何食譜可以比較 —— 到「本週設定」把「考慮範圍」改成<b>三類都比較</b>，或換一個料理類型。',
   },
   exNoMain: {
     short: '算不出來（還沒選主要樹果）',
@@ -3170,8 +3222,8 @@ const TEAM_BLOCK = {
 };
 /** 一支隊伍的結果。**湊滿 5 隻才算**（見下），沒滿就是 null。
  *
- *  `t.blocked` ＝「人湊滿了，但算不出來」。目前唯一的原因是**一道食譜都沒解鎖**
- *  （`prepTeamCalc` 的 POOL 是空的）。這兩件事一定要分開 —— 混在一起的話，
+ *  `t.blocked` ＝「人湊滿了，但算不出來」。原因代號見 `TEAM_BLOCK`
+ *  （POOL 是空的、EX 營地沒選主要樹果）。這兩件事一定要分開 —— 混在一起的話，
  *  五格都填好的隊伍會顯示「還差 0 隻」，而詳情區還在說「湊滿 5 隻才會算出結果」。
  *  兩句都是假話，而且會把使用者推去找一個不存在的問題。 */
 function computeTeam(t, block){
@@ -3687,6 +3739,7 @@ $('cmpReset').addEventListener('click', ()=>{
 const VIEWS = ['plan','team','box','cmp','recipes'];
 function showView(name){
   for (const v of VIEWS) $('view-'+v).hidden = (v !== name);
+  $('jumpBar').hidden = true;             // gotoBoxMon 切完分頁之後才會再打開它
   for (const b of $('viewNav').querySelectorAll('[data-view]'))
     b.setAttribute('aria-pressed', b.dataset.view === name ? 'true' : 'false');
   if (name !== 'team') closePicker();     // 浮層是 fixed 的，切走了不關會浮在別的分頁上
@@ -3793,6 +3846,8 @@ function renderRecipeLevels(){
     if (!q) return true;
     const hay = (recipeZh(r.n) + ' ' + r.n + ' ' + r.ings.map(([i])=>iz(ING_NAME[i])).join(' ')).toLowerCase();
     return hay.includes(q);
+  /* `rlvl` 就是推演採用的等級（沒解鎖 ＝ Lv1），所以倍率與單道能量顯示的就是推演
+     實際拿去算的那個數字。 */
   }).map(r=>({r, lv: rlvl(r, wk), on: recipeOn(r, wk),
               val: recipeValue(r, rlvl(r, wk))}));
   const cmp = {value:(a,b)=>b.val-a.val, lv:(a,b)=>b.lv-a.lv, cnt:(a,b)=>a.r.cnt-b.r.cnt,
@@ -3806,12 +3861,12 @@ function renderRecipeLevels(){
       <td class="muted" style="font-size:12px">${TYPE_ZH[x.r.t]}</td>
       <td class="n" style="text-align:right">${x.r.cnt}</td>
       <td style="text-align:center"><button type="button" class="btn sm ghost rlv-tog${x.on?' on':''}" data-tog="${x.r.n}"
-        title="${x.on ? '已解鎖 —— 點一下改成「還沒解鎖」，它就不會進推演，等級也會清掉'
-                      : `還沒解鎖 —— 點一下解鎖（等級先填 ${wk.recipeLv}，之後可以改）。&#10;沒解鎖的食譜煮不出來，所以完全不列入推演。`}">${x.on?'✓ 已解鎖':'鎖上'}</button></td>
+        title="${x.on ? `已解鎖 —— 點一下改成「還沒解鎖」，等級會清掉，推演改以 Lv${RECIPE_NEW_LV} 計`
+                      : `還沒解鎖 —— 點一下解鎖（等級先填 ${wk.recipeLv}，之後可以改）。&#10;沒解鎖的食譜只要隊伍湊得出食材就煮得出來（煮第一次就解鎖），所以推演以 Lv${RECIPE_NEW_LV} 計。`}">${x.on?'✓ 已解鎖':'鎖上'}</button></td>
       <td style="text-align:center"><input type="number" min="1" max="70" step="1" data-rlv="${x.r.n}"
         value="${x.on ? x.lv : ''}" placeholder="—"${x.on ? '' : ' disabled'}></td>
-      <td class="n" style="text-align:right;color:${!x.on?'var(--muted)':mul>=2?'var(--pos)':mul>=1.4?'var(--ing)':'var(--muted)'}">${x.on?`×${mul.toFixed(2)}`:'—'}</td>
-      <td class="n" style="text-align:right">${x.on?fmt(x.val):'—'}</td>
+      <td class="n" style="text-align:right;color:${!x.on?'var(--muted)':mul>=2?'var(--pos)':mul>=1.4?'var(--ing)':'var(--muted)'}"${x.on?'':` title="還沒解鎖，推演以 Lv${RECIPE_NEW_LV} 計"`}>×${mul.toFixed(2)}</td>
+      <td class="n" style="text-align:right"${x.on?'':` title="還沒解鎖，推演以 Lv${RECIPE_NEW_LV} 計"`}>${fmt(x.val)}</td>
     </tr>`;
   }).join('') || `<tr><td colspan="7" class="muted" style="padding:22px;text-align:center">沒有符合的食譜</td></tr>`;
   syncRecipeCount();
@@ -3822,8 +3877,8 @@ function syncRecipeCount(){
   const on = recipesOn(wk), total = D.recipes.length;
   const txt = `（已解鎖 ${on} / ${total} 道）`;
   if ($('rlvCount')) $('rlvCount').textContent = txt;
-  /* **一道都沒解鎖是個懸崖，一定要講出來。** 靜靜地把料理算成 0，使用者只會
-     覺得推演壞了 —— 這就是陷阱 4 的「排除名單要顯示出來」。 */
+  /* **一道都沒解鎖時要講出來。** 推演照跑（沒解鎖的以 Lv1 計），但料理分數會明顯
+     偏低 —— 全新使用者的預設狀態就是這樣，不講的話他們會以為料理本來就不值錢。 */
   if ($('rlvNone')) $('rlvNone').hidden = on > 0;
 }
 $('rlvBody').addEventListener('change', e=>{
