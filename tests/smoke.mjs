@@ -3117,7 +3117,8 @@ console.log('\n[2e] 一道食譜都沒解鎖：以 Lv1 照算，而且要標出�
      r.blocked === false && r.hasRes && !/還差 ?0 ?隻/.test(r.card) && !/算不出來/.test(r.card), r.card);
 }
 
-/* 結果卡 → 寶可夢箱（使用者 2026-09-28 要求）。成員卡整張可點，跳到箱子並展開那一隻。
+/* 結果卡 → 寶可夢箱（使用者 2026-09-28 要求）。**只有「箱子 ↗」按鈕會跳**（整張卡點了不動，
+   同日改），跳到箱子並展開那一隻。
    推演與自組隊伍共用 `teamDetailHTML`／`bindTeamDetail`，所以兩邊都要測。 */
 console.log('\n[2f] 點成員卡跳到寶可夢箱的那一隻');
 {
@@ -3129,9 +3130,13 @@ console.log('\n[2f] 點成員卡跳到寶可夢箱的那一隻');
     boxFlt.sort = 'level'; boxFlt.q = '不可能中的字串zz'; $('fltName').value = boxFlt.q;
     monOpen.clear(); monOpen.add((i + 1) % roster.length);
     renderBox(); showView('plan'); renderResults();
-    const cards = $('results').querySelectorAll('.mem[data-goto]');
-    const nCards = cards.length, firstGoto = +cards[0].dataset.goto;
-    cards[0].click();
+    const btns = $('results').querySelectorAll('.mem button.mem-go[data-goto]');
+    const nCards = btns.length, firstGoto = +btns[0].dataset.goto;
+    // 點卡片的其他地方（名字、數字那一欄）不可以跳
+    const mem0 = btns[0].closest('.mem');
+    mem0.click(); mem0.querySelector('.out').click(); mem0.querySelector('.nm').click();
+    const stay = vis('plan') && !vis('box') && !mem0.hasAttribute('data-goto');
+    btns[0].click();
     const card = $('boxList').querySelector(`[data-i="${i}"]`);
     const onBox = {box: vis('box'), open: [...monOpen], cardOpen: card.classList.contains('open'),
                    focus: card.classList.contains('focus'), hidden: card.hidden,
@@ -3141,7 +3146,7 @@ console.log('\n[2f] 點成員卡跳到寶可夢箱的那一隻');
     const back = {plan: vis('plan'), bar: $('jumpBar').hidden};
     // 篩選本來就看得到牠 → 不清、也不講
     boxFlt.q = ''; $('fltName').value = ''; boxFlt.spec = ''; renderBox(); renderResults();
-    $('results').querySelector('.mem[data-goto]').dispatchEvent(new KeyboardEvent('keydown', {key:'Enter', bubbles:true}));
+    $('results').querySelector('button.mem-go[data-goto]').click();
     const kb = {box: vis('box'), note: $('jumpNote').textContent};
     // 用導覽列切走 → 回去列要收起來
     showView('recipes');
@@ -3149,16 +3154,17 @@ console.log('\n[2f] 點成員卡跳到寶可夢箱的那一隻');
     // 自組隊伍：回去要回到自組隊伍
     teams = [newTeam()]; teams[0].members = lastResults[0].idxs.slice(); teamShown = 0;
     showView('team');
-    const tc = $('teamDetail').querySelector('.mem[data-goto]');
+    const tc = $('teamDetail').querySelector('button.mem-go[data-goto]');
     const tIdx = tc ? +tc.dataset.goto : -1;
     if (tc) tc.click();
     const team = {box: vis('box'), open: [...monOpen], want: tIdx, back: $('jumpBack').textContent};
     $('jumpBack').click();
     team.returned = vis('team');
     boxFlt.sort = 'added'; monOpen.clear(); renderBox(); showView('plan');
-    return {i, nCards, firstGoto, onBox, back, kb, navHide, team};
+    return {i, nCards, firstGoto, stay, onBox, back, kb, navHide, team};
   });
-  ok('推演結果的 5 張成員卡都可以點，data-goto 就是 roster 索引',
+  ok('點卡片的其他地方不會跳，只有按鈕會', r.stay === true);
+  ok('推演結果的 5 張成員卡都有「箱子 ↗」按鈕，data-goto 就是 roster 索引',
      r.nCards === 5 && r.firstGoto === r.i, `${r.nCards} ${r.firstGoto} vs ${r.i}`);
   ok('點下去切到寶可夢箱、只展開那一隻、標示出來',
      r.onBox.box && r.onBox.open.length === 1 && r.onBox.open[0] === r.i && r.onBox.cardOpen &&
@@ -3167,7 +3173,7 @@ console.log('\n[2f] 點成員卡跳到寶可夢箱的那一隻');
      r.onBox.q === '' && r.onBox.sort === 'level' && /清掉/.test(r.onBox.note), r.onBox.note);
   ok('回去列寫出看的是哪一隻（暱稱與學名）', r.onBox.bar && r.onBox.note.includes(r.onBox.label), r.onBox.note);
   ok('「回到推演結果」回得去，回去列收起來', /推演結果/.test(r.onBox.back) && r.back.plan && r.back.bar, JSON.stringify(r.back));
-  ok('鍵盤 Enter 也可以跳，篩選沒擋住時不講「清掉」', r.kb.box && !/清掉/.test(r.kb.note), r.kb.note);
+  ok('篩選沒擋住時不講「清掉」', r.kb.box && !/清掉/.test(r.kb.note), r.kb.note);
   ok('用導覽列切走時回去列收起來', r.navHide === true);
   ok('自組隊伍的成員卡也可以跳，而且回到自組隊伍',
      r.team.box && r.team.open[0] === r.team.want && /自組隊伍/.test(r.team.back) && r.team.returned,

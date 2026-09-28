@@ -153,11 +153,11 @@ input[type=range]{width:100%;accent-color:var(--accent)}
 
 /* ---- member row ---- */
 .mem{display:grid;grid-template-columns:22px minmax(0,1fr) auto;gap:12px;align-items:center;padding:9px 11px;border-radius:9px;background:var(--surface-2);border:1px solid var(--line)}
-/* 結果卡整張可點 → 跳到寶可夢箱的那一隻（gotoBoxMon）。推演與自組隊伍共用。 */
-.mem.go{cursor:pointer;transition:border-color .12s}
-.mem.go:hover{border-color:var(--accent)}
-.mem.go:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
-.mem .mem-go{font-size:11px;font-weight:600;color:var(--accent);white-space:nowrap}
+/* 結果卡的「箱子 ↗」按鈕 → 跳到寶可夢箱的那一隻（gotoBoxMon）。只有按鈕會跳，整張卡不會。 */
+.mem .mem-go{font:600 11px/1.4 var(--body);color:var(--accent);white-space:nowrap;cursor:pointer;
+  background:transparent;border:1px solid color-mix(in srgb,var(--accent) 40%,transparent);border-radius:5px;padding:0 6px}
+.mem .mem-go:hover{background:color-mix(in srgb,var(--accent) 12%,transparent)}
+.mem .mem-go:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
 .mem .rank{font-family:var(--mono);font-size:12px;color:var(--muted);text-align:center}
 .mem .nm{font-weight:700;font-size:14px;display:flex;flex-wrap:wrap;gap:6px;align-items:center}
 /* 取了暱稱時並列學名 —— 暱稱認得出是哪一隻，學名才知道要看哪一隻的數值 */

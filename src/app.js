@@ -68,7 +68,7 @@ const SCHEMA = 6;   // 4: 新增 msExtra{}（上游沒有的主技能數值表�
    「新的 index.html ＋ 舊的 app.js」—— 畫面畫出舊版 UI，而使用者只會覺得
    「你根本沒改」，完全不知道是快取。有了這個斷言，過期的 app.js 會直接被擋下來
    並要求強制重新整理。tests/smoke.mjs 第 11 節會斷言三處一致。 */
-const APP_V = '20260928e';
+const APP_V = '20260928f';
 
 /** 致命錯誤：整頁換成一段說明。這種狀況下繼續跑只會產生錯的數字。 */
 function fatal(html){
@@ -2785,7 +2785,7 @@ const durH = h => !isFinite(h) ? '—' : h >= 24 ? '＞24h' : h < 1 ? Math.round
  * 其他 1 次）之後再發動也拿不到 —— 而**技能型先到的常常是後者**。只顯示背包時間的話，
  * 高頻技能型看起來會像「那段時間什麼都沒漏」，那正是陷阱 6e 那個偏差的來源。
  *
- * 旁邊的「背包滿 N」是**事後結果**（你已經漏了多少），這一行是**該怎麼做**。 */
+ * 旁邊的「包滿 N 次／日」是**事後結果**（你已經漏了多少），這一行是**該怎麼做**。 */
 function collectRow(sim){
   const cap = Math.min(sim.fillH, sim.skillH);
   const late = wk.collectH > 0 && cap < wk.collectH - 0.05;
@@ -2794,7 +2794,7 @@ function collectRow(sim){
     '主技能另外還有存量上限：技能專長最多存 2 次、其他 1 次，存滿之後發動了也拿不到。',
     '',
     '這是用白天的平均幫忙速度換算的。起床時活力最高、實際會比這個略快，所以偏保守。',
-    '夜間那一段沒辦法中途收，它的損失算在旁邊那個「背包滿」裡。',
+    '夜間那一段沒辦法中途收，它的損失算在旁邊那個「包滿」裡。',
     '',
     wk.collectH > 0
       ? `你在「本週條件」把收取間隔設成 ${wk.collectH} 小時，推演就是照那個算的` +
@@ -2809,25 +2809,26 @@ function memberCard(rank, i, r, o){
   const act = bs.act.map(a=>sss(a));
   const ingList = [];
   for (let k=0;k<NING;k++) if (o.ing[k]*7 > 12) ingList.push(iz(ING_NAME[k])+' '+f1(o.ing[k]*7));
-  /* 整張卡可點 → 寶可夢箱的那一隻（gotoBoxMon，綁在 bindTeamDetail）。
+  /* 「箱子 ↗」按鈕 → 寶可夢箱的那一隻（gotoBoxMon，綁在 bindTeamDetail）。
      卡片上只有摘要，完整的欄位／資質／練滿都在箱子裡 —— 與其在這裡再畫一份
-     （兩份一定會走鐘），不如直接帶過去。「箱子 ↗」是給手機看的：沒有 hover 的話
-     根本看不出這張卡可以點。 */
-  return `<div class="mem go" data-goto="${i}" role="button" tabindex="0" title="點一下到寶可夢箱看這一隻的完整資料">
+     （兩份一定會走鐘），不如直接帶過去。
+     **只有那顆按鈕會跳，整張卡不行**（使用者 2026-09-28 改）：卡片上有一堆要滑上去
+     看的 tooltip，點到任何地方就切分頁太容易誤觸。用真的 <button>，鍵盤自然可用。 */
+  return `<div class="mem">
     <div class="rank">${rank}</div>
     <div>
       <div class="nm">${esc(monName(m))}${
         /* 推演結果是**最需要暱稱的地方**：箱子裡有兩隻妙蛙花時，選中的是哪一隻只有
            暱稱分得出來。但學名也一定要在（不然不知道要看哪一隻的數值），所以並列。 */
         (m.nick||'').trim() ? `<span class="nm-sci">${pz(p)}</span>` : ''
-      }<span class="tag ${SPEC_TAG[p.sp]}">${SPEC_ZH[p.sp]}</span>${specialTag(p)}${wk.fav.has(p.b)?`<span class="tag fav" title="本週加成樹果：幫忙撿來的樹果能量 ×${mulTxt(berryMulShown(p.b))}">加成樹果</span>`:''}${exTag(bs)}${typeTags(p)}${m.pin?`<span class="tag pin">固定</span>`:''}<span class="mem-go" aria-hidden="true">箱子 ↗</span></div>
+      }<span class="tag ${SPEC_TAG[p.sp]}">${SPEC_ZH[p.sp]}</span>${specialTag(p)}${wk.fav.has(p.b)?`<span class="tag fav" title="本週加成樹果：幫忙撿來的樹果能量 ×${mulTxt(berryMulShown(p.b))}">加成樹果</span>`:''}${exTag(bs)}${typeTags(p)}${m.pin?`<span class="tag pin">固定</span>`:''}<button type="button" class="mem-go" data-goto="${i}" title="到寶可夢箱看這一隻的完整資料">箱子 ↗</button></div>
       <div class="meta">Lv${m.level} · ${natZ(NAT[m.nature]||NAT.Bashful)} · ${act.length?act.join('／'):'無副技能'} · 頻率 ${Math.round(o.sim.freqBase/60*10)/10}分</div>\n      <div class="meta">${msz(p.ms)} Lv${bs.skillLv} · 每日發動 ${f1(o.sim.procs)} 次 ${msCaveat(p.ms)}</div>
       <div class="meta" style="color:var(--ing)">${ingList.length?ingList.join('　'):'（無食材產出）'}</div>
       <div class="why">${pickReason(rank-1, r)}</div>
     </div>
     <div class="out">
       <div><span class="muted">週能量</span> ${fmt((o.berryStrength+o.skillStrength)*7*(1+wk.areaBonus/100))}</div>
-      <div class="muted" title="每天實際完成的幫忙次數（含睡眠期間存下來的那些）。&#10;每次幫忙會帶回樹果或食材，也有機率發動主技能。">幫忙 ${f1(o.sim.productive)} 次／日${o.sim.snack>0.5?` · <span title="背包裝滿之後仍在幫忙，那些幫忙會 100% 變成樹果（能量照算），但食材拿不到、主技能也不會發動。&#10;這個數字大就代表該補「持有上限」副技能或緞帶，或者收勤一點。">背包滿 ${f1(o.sim.snack)}</span>`:''}</div>
+      <div class="muted" title="每天實際完成的幫忙次數（含睡眠期間存下來的那些）。&#10;每次幫忙會帶回樹果或食材，也有機率發動主技能。">幫忙 ${f1(o.sim.productive)} 次／日${o.sim.snack>0.5?` · <span title="包滿：背包裝滿之後仍在幫忙的次數（每天）。&#10;那些幫忙會 100% 變成樹果（能量照算），但食材拿不到、主技能也不會發動。&#10;&#10;　白天 ${f1(o.sim.daySnack)} 次（收取間隔比「背包裝滿」長才會有）&#10;　夜間 ${f1(o.sim.nightSnack)} 次（睡覺時沒辦法收）&#10;&#10;白天多就收勤一點；夜間多只能補「持有上限」副技能、緞帶或露營券。">包滿 ${f1(o.sim.snack)} 次／日</span>`:''}</div>
       ${collectRow(o.sim)}
       <div class="muted" title="活力 80 以上時，幫忙間隔最短（×0.45）—— 也就是產出最快的狀態。&#10;這個數字 = 一天有幾個小時處在那個狀態。&#10;&#10;活力檔位（決定幫忙間隔要乘多少）：&#10;　80 以上 ×0.45（最快）&#10;　60〜79　 ×0.52&#10;　40〜59　 ×0.58&#10;　1〜39　　×0.66&#10;　0　　　　×1.00（最慢）&#10;&#10;80 到 150 是同一格 —— 超過 80 不會更快，但掉回 80 以下要更久&#10;（起床 100 只撐 3.3 小時，起床 150 撐 11.7 小時）。&#10;&#10;比例低就是這隻活力不夠：考慮帶補師（活力填充／活力全體療癒），或睡久一點。" style="color:${o.sim.fastShare>=0.6?'var(--pos)':o.sim.fastShare>=0.3?'var(--ing)':'var(--neg)'}">活力80以上 ${f1(o.sim.fastHours)}h／日（${Math.round(o.sim.fastShare*100)}%）</div>
     </div>
@@ -3096,11 +3097,8 @@ function teamDetailHTML(r, opts){
 function bindTeamDetail(host){
   /* 成員卡 → 寶可夢箱。回來的時候要回到**這個**分頁（推演或自組隊伍）。 */
   const from = (host.closest('.view') || {id:'view-plan'}).id.replace(/^view-/, '');
-  host.querySelectorAll('[data-goto]').forEach(c=>{
-    const go = () => gotoBoxMon(+c.dataset.goto, from);
-    c.addEventListener('click', go);
-    c.addEventListener('keydown', e=>{ if (e.key === 'Enter' || e.key === ' '){ e.preventDefault(); go(); } });
-  });
+  host.querySelectorAll('[data-goto]').forEach(b=>
+    b.addEventListener('click', () => gotoBoxMon(+b.dataset.goto, from)));
 }
 
 /** 從結果卡跳到寶可夢箱，展開並捲到那一隻（使用者 2026-09-28 要求）。
