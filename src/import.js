@@ -34,9 +34,9 @@
    `Ingredient Magnet S.ingredient[2] = 11` 對上「隨機獲得11個食材」。所以
    `impSkillLv` 用說明數字**反查有效等級**，再減掉副技能加成得到基礎值。
 
-   範圍型技能（耿鬼的「能量填充S」畫面寫「卡比獸的能量增加393〜1,570」）在快照裡
-   只有一個固定值，但那個區間剛好是 [v/2, 2v] —— 所以照樣反查得出來，見
-   `impEffFromPayload` 的第二段。 */
+   範圍型技能（耿鬼的「能量填充S」畫面寫「卡比獸的能量增加393〜1,570」）在資料裡是
+   獨立的 'Charge Strength S Range'，兩端存在 `strengthLo` / `strengthHi` —— 反查就
+   直接比對那兩張表，見 `impPayloadHits`。 */
 
 /* ---------- 文字正規化與反向查表 ---------- */
 
@@ -79,6 +79,11 @@ function impLookup(rev, text, valid){
 const impNature   = t => impLookup(IMP_REV_NAT, t, Object.keys(NAT));
 const impSubskill = t => impLookup(IMP_REV_SS,  t, Object.keys(SS));
 const impMainSkill= t => impLookup(IMP_REV_MS,  t, Object.keys(D.ms));
+/** 主技能的「家族」＝ 遊戲畫面上顯示的那個名字。資料裡同名但數值不同的變體有自己的鍵
+ *  （範圍型 'Charge Strength S Range'、電擊怪的 'Plus (Ingredient Magnet S) [TOXTRICITY_AMPED]'），
+ *  但遊戲畫面上兩者都叫「能量填充S」／「正電」—— 所以使用者指定主技能時要比對家族，
+ *  否則選「能量填充S」會把耿鬼、隆隆岩整個篩掉。 */
+const impMsFamily = n => n == null ? n : String(n).replace(/ Range$/, '').replace(/ \[[A-Z0-9_]+\]$/, '');
 /** 食材中文 → ING_NAME 的索引。 */
 function impIngIndex(text){
   const nm = impLookup(IMP_REV_ING, text, ING_NAME);
@@ -112,18 +117,22 @@ function impSkillBonus(ss, level){
   }
   return b;
 }
-/** 掃 D.ms[msName] 的所有數值陣列，回傳「哪些有效等級的值等於 payload」。
- *  `ranged` 改成拿 v/2 與 2v 去比對（範圍型技能顯示的兩端）。 */
-function impPayloadHits(e, payload, ranged){
-  const hits = new Set();
+/** 掃 D.ms[msName] 的所有「畫面上會顯示」的數值陣列，回傳 {lv → 是不是區間的一端}。
+ *
+ *  範圍型技能（有 xxxLo／xxxHi 的）畫面只顯示兩端，所以**跳過 xxx 本身** —— 那是
+ *  上游的期望值 (low+high)/2（例如 981.5），遊戲從來不會顯示它。 */
+function impPayloadHits(e, payload){
+  const hits = new Map();
   for (const k of Object.keys(e)){
     const arr = e[k];
     if (!Array.isArray(arr)) continue;
+    if (Array.isArray(e[k + 'Lo'])) continue;     // 範圍型的期望值：畫面上不存在
+    const ranged = /(Lo|Hi)$/.test(k) && Array.isArray(e[k.slice(0, -2)]);
     for (let i = 0; i < arr.length; i++){
       const v = arr[i];
       if (typeof v !== 'number') continue;
-      for (const c of (ranged ? [v / 2, v * 2] : [v]))
-        if (Math.round(c) === payload || Math.floor(c) === payload){ hits.add(i + 1); break; }
+      if (Math.round(v) === payload || Math.floor(v) === payload)
+        hits.set(i + 1, (hits.get(i + 1) || false) || ranged);
     }
   }
   return hits;
@@ -131,26 +140,19 @@ function impPayloadHits(e, payload, ranged){
 /** 用技能說明裡的數字反查有效等級。對不到唯一解就回 null（不猜）。
  *  回傳 {lv, ranged}。
  *
- *  兩段式。**第一段**拿 payload 直接比對快照裡的值 —— 畫面「回復活力43」對上
- *  `Charge Energy S.energy[5] = 43.4`。
+ *  拿 payload 直接比對資料裡的值 —— 畫面「回復活力43」對上
+ *  `Charge Energy S.energy[5] = 43.4`；耿鬼「卡比獸的能量增加393〜1,570」對上
+ *  `Charge Strength S Range.strengthLo[2] = 393` 與 `strengthHi[2] = 1570`。
  *
- *  **第二段**處理範圍型技能。遊戲對能量填充類的某些技能顯示的是一個區間
- *  （耿鬼「卡比獸的能量增加393〜1,570」），而快照只存一個固定值
- *  `Charge Strength S.strength[2] = 785` —— 區間剛好就是 [v/2, 2v]
- *  （393 = round(785/2)、1570 = 785×2；隆隆岩的 285〜1,138 對 569 也一樣）。
- *  所以不管使用者填的是區間的哪一端都反解得出來。
- *
- *  第二段**只在第一段一個都對不到時**啟用，所以原本就有唯一解的情形不受影響。
- *  掃過 D.ms 全部技能 × 全部等級的兩端：唯一且正確 298 筆、多解退回 null 68 筆、
- *  **唯一但錯 0 筆** —— 不會靜靜地給出錯的等級。 */
+ *  以前範圍型的兩端不在資料裡（萃取時被同名的固定型蓋掉），所以有一段拿 v/2 與 2v
+ *  去猜的第二段比對。兩端現在是上游的真實數值，那段猜測就拿掉了。 */
 function impEffFromPayload(msName, payload){
   const e = D.ms[msName];
   if (!e || payload == null || !isFinite(payload)) return null;
-  const exact = impPayloadHits(e, payload, false);
-  if (exact.size === 1) return {lv: [...exact][0], ranged: false};
-  if (exact.size) return null;                    // 精確比對就已經多解 —— 不猜
-  const wide = impPayloadHits(e, payload, true);
-  return wide.size === 1 ? {lv: [...wide][0], ranged: true} : null;
+  const hits = impPayloadHits(e, payload);
+  if (hits.size !== 1) return null;               // 對不到或多解 —— 不猜
+  const [[lv, ranged]] = [...hits];
+  return {lv, ranged};
 }
 /** 決定 roster 要存的基礎 skillLv。
  *  payload（說明裡的數字）優先；沒有就退回畫面顯示的等級當有效等級。 */
@@ -163,7 +165,7 @@ function impSkillLv(msName, displayedLv, payload, bonus){
   const base = Math.max(1, Math.min(max, effective - bonus));
   const notes = [];
   if (hit && hit.ranged)
-    notes.push(`說明裡的「${payload}」是範圍型技能區間的一端（遊戲顯示 v/2〜2v），反查出有效等級 ${fromPay}`);
+    notes.push(`說明裡的「${payload}」是範圍型技能區間的一端，反查出有效等級 ${fromPay}`);
   if (fromPay != null && disp != null && disp !== fromPay){
     notes.push(disp === fromPay - bonus
       ? `畫面的 Lv.${disp} 看起來是基礎值，說明數字推出有效等級 ${fromPay}`
@@ -241,7 +243,7 @@ function impSolve(obs){
     for (let sp = 0; sp < D.dex.length; sp++){
       const p = D.dex[sp];
       if (obs.specialty && p.sp !== obs.specialty) continue;
-      if (obs.mainSkill && p.ms !== obs.mainSkill) continue;
+      if (obs.mainSkill && impMsFamily(p.ms) !== impMsFamily(obs.mainSkill)) continue;
       if (obs.berry && p.b !== obs.berry) continue;
       const ing = impIngSets(sp, level, obs.ingCounts);
       if (ing.impossible) continue;

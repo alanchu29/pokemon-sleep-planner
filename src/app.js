@@ -56,10 +56,13 @@ const esc = s => String(s == null ? '' : s)
    GitHub Pages 送 max-age=600，所以更新後有最多 10 分鐘的窗口，瀏覽器可能
    拿到「新 app.js ＋ 舊 game.json」。純數值過期還好，結構變了就會算出錯的
    數字或直接壞掉 —— 而使用者只會看到壞頁面，不知道重新整理就好。 */
-const SCHEMA = 6;   // 4: 新增 msExtra{}（上游沒有的主技能數值表，目前是流星群的基礎樹果表）
+const SCHEMA = 7;   // 4: 新增 msExtra{}（上游沒有的主技能數值表，目前是流星群的基礎樹果表）
                     // 5: types{} 從 {dark,dragon} 補滿成 18 個屬性鍵（屬性限定的活動加成要用）
                     // 6: dex[].ef（進化來源）—— 新抓比較要認同一條進化系。舊資料沒有它時
                     //    不會報錯，只會靜靜地「只和同物種比」，所以要擋
+                    // 7: 同名不同數值的主技能拆成獨立的鍵（'Charge Strength S Range'、
+                    //    'Plus (Ingredient Magnet S) [TOXTRICITY_AMPED]'…），範圍型多了 xxxLo／xxxHi。
+                    //    舊 app.js 配新資料：截圖匯入反查不到範圍型的技能等級
 
 /* 這一份 app.js 的資源版本。必須等於 index.html 裡的 ASSET_V（以及 app.css 的 ?v=）。
    動到 app.css 或 src/*.js 就三個地方一起往前推。
@@ -68,7 +71,7 @@ const SCHEMA = 6;   // 4: 新增 msExtra{}（上游沒有的主技能數值表�
    「新的 index.html ＋ 舊的 app.js」—— 畫面畫出舊版 UI，而使用者只會覺得
    「你根本沒改」，完全不知道是快取。有了這個斷言，過期的 app.js 會直接被擋下來
    並要求強制重新整理。tests/smoke.mjs 第 11 節會斷言三處一致。 */
-const APP_V = '20260928f';
+const APP_V = '20260930a';
 
 /** 致命錯誤：整頁換成一段說明。這種狀況下繼續跑只會產生錯的數字。 */
 function fatal(html){
@@ -1437,6 +1440,7 @@ const MS_CAVEAT = {
     + '<b>你如果整週不搬營地</b>，實際會比這裡算的高（上限 24%）。'
     + '主技能發出來的樹果不吃這個加成（和本週活動的樹果加成同一條規則）。'},
   'Dream Shard Magnet S':             {dir:'under', why:'夢之碎片不計分 —— 這個工具只算能量。'},
+  'Dream Shard Magnet S Range':       {dir:'under', why:'夢之碎片不計分 —— 這個工具只算能量。'},
   'Aura Sphere (Dream Shard Magnet S)':{dir:'under', why:'夢之碎片不計分 —— 這個工具只算能量。'},
   'Super Luck (Ingredient Draw S)':   {dir:'under', why:'夢之碎片不計分（食材那一面有算）。'},
 };
@@ -2086,7 +2090,7 @@ const impSecFmt = s => `${Math.floor(s/60)}分${String(s%60).padStart(2,'0')}秒
 function buildImport(){
   $('impNature').innerHTML = `<option value="">未指定</option>` + NATURE_OPTS;
   $('impMs').innerHTML = `<option value="">未指定</option>` +
-    Object.keys(D.ms).map(n=>({n, z:msz(n)})).sort((a,b)=>a.z.localeCompare(b.z,'zh-Hant'))
+    Object.keys(D.ms).filter(n => impMsFamily(n) === n).map(n=>({n, z:msz(n)})).sort((a,b)=>a.z.localeCompare(b.z,'zh-Hant'))
       .map(x=>`<option value="${x.n}">${x.z}</option>`).join('');
   $('impSs').innerHTML = [0,1,2,3,4].map(s=>
     `<select data-s="${s}" title="第 ${s+1} 格 — Lv${SS_SLOT_LV[s]} 解鎖">${SS_OPTS}</select>`).join('');
@@ -2114,7 +2118,13 @@ function buildImport(){
     }
     if (!imgs.length) return;
     e.preventDefault();
+    // 「從截圖建立」預設收著 —— 貼進一個看不到的區塊等於沒反應，所以先打開它
+    $('impFold').open = true;
     impAddFiles(imgs);
+  });
+  $('boxEmptyImp').addEventListener('click', ()=>{
+    $('impFold').open = true;
+    $('impFold').scrollIntoView({block:'start'});
   });
 
   $('impSolveBtn').addEventListener('click', impRunSolve);

@@ -1080,7 +1080,8 @@ const IMP_CASES = [
     // 第 2 格：暖暖薑×2 與 放鬆可可×2 數量相同 → 一定是歧義，要標出來
     want: { sp:'MAROWAK', ribbon:3, ingSet:'0,0,0', skillLv:6, amb:'2', berry:3 } },
   { label: '耿鬼 Lv50 怕寂寞',
-    // 能量填充S 畫面顯示的是**區間**「393〜1,570」→ 走 impEffFromPayload 第二段
+    // 能量填充S 畫面顯示的是**區間**「393〜1,570」→ 比對範圍型的 strengthLo。
+    // mainSkill 刻意填畫面上的名字（和固定型同名）—— 要靠家族比對才找得到耿鬼
     obs: { level:50, specialty:'ingredient', mainSkill:'Charge Strength S',
            skillDisplayLv:3, skillPayload:393, nature:'Lonely',
            ss:['Helping Speed M','Helping Speed S','Inventory Up S','Skill Level Up S','Ingredient Finder M'],
@@ -1140,45 +1141,78 @@ const IMP_CASES = [
     ok(`${c.label}：歧義欄位標示正確（第 ${c.want.amb || '無'} 格）`, r.amb === c.want.amb, `得到「${r.amb}」`);
   }
 
-  /* 範圍型主技能。遊戲對耿鬼的「能量填充S」顯示「卡比獸的能量增加393〜1,570」，
-     而快照只存一個固定值 785 —— 區間剛好是 [v/2, 2v]。這一段保證：
-       (1) 區間的**兩端**都反查得出同一個等級
-       (2) 精確比對有唯一解時**不會**被第二段影響（大食花的 43 還是走第一段）
-       (3) 掃過全部技能 × 全部等級的兩端，第二段不會給出「錯的唯一解」
-     第 (3) 條是關鍵：這種放寬比對很容易靜靜地算錯，而算錯的技能等級不會讓任何
-     校驗碼破掉（幫忙間隔與持有上限都不吃 skillLv）—— 沒有這條就沒人擋得住。 */
+  /* 範圍型主技能。遊戲對耿鬼的「能量填充S」顯示「卡比獸的能量增加393〜1,570」。
+     上游把它和固定值的能量填充S 做成**同名的兩個物件**（ChargeStrengthS／ChargeStrengthSRange），
+     以前萃取只用 name 當鍵、先到先贏 —— 範圍型那 26 隻全部拿到固定型的 785，
+     比上游的期望值 (393+1570)/2 = 981.5 少 20%，而且沒有任何錯誤訊息。
+     現在範圍型是獨立的 'Charge Strength S Range'，引擎吃期望值、兩端另存 Lo／Hi。這一段保證：
+       (1) 資料：範圍型的物種指到範圍型、固定型的仍是固定型；期望值 ＝ 兩端平均
+       (2) 引擎：每次發動的能量就是那個期望值
+       (3) 截圖反查：區間的**兩端**都反查得出同一個等級，而且是比對真的兩端，不是 v/2、2v 的猜測
+       (4) 掃過全部技能 × 全部等級 × 畫面上會出現的每個數字，不會給出「錯的唯一解」
+     第 (4) 條是關鍵：算錯的技能等級不會讓任何校驗碼破掉（幫忙間隔與持有上限都不吃 skillLv）。 */
   const rng = await page.evaluate(() => {
     const pick = (nm, pay) => { const h = impEffFromPayload(nm, pay); return h ? [h.lv, h.ranged] : null; };
-    let good = 0, ambig = 0, exact = 0, wrong = 0;
+    let good = 0, ambig = 0, wrong = 0;
     for (const nm of Object.keys(D.ms)) {
-      for (const k of Object.keys(D.ms[nm])) {
-        const arr = D.ms[nm][k];
-        if (!Array.isArray(arr)) continue;
+      const e = D.ms[nm];
+      for (const k of Object.keys(e)) {
+        const arr = e[k];
+        if (!Array.isArray(arr) || Array.isArray(e[k + 'Lo'])) continue;   // 期望值畫面上看不到
         arr.forEach((v, i) => {
           if (typeof v !== 'number') return;
-          for (const pay of [Math.round(v/2), v*2]) {
-            const h = impEffFromPayload(nm, pay);
-            if (!h) { ambig++; continue; }
-            if (!h.ranged) { exact++; continue; }
-            if (h.lv === i+1) good++; else wrong++;
-          }
+          const h = impEffFromPayload(nm, Math.round(v));
+          if (!h) ambig++; else if (h.lv === i + 1) good++; else wrong++;
         });
       }
     }
-    return { lo: pick('Charge Strength S', 393), hi: pick('Charge Strength S', 1570),
-             lo2: pick('Charge Strength S', 285), hi2: pick('Charge Strength S', 1138),
-             exact43: pick('Charge Energy S', 43), exact11: pick('Ingredient Magnet S', 11),
-             sweep: { good, ambig, exact, wrong } };
+    const R = D.ms['Charge Strength S Range'], F = D.ms['Charge Strength S'];
+    const msOf = n => D.dex.find(p => p.n === n).ms;
+    const lvs = [...Array(R.max)].map((_, i) => i + 1);
+    const plusOf = n => lvs.map(lv => skillPayload(msOf(n), lv).ingBonus).join(',');
+    return {
+      lo: pick('Charge Strength S Range', 393), hi: pick('Charge Strength S Range', 1570),
+      lo2: pick('Charge Strength S Range', 285), hi2: pick('Charge Strength S Range', 1138),
+      fixed785: pick('Charge Strength S', 785), fixedGuess: pick('Charge Strength S', 393),
+      exact43: pick('Charge Energy S', 43), exact11: pick('Ingredient Magnet S', 11),
+      sweep: { good, ambig, wrong },
+      msGolduck: msOf('GOLDUCK'), msGengar: msOf('GENGAR'), msPikachu: msOf('PIKACHU'),
+      meanOk: lvs.every(lv => R.strength[lv-1] === (R.strengthLo[lv-1] + R.strengthHi[lv-1]) / 2),
+      engineMean: lvs.every(lv => skillPayload('Charge Strength S Range', lv).strength === R.strength[lv-1]),
+      fixedKept: lvs.every(lv => skillPayload('Charge Strength S', lv).strength === F.strength[lv-1]),
+      golduckLv3: skillPayload(msOf('GOLDUCK'), 3).strength,
+      plusle: plusOf('PLUSLE'), toxAmped: plusOf('TOXTRICITY_AMPED'),
+      toxFamily: impMsFamily(msOf('TOXTRICITY_AMPED')),
+      dropdown: [...$('impMs').options].map(o => o.value).filter(v => v && impMsFamily(v) !== v),
+    };
   });
+  ok('範圍型技能：可達鴨系／耿鬼系指到範圍型，皮卡丘仍是固定型',
+     rng.msGolduck === 'Charge Strength S Range' && rng.msGengar === 'Charge Strength S Range' &&
+     rng.msPikachu === 'Charge Strength S', JSON.stringify([rng.msGolduck, rng.msGengar, rng.msPikachu]));
+  ok('範圍型技能：期望值 ＝ 兩端平均（上游的 strengthAmountsMean）', rng.meanOk);
+  ok('範圍型技能：引擎每次發動用期望值（哥達鴨 Lv3 ＝ 981.5，不是固定型的 785）',
+     rng.engineMean && rng.golduckLv3 === 981.5, String(rng.golduckLv3));
+  ok('固定型能量填充S 的數值不變', rng.fixedKept);
   ok('範圍型技能：區間低端 393 → 有效等級 3', rng.lo && rng.lo[0] === 3 && rng.lo[1] === true, JSON.stringify(rng.lo));
   ok('範圍型技能：區間高端 1570 → 同一個等級 3', rng.hi && rng.hi[0] === 3 && rng.hi[1] === true, JSON.stringify(rng.hi));
   ok('範圍型技能：285／1138 都 → 有效等級 2',
      rng.lo2 && rng.lo2[0] === 2 && rng.hi2 && rng.hi2[0] === 2, JSON.stringify([rng.lo2, rng.hi2]));
-  ok('精確比對優先（43 與 11 不受第二段影響）',
+  ok('固定型：785 → 等級 3（不是區間）；393 對不到（不再拿 v/2 去猜）',
+     rng.fixed785 && rng.fixed785[0] === 3 && rng.fixed785[1] === false && rng.fixedGuess === null,
+     JSON.stringify([rng.fixed785, rng.fixedGuess]));
+  ok('一般技能照舊精確比對（43 與 11）',
      rng.exact43 && rng.exact43[0] === 6 && rng.exact43[1] === false &&
      rng.exact11 && rng.exact11[0] === 3 && rng.exact11[1] === false, JSON.stringify([rng.exact43, rng.exact11]));
-  ok('全技能 × 全等級掃描：第二段不會給出錯的唯一解',
+  ok('全技能 × 全等級掃描：不會給出錯的唯一解',
      rng.sweep.wrong === 0 && rng.sweep.good > 0, JSON.stringify(rng.sweep));
+  /* 第二個同名不同數值的：電擊怪（高調的樣子）的正電加碼表和正負電拍拍不同。
+     以前兩隻共用正負電拍拍那一份。 */
+  ok('電擊怪（高調）的正電加碼用牠自己的表，不是正負電拍拍的',
+     rng.toxAmped === '6,7,9,10,12,13,14' && rng.plusle === '6,7,8,9,10,11,12',
+     JSON.stringify([rng.toxAmped, rng.plusle]));
+  ok('同名變體在畫面上是同一個技能（截圖匯入比對家族）',
+     rng.toxFamily === 'Plus (Ingredient Magnet S)', rng.toxFamily);
+  ok('截圖匯入的主技能選單不重複列出同名變體', rng.dropdown.length === 0, JSON.stringify(rng.dropdown));
 
   /* 還沒解鎖的食材格也要解。`baseStats` 只讀 min(floor(level/30)+1,3) 格，所以
      這一格存錯**不會讓任何數字跑掉** —— 一路等到升級才發現。實際踩過：耿鬼 Lv50
@@ -1337,6 +1371,33 @@ const IMP_CASES = [
   ok('露營券未指定時校驗碼不會誤報不符', !campless.bad);
   ok('會講出這組解假設的露營券前提', campless.saysCamp);
   ok('這一輪也沒有偷偷寫進箱子', campless.notWritten);
+}
+
+/* 「從截圖建立」預設收起（使用者 2026-09-30：使用率很低，要用再打開）。
+   兩條打開它的路徑都要守：全頁的 Ctrl+V 貼圖（不打開的話圖片貼進一個看不到的區塊，
+   看起來像沒反應），以及空箱說明裡的那顆按鈕。 */
+{
+  const f = await page.evaluate(() => {
+    const out = { closedByDefault: !$('impFold').open };
+    const was = ['plan','team','box','cmp','recipes'].find(v => !$('view-' + v).hidden);
+    showView('box');
+    const dt = new DataTransfer();
+    dt.items.add(new File([new Uint8Array([137, 80, 78, 71])], 'shot.png', {type: 'image/png'}));
+    document.dispatchEvent(new ClipboardEvent('paste', {clipboardData: dt, bubbles: true}));
+    out.pasteOpened = $('impFold').open;
+    out.pasteAdded = impFiles.length;
+    for (const x of impFiles) URL.revokeObjectURL(x.url);
+    impFiles = []; renderImpShots();
+    $('impFold').open = false;
+    $('boxEmptyImp').click();
+    out.btnOpened = $('impFold').open;
+    $('impFold').open = false;
+    if (was) showView(was);
+    return out;
+  });
+  ok('「從截圖建立」預設收起', f.closedByDefault);
+  ok('收著的時候 Ctrl+V 貼圖會自動打開它，圖片也收得到', f.pasteOpened && f.pasteAdded === 1, JSON.stringify(f));
+  ok('空箱說明的按鈕會打開它', f.btnOpened);
 }
 
 /* 分批建箱子（我讀截圖 → 給 JSON → 使用者貼上）時，一次貼一隻卻把整箱換掉
@@ -5002,6 +5063,7 @@ console.log('\n[13] 窄螢幕（390px）：任何分頁都不准整頁橫向捲�
        實測打開之後 390px 下 scrollWidth 567 vs clientWidth 390（兩張表都溢出），
        那是這一節漏掉的既有 bug，不是新版面造成的。現在兩張表都在 `.scroll` 裡。 */
     document.querySelector('details.notes').open = true;
+    $('impFold').open = true;     // 「從截圖建立」預設收起（2026-09-30）
   });
   await mob.evaluate(`(async () => { lastResults = null; await run(); })()`);
   await mob.waitForFunction(() => lastResults && lastResults.length, null, { timeout: 60000 });

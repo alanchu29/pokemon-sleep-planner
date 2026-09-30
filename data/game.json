@@ -967,7 +967,7 @@
       "cs": 18,
       "pe": 0,
       "re": 0,
-      "ms": "Charge Strength S",
+      "ms": "Charge Strength S Range",
       "i0": [
         [
           0,
@@ -1717,7 +1717,7 @@
       "cs": 8,
       "pe": 0,
       "re": 1,
-      "ms": "Charge Strength S",
+      "ms": "Charge Strength S Range",
       "i0": [
         [
           12,
@@ -1761,7 +1761,7 @@
       "cs": 14,
       "pe": 1,
       "re": 0,
-      "ms": "Charge Strength S",
+      "ms": "Charge Strength S Range",
       "i0": [
         [
           12,
@@ -1806,7 +1806,7 @@
       "cs": 7,
       "pe": 0,
       "re": 1,
-      "ms": "Charge Strength S",
+      "ms": "Charge Strength S Range",
       "i0": [
         [
           4,
@@ -1850,7 +1850,7 @@
       "cs": 17,
       "pe": 1,
       "re": 0,
-      "ms": "Charge Strength S",
+      "ms": "Charge Strength S Range",
       "i0": [
         [
           4,
@@ -2118,7 +2118,7 @@
       "cs": 9,
       "pe": 0,
       "re": 2,
-      "ms": "Charge Strength S",
+      "ms": "Charge Strength S Range",
       "i0": [
         [
           2,
@@ -2162,7 +2162,7 @@
       "cs": 12,
       "pe": 1,
       "re": 1,
-      "ms": "Charge Strength S",
+      "ms": "Charge Strength S Range",
       "i0": [
         [
           2,
@@ -2207,7 +2207,7 @@
       "cs": 16,
       "pe": 2,
       "re": 0,
-      "ms": "Charge Strength S",
+      "ms": "Charge Strength S Range",
       "i0": [
         [
           2,
@@ -2555,7 +2555,7 @@
       "cs": 10,
       "pe": 0,
       "re": 2,
-      "ms": "Charge Strength S",
+      "ms": "Charge Strength S Range",
       "i0": [
         [
           10,
@@ -2599,7 +2599,7 @@
       "cs": 14,
       "pe": 1,
       "re": 1,
-      "ms": "Charge Strength S",
+      "ms": "Charge Strength S Range",
       "i0": [
         [
           10,
@@ -2644,7 +2644,7 @@
       "cs": 18,
       "pe": 2,
       "re": 0,
-      "ms": "Charge Strength S",
+      "ms": "Charge Strength S Range",
       "i0": [
         [
           10,
@@ -3593,7 +3593,7 @@
       "cs": 12,
       "pe": 0,
       "re": 2,
-      "ms": "Charge Strength S",
+      "ms": "Charge Strength S Range",
       "i0": [
         [
           12,
@@ -3637,7 +3637,7 @@
       "cs": 17,
       "pe": 1,
       "re": 1,
-      "ms": "Charge Strength S",
+      "ms": "Charge Strength S Range",
       "i0": [
         [
           12,
@@ -3682,7 +3682,7 @@
       "cs": 20,
       "pe": 2,
       "re": 0,
-      "ms": "Charge Strength S",
+      "ms": "Charge Strength S Range",
       "i0": [
         [
           12,
@@ -3727,7 +3727,7 @@
       "cs": 14,
       "pe": 0,
       "re": 2,
-      "ms": "Charge Strength S",
+      "ms": "Charge Strength S Range",
       "i0": [
         [
           5,
@@ -3771,7 +3771,7 @@
       "cs": 18,
       "pe": 1,
       "re": 1,
-      "ms": "Charge Strength S",
+      "ms": "Charge Strength S Range",
       "i0": [
         [
           5,
@@ -3816,7 +3816,7 @@
       "cs": 23,
       "pe": 2,
       "re": 0,
-      "ms": "Charge Strength S",
+      "ms": "Charge Strength S Range",
       "i0": [
         [
           5,
@@ -3861,7 +3861,7 @@
       "cs": 11,
       "pe": 0,
       "re": 2,
-      "ms": "Charge Strength S",
+      "ms": "Charge Strength S Range",
       "i0": [
         [
           4,
@@ -3901,7 +3901,7 @@
       "cs": 15,
       "pe": 1,
       "re": 1,
-      "ms": "Charge Strength S",
+      "ms": "Charge Strength S Range",
       "i0": [
         [
           4,
@@ -3942,7 +3942,7 @@
       "cs": 19,
       "pe": 2,
       "re": 0,
-      "ms": "Charge Strength S",
+      "ms": "Charge Strength S Range",
       "i0": [
         [
           4,
@@ -6108,7 +6108,7 @@
       "cs": 16,
       "pe": 0,
       "re": 0,
-      "ms": "Dream Shard Magnet S",
+      "ms": "Dream Shard Magnet S Range",
       "i0": [
         [
           8,
@@ -6418,7 +6418,7 @@
       "cs": 8,
       "pe": 0,
       "re": 1,
-      "ms": "Dream Shard Magnet S",
+      "ms": "Dream Shard Magnet S Range",
       "i0": [
         [
           2,
@@ -6462,7 +6462,7 @@
       "cs": 19,
       "pe": 1,
       "re": 0,
-      "ms": "Dream Shard Magnet S",
+      "ms": "Dream Shard Magnet S Range",
       "i0": [
         [
           2,
@@ -6730,7 +6730,7 @@
       "cs": 11,
       "pe": 0,
       "re": 1,
-      "ms": "Charge Strength S",
+      "ms": "Charge Strength S Range",
       "i0": [
         [
           8,
@@ -6774,7 +6774,7 @@
       "cs": 19,
       "pe": 1,
       "re": 0,
-      "ms": "Charge Strength S",
+      "ms": "Charge Strength S Range",
       "i0": [
         [
           8,
@@ -8323,7 +8323,7 @@
       "cs": 10,
       "pe": 0,
       "re": 1,
-      "ms": "Charge Strength S",
+      "ms": "Charge Strength S Range",
       "i0": [
         [
           6,
@@ -8367,7 +8367,7 @@
       "cs": 21,
       "pe": 1,
       "re": 0,
-      "ms": "Charge Strength S",
+      "ms": "Charge Strength S Range",
       "i0": [
         [
           6,
@@ -8846,7 +8846,7 @@
       "cs": 12,
       "pe": 0,
       "re": 1,
-      "ms": "Dream Shard Magnet S",
+      "ms": "Dream Shard Magnet S Range",
       "i0": [
         [
           1,
@@ -8890,7 +8890,7 @@
       "cs": 24,
       "pe": 1,
       "re": 0,
-      "ms": "Dream Shard Magnet S",
+      "ms": "Dream Shard Magnet S Range",
       "i0": [
         [
           1,
@@ -10003,7 +10003,7 @@
       "cs": 13,
       "pe": 0,
       "re": 1,
-      "ms": "Charge Strength S",
+      "ms": "Charge Strength S Range",
       "i0": [
         [
           11,
@@ -10047,7 +10047,7 @@
       "cs": 20,
       "pe": 1,
       "re": 0,
-      "ms": "Charge Strength S",
+      "ms": "Charge Strength S Range",
       "i0": [
         [
           11,
@@ -10356,7 +10356,7 @@
       "cs": 18,
       "pe": 1,
       "re": 0,
-      "ms": "Plus (Ingredient Magnet S)",
+      "ms": "Plus (Ingredient Magnet S) [TOXTRICITY_AMPED]",
       "i0": [
         [
           1,
@@ -12900,6 +12900,36 @@
         3212
       ]
     },
+    "Charge Strength S Range": {
+      "max": 7,
+      "strengthLo": [
+        200,
+        285,
+        393,
+        542,
+        748,
+        1033,
+        1606
+      ],
+      "strengthHi": [
+        800,
+        1138,
+        1570,
+        2166,
+        2992,
+        4132,
+        6424
+      ],
+      "strength": [
+        500,
+        711.5,
+        981.5,
+        1354,
+        1870,
+        2582.5,
+        4015
+      ]
+    },
     "Stockpile (Charge Strength S)": {
       "max": 7,
       "averageStrength": [
@@ -12989,6 +13019,39 @@
         1260,
         1800,
         2500
+      ]
+    },
+    "Dream Shard Magnet S Range": {
+      "max": 8,
+      "shardLo": [
+        120,
+        170,
+        240,
+        335,
+        460,
+        630,
+        900,
+        1150
+      ],
+      "shardHi": [
+        480,
+        680,
+        960,
+        1340,
+        1840,
+        2520,
+        3600,
+        4600
+      ],
+      "shard": [
+        300,
+        425,
+        600,
+        837.5,
+        1150,
+        1575,
+        2250,
+        2875
       ]
     },
     "Aura Sphere (Dream Shard Magnet S)": {
@@ -13221,6 +13284,27 @@
         10,
         11,
         12
+      ]
+    },
+    "Plus (Ingredient Magnet S) [TOXTRICITY_AMPED]": {
+      "max": 7,
+      "ingredient": [
+        5,
+        7,
+        9,
+        11,
+        13,
+        16,
+        18
+      ],
+      "bonusIngredient": [
+        6,
+        7,
+        9,
+        10,
+        12,
+        13,
+        14
       ]
     },
     "Present (Ingredient Magnet S)": {
@@ -13852,6 +13936,7 @@
       "Charge Strength M": "能量填充M",
       "Bad Dreams (Charge Strength M)": "夢魘（能量填充M）",
       "Charge Strength S": "能量填充S",
+      "Charge Strength S Range": "能量填充S（範圍）",
       "Stockpile (Charge Strength S)": "蓄力（能量填充S）",
       "Cooking Assist S": "料理輔助S",
       "Bulk Up (Cooking Assist S)": "健美（料理輔助S）",
@@ -13873,6 +13958,7 @@
       "Super Luck (Ingredient Draw S)": "超幸運（食材精選S）",
       "Ingredient Magnet S": "食材獲取S",
       "Plus (Ingredient Magnet S)": "正電（食材獲取S）",
+      "Plus (Ingredient Magnet S) [TOXTRICITY_AMPED]": "正電（食材獲取S）",
       "Present (Ingredient Magnet S)": "禮物（食材獲取S）",
       "Skill Copy": "技能複製",
       "Mimic (Skill Copy)": "模仿（技能複製）",
@@ -14611,11 +14697,11 @@
     }
   },
   "meta": {
-    "schema": 6,
+    "schema": 7,
     "src": "nerolis-lab/nerolis-lab",
     "commit": "52157cb",
     "commitDate": "2026-09-14",
-    "builtAt": "2026-09-23",
+    "builtAt": "2026-09-29",
     "zhSrc": "RaenonX i18n + 52poke zh-hant",
     "typesSrc": "由樹果推導（Pokémon Sleep 每隻只有一個屬性，就是牠撿的樹果的屬性；18 顆樹果對 18 個屬性，來源是上游 berries.ts 的 Berry.type）",
     "msExtraSrc": "tools/skills-extra.json（本專案維護 —— 上游快照沒有這些表）"

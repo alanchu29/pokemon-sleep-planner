@@ -52,6 +52,12 @@ header.top p{margin:4px 0 0;color:var(--muted);font-size:13.5px;max-width:60ch}
 .panel > .pbody{padding:16px}
 section{margin-top:26px}
 .sechead{display:flex;flex-wrap:wrap;gap:8px 16px;align-items:baseline;justify-content:space-between;margin-bottom:12px}
+/* 「從截圖建立」預設收起：標題列本身就是 <summary>，箭頭跟著開合。 */
+.impfold>summary{cursor:pointer;list-style:none}
+.impfold>summary::-webkit-details-marker{display:none}
+.impfold>summary>h2::before{content:'▸';display:inline-block;width:1em;font-size:14px;color:var(--muted)}
+.impfold[open]>summary>h2::before{content:'▾'}
+.impfold:not([open])>summary{margin-bottom:0}
 
 /* ---- form controls ---- */
 .grid{display:grid;gap:14px}

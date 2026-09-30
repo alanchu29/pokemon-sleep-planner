@@ -65,11 +65,66 @@ const A: any = C;
 const ING_IDX: Record<string, number> = {};
 A.ingredient.INGREDIENTS.forEach((i: any, n: number) => (ING_IDX[i.name] = n));
 const set = (arr: any[] | undefined) => (arr || []).map((i: any) => [ING_IDX[i.ingredient.name], i.amount]);
+/* ---- 主技能 ----
+   上游有「同名、數值卻不同」的主技能，以前一律以 name 當鍵、先到先贏，後到的那個
+   **靜靜地拿到前一個的數值**：
+   - ChargeStrengthS（固定值）與 ChargeStrengthSRange（範圍型，遊戲顯示 low〜high）
+     都叫 'Charge Strength S'。範圍型那一群（可達鴨、耿鬼、隆隆岩⋯⋯）因此全部用固定值算，
+     比上游的期望值 (low+high)/2 少 20%。上游用 frontendComponentName 分開它們。
+   - 正負電拍拍與電擊怪（高調的樣子）的 'Plus (Ingredient Magnet S)' 加碼表不同，
+     連 frontendComponentName 都沒有。
+   所以鍵是 frontendComponentName || name；同一個鍵底下若還有數值不同的變體，
+   第一個（MAINSKILLS 的註冊順序）保留原名，其餘加上「 [第一個用牠的物種]」。
+   數值相同的多個實例（Ingredient Draw S 每個物種一個、只差食材池）合併成一個。 */
+const msNums = (s: any) => {
+  const o: any = { max: s.RP?.length ?? 6 };
+  for (const k of Object.keys(s)) {
+    if (!Array.isArray(s[k])) continue;
+    const at = k.indexOf('Amounts');
+    if (at < 0) continue;
+    const base = k.slice(0, at), tail = k.slice(at + 7);
+    // 範圍型（xxxAmountsLow／High／Mean）：引擎吃的 xxx 放上游的期望值 Mean，
+    // 兩端另存 xxxLo／xxxHi —— 遊戲畫面顯示的是兩端，截圖匯入要拿它們反查技能等級。
+    if (tail === '' || tail === 'Mean') o[base] = s[k];
+    else if (tail === 'Low') o[base + 'Lo'] = s[k];
+    else if (tail === 'High') o[base + 'Hi'] = s[k];
+    else throw new Error('認不得的主技能數值欄位：' + (s.frontendComponentName || s.name) + '.' + k);
+  }
+  return o;
+};
+const msVariants: any = {};   // 基本鍵 → [{sig, o, objs[]}]
+for (const s of A.MAINSKILLS) {
+  const base = s.frontendComponentName || s.name;
+  const o = msNums(s), sig = JSON.stringify(o);
+  const list = msVariants[base] || (msVariants[base] = []);
+  const hit = list.find((v: any) => v.sig === sig);
+  if (hit) hit.objs.push(s); else list.push({ sig, o, objs: [s] });
+}
+const ms: any = {};
+const msKeyOf = new Map();
+for (const base of Object.keys(msVariants)) {
+  msVariants[base].forEach((v: any, i: number) => {
+    let key = base;
+    if (i > 0) {
+      const user = A.COMPLETE_POKEDEX.find((p: any) => v.objs.includes(p.skill));
+      if (!user) return;   // 沒有任何寶可夢用的變體不收
+      key = base + ' [' + user.name + ']';
+    }
+    ms[key] = v.o;
+    for (const s of v.objs) msKeyOf.set(s, key);
+  });
+}
+const msKey = (s: any) => {
+  if (!s) return undefined;
+  const k = msKeyOf.get(s);
+  if (!k) throw new Error('寶可夢用的主技能不在 MAINSKILLS 裡：' + s.name);
+  return k;
+};
 const dex = A.COMPLETE_POKEDEX.map((p: any) => ({
   n: p.name, d: p.displayName, no: p.pokedexNumber, sp: p.specialty,
   f: p.frequency, ip: p.ingredientPercentage, sk: p.skillPercentage,
   b: p.berry?.name, cs: p.carrySize, pe: p.previousEvolutions, re: p.remainingEvolutions,
-  ms: p.skill?.name, i0: set(p.ingredient0), i30: set(p.ingredient30), i60: set(p.ingredient60),
+  ms: msKey(p.skill), i0: set(p.ingredient0), i30: set(p.ingredient30), i60: set(p.ingredient60),
   // 進化來源（內部名）。只有進化型才有 —— 給「新抓比較」認同一條進化系用。
   ...(p.evolvesFrom ? { ef: p.evolvesFrom } : {}),
 })).sort((a: any, b: any) => a.no - b.no || a.d.localeCompare(b.d));
@@ -77,13 +132,6 @@ const recipes = A.RECIPES.map((r: any) => ({
   n: r.name, t: r.type, bonus: r.bonus, cnt: r.nrOfIngredients,
   ings: r.ingredients.map((i: any) => [ING_IDX[i.ingredient.name], i.amount]),
 }));
-const ms: any = {};
-for (const s of A.MAINSKILLS) {
-  if (ms[s.name]) continue;
-  const o: any = { max: s.RP?.length ?? 6 };
-  for (const k of Object.keys(s)) if (k.endsWith('Amounts') && Array.isArray(s[k])) o[k.replace('Amounts', '')] = s[k];
-  ms[s.name] = o;
-}
 const data = {
   ings: A.ingredient.INGREDIENTS.map((i: any) => [i.name, i.value]),
   berries: A.berry.BERRIES.map((b: any) => [b.name, b.value]),
@@ -198,6 +246,11 @@ delete data.bt; // 推導用，不進 game.json
   if (dangling.length) throw new Error(`有 ${dangling.length} 隻的進化來源不在 dex 裡：\n  ` + dangling.join('\n  '));
 }
 
+{
+  const orphan = data.dex.filter((p) => p.ms && !data.ms[p.ms]).map((p) => `${p.n} → ${p.ms}`);
+  if (orphan.length) throw new Error(`有 ${orphan.length} 隻的主技能不在 ms 表裡：\n  ` + orphan.join('\n  '));
+}
+
 /* ---- 合併上游沒有的主技能數值表（tools/skills-extra.json）----
    例如流星群（樹果遽增）依「隊上不同種類的龍屬性數」決定樹果數的那張表 ——
    遊戲技能頁有，上游快照沒有。同樣是 repo 自己維護、重建時不能弄丟。
@@ -214,7 +267,7 @@ data.meta = {
   // 資料結構版本。app.js 有一份 SCHEMA 常數會斷言它相等 —— 兩者不合就顯示「請重新整理」，
   // 避免瀏覽器拿到「新 app.js ＋ 舊 game.json」這種偏移組合而算出錯的數字。
   // 動到欄位結構（改名／改型別／移除）時，這裡和 app.js 的 SCHEMA 要一起 +1。
-  schema: 6,
+  schema: 7,
   src: 'nerolis-lab/nerolis-lab', commit, commitDate,
   builtAt: new Date().toISOString().slice(0, 10),
   zhSrc: 'RaenonX i18n + 52poke zh-hant',
