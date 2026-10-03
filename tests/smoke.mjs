@@ -473,13 +473,82 @@ console.log('\n[5] 幫手加速依同樹果種類數放大');
                       JSON.stringify(rev.filter(v=>v!=null).sort())};
     }
     return { monoU: row(mono.ctx), mixedU: row(mixed.ctx),
-             monoHelps: mono.ctx.extraHelps, mixedHelps: mixed.ctx.extraHelps, two };
+             monoHelps: mono.ctx.boostHelps, mixedHelps: mixed.ctx.boostHelps, two };
   });
   ok('同樹果隊的 unique 計數較高', r && r.monoU > r.mixedU, JSON.stringify(r).slice(0, 120));
   ok('同樹果隊拿到更多額外幫手', r && r.monoHelps > r.mixedHelps, JSON.stringify(r).slice(0, 120));
   /* 每個持有者要吃**自己那個樹果**的列，所以 ctx.hbRows 是 map 不是純量。 */
   ok('兩隻 Helper Boost 同隊時，換 roster 順序不改變任何一隻的產出',
      !r.two || r.two.sameSet, JSON.stringify(r.two));
+}
+
+/* 幫手加速帶來的幫忙**和一般幫忙不同**（驗證 wiki「メインスキル/おてつだいブースト」）：
+     ① 不觸發主技能   ② 背包滿了也照收（可以超過持有上限）
+     ③ EX／活動的「食材・樹果數量」加成不套用
+   以前直接併進 `helpsDay`，三件都算錯 —— 其中 ① 會連鎖（雷公吃到的幫忙再觸發幫手加速），
+   實測三神獸同隊的總能量高估 15~28%。幫手支援S／治癒波動（`extraHelps`）還沒查到同樣的
+   規則，所以那一條維持原行為 —— 這一節也斷言它**沒有**被一起改掉。 */
+console.log('\n[5e] 幫手加速的幫忙：不觸發主技能、不被背包截斷、不吃 EX／活動的數量加成');
+{
+  const r = await page.evaluate(() => {
+    const mk = n => ({sp: D.dex.findIndex(x => x.n === n), level: 60, nature: 'Bashful',
+      ss: [null,null,null,null,null], ingSet: [0,0,0], skillLv: 6, ribbon: 0, pin: false, ex: false});
+    const CTX = {nHB:0, nERB:0, supportEnergy:0, extraHelps:0, boostHelps:0, darkDrain:0, hbRows:null,
+                 hasPlus:false, hasMinus:false, hasLatias:false, hasLatios:false, nDragon:1, mateBerryPow:0};
+    const W = {fav: new Set(), camp: false, sleepH: 8.5};
+    const m = mk('GOLDUCK');                         // 技能觸發率高，抽不抽主技能一看就知道
+    const sim = (wk, c) => { m._bs = baseStats(m, wk); return simulate(m._bs, m, wk, {...CTX, ...c}, 0); };
+    const s0 = sim({...W, collectH: 0}, {}), sB = sim({...W, collectH: 0}, {boostHelps: 30}),
+          sE = sim({...W, collectH: 0}, {extraHelps: 30});
+    /* ② 收得很不勤（10h）＋ 量大到一次就塞滿背包：幫手加速那一份要整份照收。 */
+    const big = sim({...W, collectH: 10}, {boostHelps: 200}), big0 = sim({...W, collectH: 10}, {});
+    const bsG = baseStats(m, W);
+    /* ③ EX 營地「食材 +1」：一般幫忙吃得到，幫手加速那一份吃不到。 */
+    const ing = mk('VICTREEBEL');
+    const EXW = {fav: new Set([D.dex[ing.sp].b]), favMain: D.dex[ing.sp].b, island: 'GGEX', exBonus: 'ingredient',
+                 camp: false, sleepH: 8.5, collectH: 0};
+    ing._bs = baseStats(ing, EXW);
+    const oEx  = memberOutput(ing, EXW, {...CTX, boostHelps: 20});
+    const oEx0 = memberOutput(ing, EXW, CTX);
+    const sum = a => Array.from(a).reduce((x, y) => x + y, 0);
+    const boostIngWant = 20 * ing._bs.ingChance * ing._bs.avgIngAmtRaw;
+    /* 整隊：雷公隊的那一份要走 boostHelps，不能進 extraHelps。 */
+    const hb = D.dex.find(x => /^Helper Boost/.test(x.ms || ''));
+    const same = D.dex.filter(x => x.b === hb.b && x.n !== hb.n).slice(0, 4).map(x => x.n);
+    wk.recipe = D.recipes[0]; wk.recipeScope = 'all'; buildPool(wk);
+    const wk2 = {...wk, collectH: 4};
+    const team = [hb.n, ...same].map(mk); team.forEach(x => (x._bs = baseStats(x, wk2)));
+    const t = scoreTeam([0,1,2,3,4], team, wk2, new Map());
+    const want = Math.round(t.outs.reduce((a, o) => a + o.boostGiven, 0) / 5 * 2) / 2;
+    return {
+      procs0: s0.procs, procsB: sB.procs, procsE: s0.procs < sE.procs,
+      prodB: sB.productive === s0.productive, boostOut: sB.boost,
+      berriesB: sB.berries - s0.berries, berryWant: 30 * (1 - bsG.ingChance) * bsG.berriesPerDrop,
+      bigBoost: big.boost, bigNormal: big.productive, big0Normal: big0.productive, bigProcs: big.procs <= big0.procs,
+      exRawLess: ing._bs.avgIngAmtRaw < ing._bs.avgIngAmt,
+      boostIng: sum(oEx.ing) - sum(oEx0.ing), boostIngWant,
+      teamExtra: t.ctx.extraHelps, teamBoost: t.ctx.boostHelps, want,
+      keyDiff: ctxKey({...CTX, boostHelps: 1}) !== ctxKey({...CTX, boostHelps: 2}),
+    };
+  });
+  ok('① 幫手加速的幫忙不觸發主技能（發動次數逐位相同）', r.procs0 === r.procsB, `${r.procs0} vs ${r.procsB}`);
+  ok('① 幫手支援S／治癒波動（extraHelps）維持原行為：照樣會抽主技能', r.procsE);
+  ok('幫手加速那一份不併進 productive，另外放在 sim.boost', r.prodB && r.boostOut === 30, JSON.stringify(r).slice(0, 160));
+  ok('幫手加速的樹果照收（隨時收：每次幫忙的樹果期望值 × 次數）',
+     Math.abs(r.berriesB - r.berryWant) < 1e-9, `${r.berriesB} vs ${r.berryWant}`);
+  ok('② 背包滿了也照收：一次塞爆背包的量整份都算進 boost', r.bigBoost === 200, String(r.bigBoost));
+  ok('② 它會佔背包，害一般幫忙更早包滿（保守的下界）', r.bigNormal < r.big0Normal && r.bigProcs,
+     `${r.bigNormal} vs ${r.big0Normal}`);
+  ok('③ EX「食材 +1」時，不含加成的食材量確實比較少', r.exRawLess);
+  ok('③ 幫手加速那一份的食材用不含 EX 加成的量', Math.abs(r.boostIng - r.boostIngWant) < 1e-9,
+     `${r.boostIng} vs ${r.boostIngWant}`);
+  ok('整隊：雷公隊的額外幫忙全部走 boostHelps，不進 extraHelps', r.teamExtra === 0 && r.teamBoost > 0,
+     JSON.stringify([r.teamExtra, r.teamBoost]));
+  /* teamContext 只跑兩輪（和 extraHelps 一樣，不保證收斂到定點），所以最後的 outs 與 ctx
+     可以差一兩個量化格 —— 這條要抓的是「漏了 ÷5／多乘 5」那種量級錯。 */
+  ok('整隊：boostHelps ≈ 全隊 boostGiven ÷5', Math.abs(r.teamBoost - r.want) <= Math.max(1, r.want * 0.1),
+     `${r.teamBoost} vs ${r.want}`);
+  ok('boostHelps 要進 ctxKey（不同的量不可以共用快取）', r.keyDiff);
 }
 
 /* 正電／負電**互為條件**：兩邊都要隊上有另一半才給加成。

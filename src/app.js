@@ -71,7 +71,7 @@ const SCHEMA = 7;   // 4: 新增 msExtra{}（上游沒有的主技能數值表�
    「新的 index.html ＋ 舊的 app.js」—— 畫面畫出舊版 UI，而使用者只會覺得
    「你根本沒改」，完全不知道是快取。有了這個斷言，過期的 app.js 會直接被擋下來
    並要求強制重新整理。tests/smoke.mjs 第 11 節會斷言三處一致。 */
-const APP_V = '20260930a';
+const APP_V = '20261003a';
 
 /** 致命錯誤：整頁換成一段說明。這種狀況下繼續跑只會產生錯的數字。 */
 function fatal(html){
@@ -2765,7 +2765,12 @@ function pickReason(k, r){
   if (wk.fav.has(p.b)) flag.push(`產本週加成樹果（能量 ×${mulTxt(berryMulShown(p.b))}）`);
   if (bs.hasHB) flag.push(`帶「幫忙加成」：全隊幫手間隔 −5%`);
   if (bs.hasERB) flag.push(`帶「活力回復提升」：睡眠回復 +14%`);
-  if (/^Helper Boost/.test(p.ms)) flag.push(`幫手加速：發動時讓全隊各多幫忙一次`);
+  /* 次數要寫出來，而且要講它看的是「同屬性的不同種類數」—— 那正是這一隻要不要
+     配同屬性隊友的答案。以前寫「各多幫忙一次」，數字本身就是錯的（2~11 次）。 */
+  if (/^Helper Boost/.test(p.ms) && o.pay.helpsAll){
+    const kinds = (r.ctx.hbRows && r.ctx.hbRows[p.b]) || 1;
+    flag.push(`<span title="發動一次，全隊每一隻（含牠自己）立刻各完成 ${o.pay.helpsAll} 次幫忙。&#10;次數看隊上和牠**同屬性的不同種類數**（含牠自己，最多 5）與技能等級。&#10;這些幫忙不會觸發主技能。">幫手加速：每次發動全隊各多幫忙 <b>${o.pay.helpsAll} 次</b>（同屬性 ${kinds} 種）</span>`);
+  }
   /* **單位要標出來。** `energyGiven` / `helpsGiven` 是「這隻一天發出去的總量」
      ＝ 每位成員拿到的量 × 5；而下方那排 pill 顯示的 `ctx.supportEnergy` /
      `ctx.extraHelps` 是 `/5` 之後的**每人平均**。同一個畫面上兩個差 5 倍的數字，
@@ -2778,7 +2783,7 @@ function pickReason(k, r){
   if (o.energyGiven > 0)
     team.push(`<span title="這隻的主技能每天補給隊上**每一位成員**的活力。&#10;整隊 5 隻收到的合計是 ${f1(o.energyGiven)}／日。&#10;下面那排 pill 的「技能補活力 每隻」是隊上所有補師加起來的每人總量。&#10;活力越高幫忙間隔越短，所以補師的價值是透過隊友的產出體現的。">每日補活力 <b>每隻 ${f1(o.energyGiven/5)}</b></span>`);
   if (o.helpsGiven > 0.2)
-    team.push(`<span title="這隻的主技能每天讓**每一位成員**多完成的幫忙次數。&#10;整隊 5 隻合計是 ${f1(o.helpsGiven)} 次／日。&#10;下面那排 pill 的「額外幫忙 每隻」是隊上所有來源加起來的每人總量。">每日多幫忙 <b>每隻 ${f1(o.helpsGiven/5)} 次</b></span>`);
+    team.push(`<span title="這隻的主技能每天讓**每一位成員**多完成的幫忙次數。&#10;整隊 5 隻合計是 ${f1(o.helpsGiven)} 次／日。&#10;下面那排 pill 的「額外幫忙／幫手加速 每隻」是隊上所有來源加起來的每人總量。${o.boostGiven > 0 ? '&#10;幫手加速帶來的幫忙不會觸發主技能。' : ''}">每日多幫忙 <b>每隻 ${f1(o.helpsGiven/5)} 次</b></span>`);
   /* 代價也要寫出來 —— 只講好處就是選擇性呈現。夢魘的扣活力打的是非惡屬性隊友。 */
   if (o.energyDrain < 0) cost = `<span style="color:var(--neg)">代價：每日扣非惡屬性隊友活力 ${f1(-o.energyDrain)}</span>`;
   /* **代價永遠不能被砍掉** —— 只講好處就是選擇性呈現（見這一節的規則）。
@@ -2838,7 +2843,7 @@ function memberCard(rank, i, r, o){
     </div>
     <div class="out">
       <div><span class="muted">週能量</span> ${fmt((o.berryStrength+o.skillStrength)*7*(1+wk.areaBonus/100))}</div>
-      <div class="muted" title="每天實際完成的幫忙次數（含睡眠期間存下來的那些）。&#10;每次幫忙會帶回樹果或食材，也有機率發動主技能。">幫忙 ${f1(o.sim.productive)} 次／日${o.sim.snack>0.5?` · <span title="包滿：背包裝滿之後仍在幫忙的次數（每天）。&#10;那些幫忙會 100% 變成樹果（能量照算），但食材拿不到、主技能也不會發動。&#10;&#10;　白天 ${f1(o.sim.daySnack)} 次（收取間隔比「背包裝滿」長才會有）&#10;　夜間 ${f1(o.sim.nightSnack)} 次（睡覺時沒辦法收）&#10;&#10;白天多就收勤一點；夜間多只能補「持有上限」副技能、緞帶或露營券。">包滿 ${f1(o.sim.snack)} 次／日</span>`:''}</div>
+      <div class="muted" title="每天實際完成的幫忙次數（含睡眠期間存下來的那些）。&#10;每次幫忙會帶回樹果或食材，也有機率發動主技能。">幫忙 ${f1(o.sim.productive)} 次／日${o.sim.boost>0.2?` <span title="幫手加速（雷公／炎帝／水君）讓牠額外完成的幫忙（每天）。&#10;照樣帶回樹果與食材、背包滿了也照收，但不會觸發主技能，&#10;EX 營地與活動的「食材／樹果數量」加成也不套用。">＋幫手加速 ${f1(o.sim.boost)} 次</span>`:''}${o.sim.snack>0.5?` · <span title="包滿：背包裝滿之後仍在幫忙的次數（每天）。&#10;那些幫忙會 100% 變成樹果（能量照算），但食材拿不到、主技能也不會發動。&#10;&#10;　白天 ${f1(o.sim.daySnack)} 次（收取間隔比「背包裝滿」長才會有）&#10;　夜間 ${f1(o.sim.nightSnack)} 次（睡覺時沒辦法收）&#10;&#10;白天多就收勤一點；夜間多只能補「持有上限」副技能、緞帶或露營券。">包滿 ${f1(o.sim.snack)} 次／日</span>`:''}</div>
       ${collectRow(o.sim)}
       <div class="muted" title="活力 80 以上時，幫忙間隔最短（×0.45）—— 也就是產出最快的狀態。&#10;這個數字 = 一天有幾個小時處在那個狀態。&#10;&#10;活力檔位（決定幫忙間隔要乘多少）：&#10;　80 以上 ×0.45（最快）&#10;　60〜79　 ×0.52&#10;　40〜59　 ×0.58&#10;　1〜39　　×0.66&#10;　0　　　　×1.00（最慢）&#10;&#10;80 到 150 是同一格 —— 超過 80 不會更快，但掉回 80 以下要更久&#10;（起床 100 只撐 3.3 小時，起床 150 撐 11.7 小時）。&#10;&#10;比例低就是這隻活力不夠：考慮帶補師（活力填充／活力全體療癒），或睡久一點。" style="color:${o.sim.fastShare>=0.6?'var(--pos)':o.sim.fastShare>=0.3?'var(--ing)':'var(--neg)'}">活力80以上 ${f1(o.sim.fastHours)}h／日（${Math.round(o.sim.fastShare*100)}%）</div>
     </div>
@@ -3036,6 +3041,7 @@ function teamDetailHTML(r, opts){
         <span class="pill" title="隊上帶「活力回復提升」副技能的隻數。&#10;每一隻讓睡眠回復的活力 +14%（最多算到 5 隻），活力越高幫忙間隔越短。">活力回復提升 ×${r.ctx.nERB}</span>
         <span class="pill" title="隊上的主技能（活力填充／活力全體療癒之類）每天補給**每一位成員**的活力。&#10;成員卡上那句「每日補活力 N 全隊合計」是這個數字 ×5。&#10;活力高 → 幫忙間隔短 → 產出變多。">技能補活力 每隻 ${Math.round(r.ctx.supportEnergy)}／日</span>
         ${r.ctx.extraHelps>0.2?`<span class="pill" title="幫手支援S、治癒波動之類的主技能，每天讓**每一位成員**額外完成的幫忙次數。&#10;成員卡上那句「每日多幫忙 N 次 全隊合計」是這個數字 ×5。">額外幫忙 每隻 ${f1(r.ctx.extraHelps)}／日</span>`:''}
+        ${r.ctx.boostHelps>0.2?`<span class="pill" title="幫手加速（雷公／炎帝／水君）每天讓**每一位成員**額外完成的幫忙次數。&#10;這些幫忙照樣帶回樹果與食材，而且背包滿了也照收（可以超過持有上限），但&#10;　· **不會觸發主技能**&#10;　· EX 營地與活動的「食材／樹果數量」加成不套用&#10;（驗證 wiki 的「おてつだいブースト」頁）。&#10;&#10;它帶回來的東西會佔背包，害一般幫忙更早包滿 —— 推演以「整份都佔位置」計，是保守的估計。">幫手加速 每隻 ${f1(r.ctx.boostHelps)}／日</span>`:''}
         ${r.ctx.darkDrain<0?`<span class="pill" style="color:var(--neg)" title="夢魘（達克萊伊）每天扣掉的活力，只打在**惡屬性以外**的成員身上。&#10;惡屬性隊友與達克萊伊自己免疫。">夢魘扣活力 ${Math.round(-r.ctx.darkDrain)}／日</span>`:''}
       </div>
     </div>

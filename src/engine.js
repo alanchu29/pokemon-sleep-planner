@@ -21,7 +21,7 @@ if (!D || !D.ings || !D.dex || !D.recipes || !D.ms) {
    ASSET_V 擋到的路徑** —— 主執行緒載新引擎、worker 載到快取的舊引擎時，
    搜尋（worker）與 rehydrate／決賽（主執行緒）會用兩套不同的公式，
    不會報錯，只會靜靜地算出對不起來的分數。app.js 會比對這個值。 */
-const ENGINE_V = '20260930a';
+const ENGINE_V = '20261003a';
 
 const ING_NAME = D.ings.map(x=>x[0]);
 const ING_VAL  = D.ings.map(x=>x[1]);
@@ -322,12 +322,21 @@ function baseStats(m, wk){
      同一個機制不該有兩份公式 —— 所以這裡是加進 `exIngAdd` 旁邊，不是另外算一輪。 */
   const evtIngAdd = evtTyPct(wk, 'tyIng', p);
   const ingAdd = exIngAdd + evtIngAdd;
+  /* `ingVecRaw` / `avgIngAmtRaw`：**不含** EX 與活動的數量加成，給幫手加速的幫忙用。
+     驗證 wiki（メインスキル/おてつだいブースト）原文：「おてつだいブーストの効果による
+     おてつだいでメインスキルは発動しない。また、EXモードやイベント等における、食材や
+     きのみの数に関するボーナスも無視される。」—— 見 `simulate` 的 `boost`。
+     副技能（食材機率／樹果數量S）不是「EX／活動的加成」，所以兩邊都照算。 */
+  const ingVecRaw = new Float64Array(NING);
+  let avgIngAmtRaw = 0;
   for (let s=0;s<slots;s++){
     const list = opts[s] || [];
     const pick = list[Math.min(m.ingSet[s]||0, list.length-1)];
     if (!pick) continue;
     ingVec[pick[0]] += (pick[1]+ingAdd)*evtIngMul/slots;
     avgIngAmt += (pick[1]+ingAdd)*evtIngMul/slots;
+    ingVecRaw[pick[0]] += pick[1]/slots;
+    avgIngAmtRaw += pick[1]/slots;
   }
   const skillLvMax = (D.ms[p.ms]||{max:6}).max;
   /* 主要樹果的「發動的主技能等級提升 1」，以及本週活動的「某屬性發動的主技能等級 +N」。
@@ -347,7 +356,7 @@ function baseStats(m, wk){
   const pity = p.sp==='skill' ? Math.floor(144000/freq) : 78;
   const effSkill = skillChance<=0 ? 0 : skillChance/(1 - Math.pow(1-skillChance, pity+1));
   const natureFreqMul = 2 - nat.f;
-  return {p, nat, act, h, freq, exTier: exT, carry, ingChance, berriesPerDrop, slots, ingVec, avgIngAmt, dark: DARK.has(p.n), dragon: DRAGON.has(p.n),
+  return {p, nat, act, h, freq, exTier: exT, carry, ingChance, berriesPerDrop, slots, ingVec, avgIngAmt, ingVecRaw, avgIngAmtRaw, dark: DARK.has(p.n), dragon: DRAGON.has(p.n),
           skillLv, effSkill, natureFreqMul, hasHB:h('Helping Bonus'), hasERB:h('Energy Recovery Bonus'),
           ribbonMul:ribbonFreqMul(m.ribbon||0, p.re)};
 }
@@ -443,7 +452,7 @@ function helpInterval(bs, m, wk, nHB){
      非 EX 島時 `bs.freq === bs.p.f`，所以舊行為逐位不變。 */
   return Math.floor(round4(bs.natureFreqMul * helpSS * levelFactor * bs.ribbonMul) * bs.freq / (wk.camp?1.2:1));
 }
-/** Simulate one member's day. ctx = {nHB,nERB,supportEnergy (per day, to each member), extraHelps}
+/** Simulate one member's day. ctx = {nHB,nERB,supportEnergy (per day, to each member), extraHelps, boostHelps}
  *
  *  `selfEnergy` ＝ **只回給這一隻自己**的活力（活力填充S／月光／萬用技能平均進去的
  *  那一份），每日總量。
@@ -485,6 +494,26 @@ function simulate(bs, m, wk, ctx, selfEnergy){
   }
   // extra helps injected by team main skills, spread across the day
   helpsDay += ctx.extraHelps || 0;
+  /* ============ 幫手加速（Helper Boost）的幫忙：另外一條路（2026-10-03）============
+     **不能**像上面的 `extraHelps`（幫手支援S／治癒波動）那樣直接併進 `helpsDay`。
+     驗證 wiki（メインスキル/おてつだいブースト）寫了三件事，三件都和一般幫忙不同：
+
+       ①「おてつだいブーストの効果によるおてつだいでメインスキルは**発動しない**」
+          → 不進 `procs`。以前併進 `helpsDay` 會再抽一次主技能，而且會連鎖
+            （雷公自己吃到的幫忙再觸發幫手加速）—— 一定是高估。
+       ②「すでに所持数がいっぱいでも**最大所持数を超えて保持することができる**」
+          → 自己**不會**被背包截斷成「包滿」。
+       ③「EXモードやイベント等における、食材やきのみの数に関するボーナスも**無視される**」
+          → 食材用 `ingVecRaw`（不含 EX 的 +1、活動的食材 +N%／+N 個）。
+
+     ⚠ 背包的交互作用是**下界**：幫手加速帶回來的東西會佔位置，害一般幫忙更早包滿，
+     但佔多少取決於它在兩次收取之間的**哪個時間點**發動（發動在包滿之後就完全不佔）。
+     這裡一律當成「段落一開始就發動、整份都佔位置」—— 一般幫忙因此少算、不會多算。
+     夜間沒有這一份：持有者睡覺時發動的會存著，醒來後才在白天結算。
+
+     幫手支援S、治癒波動的頁面沒有寫同樣的規則，所以 `extraHelps` 維持原行為 ——
+     查到了再改，不要用推的。 */
+  const boost = ctx.boostHelps || 0;
 
   /* ================= 收取區間（2026-09-09）=================
      **這個遊戲不會自動收取，要上線點才收**（使用者確認）。所以產出是按「兩次收取
@@ -503,6 +532,7 @@ function simulate(bs, m, wk, ctx, selfEnergy){
      `wk.collectH` = 白天平均多久收取一次（小時）。夜間永遠是一整段（`sleepH`）。 */
   const dropPerHelp = (1-bs.ingChance)*bs.berriesPerDrop + bs.ingChance*bs.avgIngAmt;
   const helpsTillFull = dropPerHelp>0 ? bs.carry/dropPerHelp : Infinity;
+  const boostDrop = (1-bs.ingChance)*bs.berriesPerDrop + bs.ingChance*bs.avgIngAmtRaw;
   const bankedProcs = bs.p.sp==='skill' ? 2 : 1;
   /* 一段區間內：`h` 次幫忙 → 產物受背包上限、技能發動受 banked 上限。
    *
@@ -522,8 +552,12 @@ function simulate(bs, m, wk, ctx, selfEnergy){
    *   ② 那些樹果照樣變成卡比獸能量。
    *   ③ **技能抽選不做** → `procs` 用的是 `normal` 而不是 `h`。同樣不要「順手」改成 `h`。
    */
-  const segment = (h) => {
-    const normal = Math.min(h, helpsTillFull);
+  /* `b` ＝ 這一段裡幫手加速的幫忙次數：它自己照單全收（②），但它帶回來的東西
+     先佔掉背包，剩下的空間才輪到一般幫忙（見上面「下界」那一段）。 */
+  const segment = (h, b) => {
+    const room = b > 0 ? (dropPerHelp>0 ? Math.max(0, bs.carry - b*boostDrop)/dropPerHelp : Infinity)
+                       : helpsTillFull;
+    const normal = Math.min(h, room);
     return {normal, snack: Math.max(0, h - normal),
             procs: Math.min(normal * bs.effSkill, bankedProcs)};
   };
@@ -533,12 +567,12 @@ function simulate(bs, m, wk, ctx, selfEnergy){
   let dayNormal, daySnack, dayProcs;
   if (collectH > 0){
     const nSeg = wakeH / collectH;                  // 白天分成幾段（可以是小數）
-    const seg = segment(helpsDay / nSeg);
+    const seg = segment(helpsDay / nSeg, boost / nSeg);
     dayNormal = seg.normal * nSeg; daySnack = seg.snack * nSeg; dayProcs = seg.procs * nSeg;
   } else {
     dayNormal = helpsDay; daySnack = 0; dayProcs = helpsDay * bs.effSkill;
   }
-  const night = segment(helpsNight);                // 夜間就是一整段
+  const night = segment(helpsNight, 0);             // 夜間就是一整段
   const productive = dayNormal + night.normal;
   const snack = daySnack + night.snack;
   const procs = dayProcs + night.procs;
@@ -559,13 +593,22 @@ function simulate(bs, m, wk, ctx, selfEnergy){
      快一點，所以這是偏保守的估計 —— UI 的 tooltip 要寫出來。夜間不算：那一段沒辦法
      中途收，它的損失本來就在 `nightSnack` 裡。 */
   const perH = wakeH > 0 ? helpsDay / wakeH : 0;
-  const fillH = (perH > 0 && isFinite(helpsTillFull)) ? helpsTillFull / perH : Infinity;
+  /* 幫手加速帶回來的東西也會把背包填滿（它只是自己不被截斷），所以有它的時候改用
+     「每小時進帳幾個」換算。沒有它時走原本的式子，數值逐位不變。
+     `skillH` 不加它 —— 那些幫忙不抽主技能。 */
+  const fillH = boost > 0
+    ? (wakeH > 0 && dropPerHelp > 0 ? bs.carry / ((helpsDay*dropPerHelp + boost*boostDrop) / wakeH) : Infinity)
+    : (perH > 0 && isFinite(helpsTillFull)) ? helpsTillFull / perH : Infinity;
   const skillH = (perH > 0 && bs.effSkill > 0) ? (bankedProcs / bs.effSkill) / perH : Infinity;
 
-  return {freqBase, helpsDay, helpsNight, productive, snack, procs, fillH, skillH,
+  /* `productive` / `helpsDay` 刻意**不含** `boost` —— 它們是「會抽主技能、會被背包截斷」
+     的那一種幫忙。幫手加速那一份另外放在 `boost`，食材由 `memberOutput` 用
+     `ingVecRaw` 補上，樹果在這裡併進 `berries`。 */
+  return {freqBase, helpsDay, helpsNight, productive, snack, procs, fillH, skillH, boost,
           dayProcs, nightProcs: night.procs, daySnack, nightSnack: night.snack,
           fastHours: fastSteps/6, fastShare: totalSteps ? fastSteps/totalSteps : 0, wakeEnergy: start,
-          berries: productive*(1-bs.ingChance)*bs.berriesPerDrop + snack*bs.berriesPerDrop};
+          berries: productive*(1-bs.ingChance)*bs.berriesPerDrop + snack*bs.berriesPerDrop
+                   + (boost ? boost*(1-bs.ingChance)*bs.berriesPerDrop : 0)};
 }
 /** Full per-member per-day output in a given team context. */
 function memberOutput(m, wk, ctx){
@@ -629,6 +672,8 @@ function memberOutput(m, wk, ctx){
   }
   const ing = new Float64Array(NING);
   for (let i=0;i<NING;i++) ing[i] = sim.productive * bs.ingChance * bs.ingVec[i];
+  /* 幫手加速的幫忙：食材不吃 EX／活動的數量加成（見 simulate 的 `boost`）。 */
+  if (sim.boost) for (let i=0;i<NING;i++) ing[i] += sim.boost * bs.ingChance * bs.ingVecRaw[i];
   if (pay.ingSpread) { const per = sim.procs*pay.ingSpread/MAGNET_POOL.length; for (const i of MAGNET_POOL) ing[i] += per; }
   const favMul = favBerryMul(wk, bs.p.b);
   const bp = berryPower(bs.p.b, m.level);
@@ -681,7 +726,10 @@ function memberOutput(m, wk, ctx){
           energySelfGiven: sim.procs*(pay.energySelf||0),
           /* 每天扣掉的活力（負值），之後在 teamContext 裡加總成 ctx.darkDrain。 */
           energyDrain: /^Bad Dreams/.test(bs.p.ms) ? -sim.procs*BAD_DREAMS_DRAIN : 0,
+          /* `helpsGiven` 是兩種的合計（成員卡顯示用）；`boostGiven` 是其中幫手加速那一份 ——
+             `teamContext` 要把它拆出去走 `ctx.boostHelps`（不抽主技能、不被背包截斷）。 */
           helpsGiven: sim.procs*((pay.helpsAll||0)*5 + (pay.helpsOne||0)),
+          boostGiven: sim.procs*(pay.helpsAll||0)*5,
           /* 料理機率提升系（美味機會S `[4,5,6,7,8,10]`、怪力鉗 `[1,2,2,3,3,4,5]`）
              每次發動讓**下一餐**的大成功機率 +N 個百分點。所以要把「每日發動次數」
              換算成「每餐期望值」—— 除以 MEALS_DAY。
@@ -711,7 +759,7 @@ const hbKey = r => r ? Object.keys(r).sort().map(b => b+':'+r[b]).join(',') : ''
  *  `ctx.mateBerryPow` 那種「整隊樹果能量總和」）會讓快取跟組合數線性成長，
  *  89 隻的箱子直接把 renderer 的記憶體吃光。那一項因此**不在這裡**，改由
  *  `scoreTeam` 事後補（見 `mateBerryAdd`）。 */
-function ctxKey(c){ return c.nHB+'|'+c.nERB+'|'+c.supportEnergy+'|'+c.extraHelps+'|'+hbKey(c.hbRows)+'|'+(c.hasPlus?1:0)+(c.hasMinus?1:0)+(c.hasLatias?1:0)+(c.hasLatios?1:0)+'|'+c.darkDrain+'|'+c.nDragon; }
+function ctxKey(c){ return c.nHB+'|'+c.nERB+'|'+c.supportEnergy+'|'+c.extraHelps+'|'+(c.boostHelps||0)+'|'+hbKey(c.hbRows)+'|'+(c.hasPlus?1:0)+(c.hasMinus?1:0)+(c.hasLatias?1:0)+(c.hasLatios?1:0)+'|'+c.darkDrain+'|'+c.nDragon; }
 /** 「發給隊友的樹果」那一份：`係數 × (整隊樹果能量總和 − 自己那一份)`。
  *  刻意留在記憶化之外 —— 理由見 `ctxKey` 與 `memberOutput` 的註解。 */
 const mateBerryAdd = (o, ctx) =>
@@ -792,16 +840,18 @@ function teamContext(idxs, roster, wk, memo){
       mateBerryPow += berryPower(bs.p.b, roster[i].level) * favBerryMul(wk, bs.p.b);
     }
   }
-  let ctx = {nHB, nERB, supportEnergy:0, extraHelps:0, darkDrain:0, hbRows, hasPlus, hasMinus, hasLatias, hasLatios, nDragon, mateBerryPow};
+  let ctx = {nHB, nERB, supportEnergy:0, extraHelps:0, boostHelps:0, darkDrain:0, hbRows, hasPlus, hasMinus, hasLatias, hasLatios, nDragon, mateBerryPow};
   for (let pass=0; pass<2; pass++){
-    let energy=0, helps=0, drain=0;
+    /* 幫手加速（`boostGiven`）和其他額外幫忙分開收：前者不抽主技能、不被背包截斷，
+       見 simulate。`boostHelps` 和 `extraHelps` 一樣量化成 0.5，所以 ctxKey 仍然有界。 */
+    let energy=0, helps=0, boost=0, drain=0;
     for (const i of idxs){ const o = getOut(i, roster, wk, ctx, memo);
-      energy += o.energyGiven; helps += o.helpsGiven; drain += o.energyDrain; }
+      energy += o.energyGiven; helps += o.helpsGiven - o.boostGiven; boost += o.boostGiven; drain += o.energyDrain; }
     /* darkDrain 是**每個非惡屬性成員各自**被扣的量（夢魘同時打所有人，所以不除以 5）。
        量化成 3 的倍數控制快取爆炸，和 qE/qH 同一個道理。 */
     const next = {nHB, nERB, hbRows, hasPlus, hasMinus, hasLatias, hasLatios, nDragon, mateBerryPow,
                   supportEnergy: qE(energy/5),
-                  extraHelps: qH(helps/5), darkDrain: Math.round(drain/3)*3};
+                  extraHelps: qH(helps/5), boostHelps: qH(boost/5), darkDrain: Math.round(drain/3)*3};
     if (ctxKey(next)===ctxKey(ctx)) { ctx = next; break; }
     ctx = next;
   }
@@ -1199,7 +1249,7 @@ const SCORE_WK = {fav: new Set(), camp: false, sleepH: 8.5, collectH: DEFAULT_CO
 /* `mateBerryPow: 0` ＝ 沒有隊友，所以「發給隊友的樹果」那一份在這裡是 0。
    那是對的（單獨一隻本來就沒有隊友可發），但**量不到就要標出來** ——
    `monPower` 的 `teamOnly` 會把它列進「隊伍型」徽章。 */
-const SCORE_CTX = {nHB: 0, nERB: 0, supportEnergy: 0, extraHelps: 0, darkDrain: 0, hbRows: null, hasPlus: false, hasMinus: false, hasLatias: false, hasLatios: false, nDragon: 1, mateBerryPow: 0};
+const SCORE_CTX = {nHB: 0, nERB: 0, supportEnergy: 0, extraHelps: 0, boostHelps: 0, darkDrain: 0, hbRows: null, hasPlus: false, hasMinus: false, hasLatias: false, hasLatios: false, nDragon: 1, mateBerryPow: 0};
 
 /** 一隻的個體產能。純函式，不碰 POOL、不需要參考隊。 */
 function monPower(m){
