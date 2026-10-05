@@ -21,7 +21,7 @@ if (!D || !D.ings || !D.dex || !D.recipes || !D.ms) {
    ASSET_V 擋到的路徑** —— 主執行緒載新引擎、worker 載到快取的舊引擎時，
    搜尋（worker）與 rehydrate／決賽（主執行緒）會用兩套不同的公式，
    不會報錯，只會靜靜地算出對不起來的分數。app.js 會比對這個值。 */
-const ENGINE_V = '20261003a';
+const ENGINE_V = '20261005a';
 
 const ING_NAME = D.ings.map(x=>x[0]);
 const ING_VAL  = D.ings.map(x=>x[1]);
@@ -204,12 +204,17 @@ function favBerryMul(wk, berry){
    `evtPct` 一律回 0 —— 和 `exOf` 同一個手法，那兩條路徑不必加任何判斷。
    個體產能刻意不吃（使用者 2026-09-11：「箱子裡呈現的都是個體的預設，與該週的任何
    條件無關」）。 */
-/* 九個分項，分兩組：
+/* 十三個分項，分兩組：
 
    **全員**（不看屬性，`evtPct` / `evtMul` 直接讀）
      skill  主技能發動機率 +N%      berry 樹果能量 +N%    ing  食材獲得量 +N%
      dish   料理能量 +N%            crit  大成功機率 +N 個百分點
      carry  持有上限 +N 個
+     pot      鍋子容量 +N%（「2 倍」＝ +100%）—— 見 `potSizes`
+     mealE    料理回復的活力 +N 點 —— 見 `simulate`
+     ingSp    **食材專長**平常幫忙撿來的食材 +N 個 —— 和 `tyIng` 同一個插入點，判定換成專長
+     skillIng 主技能獲得的食材 +N% —— 只打 `pay.ingSpread`，和 `ing` 正好互補
+   （後四項是 2026-10-05「デカ盛り！料理ウィーク vol.3」的內容，使用者要求補上。）
 
    **屬性限定**（多一個 `ty` 欄位，`ty === null` ＝ 全部屬性，走 `evtTyPct`）
      tyIng     該屬性平常幫忙撿來的食材 +N 個
@@ -218,7 +223,8 @@ function favBerryMul(wk, berry){
 
    ⚠ `carry` 放在「全員」是因為使用者的需求就是「**所有**寶可夢持有上限增加 N 個」。
    要做成屬性限定的話是加一個新鍵，不是給 carry 加 `ty` —— 一個鍵一種語意。 */
-const EVT_KEYS = ['skill', 'berry', 'ing', 'dish', 'crit', 'carry', 'tyIng', 'tySkill', 'tySkillLv'];
+const EVT_KEYS = ['skill', 'berry', 'ing', 'dish', 'crit', 'carry', 'pot', 'mealE', 'ingSp', 'skillIng',
+                  'tyIng', 'tySkill', 'tySkillLv'];
 /** 帶屬性欄位的那幾項。app.js 的 UI 與 deserialize 正規化都讀這一份。 */
 const EVT_TYPED = ['tyIng', 'tySkill', 'tySkillLv'];
 /** 勾起來時的數值，沒勾或沒有這個欄位一律 0。
@@ -248,6 +254,29 @@ const evtTyMul = (wk, key, p) => 1 + evtTyPct(wk, key, p)/100;
 
 const MAGNET_POOL = ING_NAME.map((n,i)=>i).filter(i=>ING_NAME[i]!=='Tail');
 const MEALS_WEEK = 21;
+/* 週日那幾餐。遊戲的「ウィークエンドボーナス」：**每個週日鍋子容量 ×2**（不是活動，
+   一直都有）。上游（cooking-state.ts 的 `currentPotSize`）與驗證 wiki「なべ」都這樣算。
+   ⚠ 2026-10-05 以前引擎完全沒算這一項（21 餐共用一個容量），使用說明卻寫著
+   「星期日的鍋子 ×2 已含在平均裡」—— 那句是錯的。 */
+const SUN_MEALS = CRIT_MEALS[1];
+const WEEKEND_POT_MUL = 2;
+/** 平日／週日的有效鍋子容量。`skillPot` 是隊上料理強化系主技能加的容量。
+ *
+ *  驗證 wiki「なべ」的計算式（2026-10-05 查）：
+ *    なべに入れられる食材の数 = {(なべ容量×イベントボーナス×ウィークエンドボーナス)}
+ *                              + 料理パワーアップ増加分) × いいキャンプチケットの効果
+ *  順序是「活動 → 週末 → 料理強化 → 好露營券」，**活動與露營券之後各四捨五入一次**。
+ *  wiki 的例子：69 × 活動1.5 = 103.5 → 104，× 週末2 = 208。
+ *
+ *  所以活動的倍率**只打基礎容量**，不打主技能加的那一份（主技能那份也不吃週末 ×2）。
+ *  沒開活動時不做那次四捨五入 —— 平日容量和 2026-10-05 以前**逐位相同**。 */
+function potSizes(wk, skillPot){
+  const em = evtMul(wk, 'pot');
+  const base = em === 1 ? wk.pot : Math.round(wk.pot * em);
+  const camp = wk.camp ? 1.5 : 1;
+  return {w: Math.round((base + skillPot) * camp),
+          s: Math.round((base * WEEKEND_POT_MUL + skillPot) * camp)};
+}
 /* 白天平均多久上線收取一次（小時）。**這個遊戲不會自動收取**，所以產出是按
    「兩次收取之間」結算的，每一段都有背包上限與主技能累積上限 —— 見 `simulate`。 */
 const DEFAULT_COLLECT_H = 4;
@@ -320,7 +349,10 @@ function baseStats(m, wk){
      （使用者 2026-09-14 指定「比照」）：每次幫忙撿到的量 +N，然後一起吃上面那個 `ing %`，
      也一樣會讓 `avgIngAmt` 變大 -> 背包更快滿。
      同一個機制不該有兩份公式 —— 所以這裡是加進 `exIngAdd` 旁邊，不是另外算一輪。 */
-  const evtIngAdd = evtTyPct(wk, 'tyIng', p);
+  /* 本週活動「專長為食材的寶可夢平常幫忙撿來的食材 +N 個」（料理ウィーク vol.3）。
+     和上面那個屬性限定的 +N **同一個插入點與語意**，只是判定從屬性換成專長 ——
+     原文是「とくいなもの：食材」，所以全能型（夢幻／達克萊伊）不算。 */
+  const evtIngAdd = evtTyPct(wk, 'tyIng', p) + (p.sp === 'ingredient' ? evtPct(wk, 'ingSp') : 0);
   const ingAdd = exIngAdd + evtIngAdd;
   /* `ingVecRaw` / `avgIngAmtRaw`：**不含** EX 與活動的數量加成，給幫手加速的幫忙用。
      驗證 wiki（メインスキル/おてつだいブースト）原文：「おてつだいブーストの効果による
@@ -470,6 +502,9 @@ function simulate(bs, m, wk, ctx, selfEnergy){
      （那是「每個人都拿到一樣多」的量）。惡屬性隊友（含達克萊伊自己）免疫。 */
   const drain = bs.dark ? 0 : (ctx.darkDrain || 0);
   const supportPerStep = nSteps>0 ? (ctx.supportEnergy + drain + (selfEnergy||0))/nSteps : 0;
+  /* 本週活動「料理回復的活力 +N」。加在查表值上，上限照舊 150（驗證 wiki「げんき」：
+     料理的回復上限 150）。`SCORE_WK` 沒有 `evt`，所以個體產能自動不吃。 */
+  const mealE = evtPct(wk, 'mealE');
   let start = 0, helpsDay = 0, helpsNight = 0, fastSteps = 0, totalSteps = 0;
   for (let iter=0; iter<4; iter++){
     const rec = Math.min(cap, sleepMin*(100/510)*bs.nat.e*(1 + 0.14*Math.min(5, ctx.nERB)));
@@ -481,7 +516,7 @@ function simulate(bs, m, wk, ctx, selfEnergy){
       totalSteps++;
       helpsDay += 600 / (freqBase * energyF(e));
       e = Math.max(0, e - 1);
-      for (const mt of mealAt) if (mt === t) e = Math.min(150, e + mealRecovery(e));
+      for (const mt of mealAt) if (mt === t) e = Math.min(150, e + mealRecovery(e) + mealE);
       if (supportPerStep) e = Math.min(150, e + supportPerStep);
     }
     for (let t=0; t<sleepMin; t+=10){
@@ -674,7 +709,12 @@ function memberOutput(m, wk, ctx){
   for (let i=0;i<NING;i++) ing[i] = sim.productive * bs.ingChance * bs.ingVec[i];
   /* 幫手加速的幫忙：食材不吃 EX／活動的數量加成（見 simulate 的 `boost`）。 */
   if (sim.boost) for (let i=0;i<NING;i++) ing[i] += sim.boost * bs.ingChance * bs.ingVecRaw[i];
-  if (pay.ingSpread) { const per = sim.procs*pay.ingSpread/MAGNET_POOL.length; for (const i of MAGNET_POOL) ing[i] += per; }
+  /* 本週活動「主技能獲得的食材 ×1.5」（料理ウィーク vol.3）。和 `ing`（只打幫忙撿來的）
+     正好互補。原文「主技能有多個效果時，只有食材數量會增加」—— 怪力鉗的大成功那一半
+     （`critAdd`）不乘，所以只乘在這裡。正電的加碼（`ingBonus`，上面併進 `ingSpread`）
+     也是主技能撿的食材，一起乘。
+     ⚠ 遊戲給的是整數個，期望值這裡不取整（11 × 1.5 = 16.5），進位方式沒有查到。 */
+  if (pay.ingSpread) { const per = sim.procs*pay.ingSpread*evtMul(wk, 'skillIng')/MAGNET_POOL.length; for (const i of MAGNET_POOL) ing[i] += per; }
   const favMul = favBerryMul(wk, bs.p.b);
   const bp = berryPower(bs.p.b, m.level);
   /* 本週活動「樹果能量 +N%」**只打幫忙撿來的那一份**（使用者 2026-09-11 指定：
@@ -943,7 +983,9 @@ function scoreTeam(idxs, roster, wk, memo){
   }
   const wIng = new Float64Array(NING);
   for (let k=0;k<NING;k++) wIng[k] = ing[k]*7;
-  const potEff = Math.round((wk.pot + pot) * (wk.camp?1.5:1));
+  /* `potEff` ＝ 平日容量（食譜「放不放得進鍋」的主要判定、UI 的警告都看它），
+     `potSun` ＝ 週日那 3 餐的容量（週末 ×2，見 potSizes）。 */
+  const {w: potEff, s: potSun} = potSizes(wk, pot);
   /* 大成功倍率。`critAdd` 是隊上料理機率提升系累積的**每餐**額外機率，本週活動的
      「大成功機率 +N 個百分點」加在同一個地方（單位相同，所以不會兩套算法打架）。
      ⚠ 這裡以前是 `AVG_CRIT + critAdd*0.8`，那個 0.8 對不上平日／週日的加權
@@ -973,7 +1015,7 @@ function scoreTeam(idxs, roster, wk, memo){
        把決賽名單的分數修正到真值 —— 那正是那行程式碼原本的意圖。用上界的話它幾乎
        永遠不成立，UI 的「料理」數字就會和 21 餐排程表的小計對不上（實測差 58%）。 */
     if (b){ r = b.c.r; cooksCapped = b.n; rv = b.c.rv; fits = true;
-            dishS = Math.max(b.s, mealPlan(wIng, potEff, mul, null, wk).total) / areaMul; }
+            dishS = Math.max(b.s, mealPlan(wIng, potEff, mul, null, wk, potSun).total) / areaMul; }
     else { r = wk.recipe; cooksCapped = 0; rv = recipeValue(r, rlvl(r, wk)); fits = r.cnt <= potEff; dishS = 0; }
   } else {
     r = wk.recipe;
@@ -990,14 +1032,14 @@ function scoreTeam(idxs, roster, wk, memo){
 
        `fits` 為 false（指定食譜放不進鍋）時也照跑：`mealPlan` 會自己跳過那道，用別的
        食譜填 —— 那正是決賽的行為。UI 另外用 `fits` 顯示「鍋子容量不足」的警告。 */
-    dishS = mealPlan(wIng, potEff, mul, r, wk).total / areaMul;
+    dishS = mealPlan(wIng, potEff, mul, r, wk, potSun).total / areaMul;
   }
   let bottleneck = null, worstRatio = Infinity;
   for (const [i,a] of r.ings){ const c = wIng[i]/a; if (c < worstRatio){ worstRatio = c; bottleneck = i; } }
   const total = (berryS*7 + skillS*7 + dishS) * areaMul;
   const score = wk.mode==='dish' ? dishS*areaMul : wk.mode==='berry' ? berryS*7*areaMul : total;
   return {idxs, ctx, outs, ing, wIng, berryS:berryS*7*areaMul, skillS:skillS*7*areaMul,
-          dishS:dishS*areaMul, total, score, cooksCapped, bottleneck, fits, potEff, rv, critMul, dishMul, recipe:r, mul};
+          dishS:dishS*areaMul, total, score, cooksCapped, bottleneck, fits, potEff, potSun, rv, critMul, dishMul, recipe:r, mul};
 }
 
 let POOL = [];
@@ -1070,12 +1112,12 @@ function bestSingleRecipe(wIng, potEff, mul){ return rankSingle(wIng, potEff, mu
  *
  *  根因還沒找到。**單調性是使用者看得見的保證**（調高食譜等級不該讓總分變低），
  *  比 0.9% 重要，所以維持 9 個開場。見 TODO.md 第 10c 項。 */
-function bestPlan(wIng, potEff, mul, forced, wk){
+function bestPlan(wIng, potEff, mul, forced, wk, potSun){
   const seeds = forced ? [forced]
     : [null, ...rankSingle(wIng, potEff, mul).slice(0, 8).map(x => x.c.r)];
   let best = null;
   for (const sd of seeds){
-    const mp = mealPlan(wIng, potEff, mul, sd, wk);
+    const mp = mealPlan(wIng, potEff, mul, sd, wk, potSun);
     if (!best || mp.total > best.total) best = mp;
   }
   return best;
@@ -1121,36 +1163,56 @@ function bestPlan(wIng, potEff, mul, forced, wk){
  *
  *  影響存在但不大，而且要正確估「空位單價」得對剩餘食材池排序（每輪都做的話很貴）。
  *  暫時不做，見 TODO.md。**不要把這一段誤讀成「貪婪是最佳的」** —— 它不是。
+ *
+ *  ## 平日與週日的鍋子不一樣大（2026-10-05）
+ *
+ *  `potSun`（週日 3 餐，週末 ×2，見 `potSizes`）。兩件事因此不同：
+ *    1. **食材數介於兩者之間的食譜只有週日煮得了**（`sun: true`），最多 `SUN_MEALS` 次。
+ *       一般食譜先用平日的餐次，週日的留給這種大菜 —— 一般食譜哪一天煮都一樣。
+ *    2. **空位**：總空位 ＝ Σ 每一餐的容量 − Σ 食譜食材數，所以只要知道「週日那 3 餐
+ *       有沒有排到菜」就算得出來，不必知道是哪一道排在週日。有空著的餐時，空著的那幾餐
+ *       一律算在平日（實際上你會挑大鍋的那天煮）。
+ *  `potSun` 省略或不大於 `potEff` 時，結果和舊版逐位相同（全部都是「一般食譜」）。
+ *  ⚠ 大成功的週日 ×3 仍然用一週平均的 `mul`，**沒有**把週日那幾鍋單獨放大。
  */
-function mealPlan(wIng, potEff, mul, forceFirst, wk){
+function mealPlan(wIng, potEff, mul, forceFirst, wk, potSun){
+  const potS = Math.max(potEff, potSun || 0);
   const pool = Array.from(wIng);
-  const plan = []; let meals = MEALS_WEEK, total = 0, guard = 0;
-  if (forceFirst && forceFirst.cnt <= potEff){
+  const plan = []; let wLeft = MEALS_WEEK - SUN_MEALS, sLeft = SUN_MEALS, total = 0, guard = 0;
+  /* 這道食譜還能排幾餐：放得進平日鍋的哪一天都行，只放得進週日鍋的只能用週日。 */
+  const slots = cnt => cnt <= potEff ? wLeft + sLeft : cnt <= potS ? sLeft : 0;
+  const take = (cnt, n) => {
+    if (cnt <= potEff){ const a = Math.min(n, wLeft); wLeft -= a; sLeft -= n - a; }
+    else sLeft -= n;
+  };
+  if (forceFirst && slots(forceFirst.cnt) > 0){
     const rv = recipeValue(forceFirst, rlvl(forceFirst, wk));
     let cooks = Infinity;
     for (const [i,a] of forceFirst.ings){ const k = Math.floor(pool[i]/a); if (k < cooks) cooks = k; }
-    cooks = Math.min(cooks, meals);
+    cooks = Math.min(cooks, slots(forceFirst.cnt));
     if (cooks >= 1){
       for (const [i,a] of forceFirst.ings) pool[i] -= a * cooks;
-      plan.push({r: forceFirst, n: cooks, each: rv, primary: true});
-      total += cooks * rv * mul; meals -= cooks;
+      plan.push({r: forceFirst, n: cooks, each: rv, primary: true, sun: forceFirst.cnt > potEff});
+      total += cooks * rv * mul; take(forceFirst.cnt, cooks);
     }
   }
-  while (meals > 0 && guard++ < 40){
+  while (wLeft + sLeft > 0 && guard++ < 40){
     let best = null;
     for (const c of POOL){
-      if (c.cnt > potEff) continue;
+      const room = slots(c.cnt);
+      if (room <= 0) continue;
       let cooks = Infinity;
       for (const [i,a] of c.r.ings){ const k = Math.floor(pool[i]/a); if (k < cooks) cooks = k; }
       if (cooks < 1) continue;
-      if (!best || c.rv > best.c.rv) best = {c, cooks: Math.min(cooks, meals)};
+      if (!best || c.rv > best.c.rv) best = {c, cooks: Math.min(cooks, room)};
     }
     if (!best) break;
     for (const [i,a] of best.c.r.ings) pool[i] -= a * best.cooks;
-    plan.push({r: best.c.r, n: best.cooks, each: best.c.rv});
+    plan.push({r: best.c.r, n: best.cooks, each: best.c.rv, sun: best.c.cnt > potEff});
     total += best.cooks * best.c.rv * mul;
-    meals -= best.cooks;
+    take(best.c.cnt, best.cooks);
   }
+  const meals = wLeft + sLeft;
   /* 把剩下的食材塞進每一鍋的空位（見函式開頭的說明）。
    *
    * **空位一律只計食材的基礎能量**，所以每一格的價值都一樣，可以當成一個扁平的
@@ -1160,8 +1222,10 @@ function mealPlan(wIng, potEff, mul, forceFirst, wk){
    * 能量高的食材先塞：空位有限，同一格當然放值錢的（呆呆獸尾巴 342、南瓜 250、
    * 大蔥 185…）。使用者的話：「用大量的高分食材當肥料填滿大鍋子，即使只煮最基礎的
    * 食譜，最後的總能量依然會非常可觀。」 */
-  let room = 0;
-  for (const x of plan) room += Math.max(0, potEff - x.r.cnt) * x.n;
+  let nSun = 0, nAny = 0, used = 0;
+  for (const x of plan){ if (x.sun) nSun += x.n; else nAny += x.n; used += x.r.cnt * x.n; }
+  const anyOnSun = Math.min(SUN_MEALS - nSun, nAny);
+  const room = Math.max(0, (nSun + anyOnSun) * potS + (nAny - anyOnSun) * potEff - used);
   let fillE = 0, fillN = 0;
   if (room > 0){
     const order = [];
@@ -1181,7 +1245,7 @@ function mealPlan(wIng, potEff, mul, forceFirst, wk){
 }
 
 function rankRecipesForTeam(r, wk){
-  const potEff = r.potEff;
+  const potEff = r.potEff, potSun = Math.max(potEff, r.potSun || 0);
   const out = [];
   for (const cand of POOL){
     const rec = cand.r;
@@ -1191,10 +1255,11 @@ function rankRecipesForTeam(r, wk){
       if (c < worst){ worst = c; bn = i; }
       cooks = Math.min(cooks, c);
     }
-    const capped = Math.min(MEALS_WEEK, Math.floor(cooks));
-    const fits = rec.cnt <= potEff;
+    /* 只放得進週日鍋的（`sunOnly`）一週最多煮 SUN_MEALS 次 —— 和 mealPlan 同一條規則。 */
+    const fits = rec.cnt <= potSun, sunOnly = fits && rec.cnt > potEff;
+    const capped = Math.min(sunOnly ? SUN_MEALS : MEALS_WEEK, Math.floor(cooks));
     const rv = cand.rv;
-    out.push({rec, capped, fits, rv, bn,
+    out.push({rec, capped, fits, sunOnly, rv, bn,
               /* `r.dishMul`（本週活動的料理能量加成）漏掉的話，這張「這隊最能煮的
                  食譜」表就會和上面的料理分數對不上 —— 和填充那一列漏掉會導致
                  「逐列加起來少一截」同一類的 bug。 */
@@ -1813,7 +1878,7 @@ function finalizeTeams(cands, roster, wk, finalists){
 
   // 決賽組跑真實排程：從同一個食材池填滿 21 餐
   for (const b of best){
-    const mp = bestPlan(b.wIng, b.potEff, b.mul, wk.recipePick==='manual' ? wk.recipe : null, wk);
+    const mp = bestPlan(b.wIng, b.potEff, b.mul, wk.recipePick==='manual' ? wk.recipe : null, wk, b.potSun);
     b.mp = mp;
     if (mp && mp.total > b.dishS){
       b.dishS = mp.total;

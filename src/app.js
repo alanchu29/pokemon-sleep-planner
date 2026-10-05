@@ -71,7 +71,7 @@ const SCHEMA = 7;   // 4: 新增 msExtra{}（上游沒有的主技能數值表�
    「新的 index.html ＋ 舊的 app.js」—— 畫面畫出舊版 UI，而使用者只會覺得
    「你根本沒改」，完全不知道是快取。有了這個斷言，過期的 app.js 會直接被擋下來
    並要求強制重新整理。tests/smoke.mjs 第 11 節會斷言三處一致。 */
-const APP_V = '20261003a';
+const APP_V = '20261005a';
 
 /** 致命錯誤：整頁換成一段說明。這種狀況下繼續跑只會產生錯的數字。 */
 function fatal(html){
@@ -128,6 +128,10 @@ const EVT_ZH = {
   dish:      {lab:'料理能量',     unit:'%',       id:'Dish',  max:300, step:5},
   crit:      {lab:'大成功機率',   unit:' 個百分點', id:'Crit',  max:90,  step:5},
   carry:     {lab:'持有上限',     unit:' 個',     id:'Carry', max:50,  step:1},
+  pot:       {lab:'鍋子容量',     unit:'%',       id:'Pot',   max:300, step:5},
+  mealE:     {lab:'料理回復的活力', unit:' 點',   id:'MealE', max:50,  step:1},
+  ingSp:     {lab:'食材專長撿來的食材', unit:' 個', id:'IngSp', max:3, step:1},
+  skillIng:  {lab:'主技能獲得的食材', unit:'%',   id:'SkillIng', max:300, step:5},
   tyIng:     {lab:'撿來的食材',   unit:' 個',     id:'TyIng', max:3,   step:1, ty:true},
   tySkill:   {lab:'主技能發動率', unit:'%',       id:'TySkill', max:300, step:5, ty:true},
   tySkillLv: {lab:'主技能等級',   unit:' 級',     id:'TySkillLv', max:7, step:1, ty:true},
@@ -917,6 +921,12 @@ function syncEvtUI(){
   if (es > 0 && ex && wk.exBonus === 'skill')
     msg.push(`喜好樹果者的主技能發動率：EX ×${EX_SKILL_MUL} × 活動 ×${mulTxt(1+es/100)}`
       + ` = <b>×${mulTxt(EX_SKILL_MUL*(1+es/100))}</b>`);
+  /* 鍋子：週日本來就 ×2，活動再乘上去。只講「×2」的話使用者不會知道週日是 ×4。 */
+  if (evtPct(wk,'pot') > 0){
+    const pm = 1 + evtPct(wk,'pot')/100;
+    msg.push(`鍋子容量：平日 ×${mulTxt(pm)}、週日 ×${mulTxt(pm)} × 週末 ×${WEEKEND_POT_MUL} = <b>×${mulTxt(pm*WEEKEND_POT_MUL)}</b>`
+      + `（主技能加的容量不吃這個倍率；好露營券 ×1.5 最後乘）。`);
+  }
   if (evtPct(wk,'ing') > 0 && ex && wk.exBonus === 'ingredient')
     msg.push(`喜好樹果者撿來的食材：先加 EX 的 +${EX_ING_ADD} 個，再乘活動的 ×${mulTxt(1+evtPct(wk,'ing')/100)}`
       + `（順序反過來會少算）。`);
@@ -2917,7 +2927,8 @@ function ingUtilNotice(r){
     /* 這一句和上面那句是**兩件不同的事**：上面說的是「這 21 鍋的容量用完了」，
        這裡說的是「還有更貴的食譜連進鍋的機會都沒有」。 */
     + (blocked.length
-        ? `<br>另外有 ${blocked.length} 道更高價的食譜因為鍋子容量只有 ${r.potEff} 而放不進去`
+        ? `<br>另外有 ${blocked.length} 道更高價的食譜因為平日鍋子容量只有 ${r.potEff} 而放不進去`
+          + (r.potSun > r.potEff ? `（週日 ${r.potSun}，放得進的那幾道週日還是煮得了）` : '')
           + `（最貴的那道要 ${blocked[0].cnt} 個）—— 加鍋子容量對這一項也有幫助，`
           + `但還是要湊得齊它們要的食材種類。`
         : '')
@@ -2930,6 +2941,12 @@ function ingUtilNotice(r){
 function recipeNewTag(r){
   return recipeOn(r, wk) ? ''
     : ` <span class="tag rnew" title="這道還沒解鎖。隊伍湊得出食材就煮得出來，煮第一次就解鎖，&#10;所以推演以 Lv${RECIPE_NEW_LV} 計算（實際煮幾次之後等級會往上爬，這裡是保守估計）。">未解鎖・Lv${RECIPE_NEW_LV}</span>`;
+}
+
+/** 只放得進週日鍋子的食譜（排程與「這隊最能煮的食譜」兩處共用）。不標的話，
+ *  使用者照排程去煮會發現平日根本放不進鍋。 */
+function sunTag(){
+  return ` <span class="tag" title="這道的食材數超過平日的鍋子容量，只有週日（鍋子 ×${WEEKEND_POT_MUL}）放得進去，&#10;所以一週最多煮 ${SUN_MEALS} 次。">只有週日</span>`;
 }
 
 /** 這支隊伍一週的食材**湊得出**、但還沒解鎖的食譜（使用者 2026-09-28 要求提醒）。
@@ -2945,11 +2962,14 @@ function lockedCookable(r){
   if (r.mp) for (const x of r.mp.plan) planned.set(x.r.n, (planned.get(x.r.n) || 0) + x.n);
   const out = [];
   for (const c of POOL){
-    if (recipeOn(c.r, wk) || c.cnt > r.potEff) continue;
+    /* 週日的鍋子比較大（見 engine 的 potSizes），只放得進週日鍋的也算「湊得出」，
+       但一週最多 SUN_MEALS 次 —— 和 mealPlan 同一條規則。 */
+    const potSun = Math.max(r.potEff, r.potSun || 0);
+    if (recipeOn(c.r, wk) || c.cnt > potSun) continue;
     let n = Infinity;
     for (const [i,a] of c.r.ings) n = Math.min(n, Math.floor(r.wIng[i]/a));
     if (n < 1) continue;
-    out.push({rec: c.r, n: Math.min(MEALS_WEEK, n), planned: planned.get(c.r.n) || 0});
+    out.push({rec: c.r, n: Math.min(c.cnt > r.potEff ? SUN_MEALS : MEALS_WEEK, n), planned: planned.get(c.r.n) || 0});
   }
   /* 排程裡有的排前面（照次數），其餘維持 POOL 的順序（單道能量高→低）。 */
   out.sort((a,b) => (b.planned > 0) - (a.planned > 0) || b.planned - a.planned);
@@ -3079,7 +3099,7 @@ function teamDetailHTML(r, opts){
       <div class="pbody" style="padding:0"><div class="scroll" style="border:0">
       <table><thead><tr><th>食譜</th><th style="text-align:right">煮/週</th><th>卡在</th><th style="text-align:right">週能量</th></tr></thead>
       <tbody>${rankRecipesForTeam(r, wk).slice(0,7).map(x=>`<tr${x.rec.n===TR.n?' style="background:color-mix(in srgb,var(--accent) 12%,transparent)"':''}>
-        <td>${recipeZh(x.rec.n)} <span class="muted num">共${x.rec.cnt}</span>${recipeNewTag(x.rec)}${x.fits?'':' <span class="tag pin">鍋子不足</span>'}</td>
+        <td>${recipeZh(x.rec.n)} <span class="muted num">共${x.rec.cnt}</span>${recipeNewTag(x.rec)}${x.fits?'':' <span class="tag pin">鍋子不足</span>'}${x.sunOnly?sunTag():''}</td>
         <td class="n" style="text-align:right">${x.capped}</td>
         <td class="muted" style="font-size:11.5px">${x.capped < MEALS_WEEK && x.bn != null ? iz(ING_NAME[x.bn]) : '—'}</td>
         <td class="n" style="text-align:right">${fmt(x.strength)}</td></tr>`).join('')}
@@ -3088,17 +3108,17 @@ function teamDetailHTML(r, opts){
   </div>
 
   ${r.mp ? `<div class="panel" style="margin-top:16px">
-    <div class="phead"><h3>本週 21 餐排程</h3><span class="muted" style="font-size:12px">同一個食材池貪婪填滿 · 依單道能量由高到低 · 鍋子剩下的空位會塞其他食材</span></div>
+    <div class="phead"><h3>本週 21 餐排程</h3><span class="muted" style="font-size:12px" title="週日鍋子容量 ×2 是遊戲的週末加成（一直都有）。&#10;本週活動的鍋子加成只放大基礎容量，主技能加的那一份不吃；好露營券 ×1.5 最後乘。">鍋子容量 平日 ${r.potEff}・週日 ${Math.max(r.potEff, r.potSun||0)} · 同一個食材池貪婪填滿 · 依單道能量由高到低 · 鍋子剩下的空位會塞其他食材</span></div>
     <div class="pbody" style="padding:0"><div class="scroll" style="border:0">
     <table><thead><tr><th>餐次</th><th>食譜</th><th style="text-align:right">次數</th><th style="text-align:right">單道</th><th style="text-align:right">小計</th></tr></thead>
     <tbody>${r.mp.plan.map((x,n)=>`<tr>
       <td class="n">${n+1}</td>
-      <td>${recipeZh(x.r.n)} <span class="muted num">共${x.r.cnt}</span>${(x.primary || x.r.n===TR.n)?' <span class="tag pin">主食譜</span>':''}${recipeNewTag(x.r)}</td>
+      <td>${recipeZh(x.r.n)} <span class="muted num">共${x.r.cnt}</span>${(x.primary || x.r.n===TR.n)?' <span class="tag pin">主食譜</span>':''}${recipeNewTag(x.r)}${x.sun?sunTag():''}</td>
       <td class="n" style="text-align:right">${x.n}</td>
       <td class="n" style="text-align:right">${fmt(x.each)}</td>
       <td class="n" style="text-align:right">${fmt(x.n*x.each*r.mul)}</td></tr>`).join('')}
       ${r.mp.fillN>0?`<tr><td></td>
-        <td title="湊齊食譜需要的食材之後，鍋子剩下的空位可以繼續塞別的食材進去。&#10;額外食材只算它的原始基礎單價 —— 不吃食譜等級倍率、也不吃食譜加成，&#10;但大成功與島嶼加成作用在整鍋總和上，所以那兩個照吃。&#10;因此填鍋優先用基礎單價高的食材（呆呆獸尾巴 342、南瓜 250、大蔥 185…）。&#10;每一鍋的空位 = 鍋子容量 − 該食譜的食材數。"><b>鍋子空位填入其他食材</b> <span class="muted num">共 ${r.mp.room} 格</span> <span class="muted" style="font-size:11px">只計基礎單價</span></td>
+        <td title="湊齊食譜需要的食材之後，鍋子剩下的空位可以繼續塞別的食材進去。&#10;額外食材只算它的原始基礎單價 —— 不吃食譜等級倍率、也不吃食譜加成，&#10;但大成功與島嶼加成作用在整鍋總和上，所以那兩個照吃。&#10;因此填鍋優先用基礎單價高的食材（呆呆獸尾巴 342、南瓜 250、大蔥 185…）。&#10;每一鍋的空位 = 鍋子容量 − 該食譜的食材數（週日那 3 鍋用週日的容量）。"><b>鍋子空位填入其他食材</b> <span class="muted num">共 ${r.mp.room} 格</span> <span class="muted" style="font-size:11px">只計基礎單價</span></td>
         <td class="n" style="text-align:right">${r.mp.fillN} 個</td>
         <td class="n" style="text-align:right">—</td>
         <td class="n" style="text-align:right">${fmt(r.mp.fillE)}</td></tr>`:''}

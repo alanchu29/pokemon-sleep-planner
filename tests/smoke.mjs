@@ -248,7 +248,7 @@ console.log('\n[2b] 料理分數：搜尋目標與決賽目標不能脫鉤');
       if (new Set(pick).size !== 5) continue;
       pick.sort((a, b) => a - b);
       const s = scoreTeam(pick, roster, wk, memo);
-      const real = bestPlan(s.wIng, s.potEff, s.mul, wk.recipePick === 'manual' ? wk.recipe : null, wk).total;
+      const real = bestPlan(s.wIng, s.potEff, s.mul, wk.recipePick === 'manual' ? wk.recipe : null, wk, s.potSun).total;
       out.n++;
       if (real > 0){
         const ratio = s.dishS / real;
@@ -272,7 +272,7 @@ console.log('\n[2b] 料理分數：搜尋目標與決賽目標不能脫鉤');
     const memo = new Map();
     const idx = roster.map((_, i) => i).filter(i => !roster[i].ex).slice(0, 5);
     const s = scoreTeam(idx, roster, wk, memo);
-    const real = bestPlan(s.wIng, s.potEff, s.mul, wk.recipe, wk).total;
+    const real = bestPlan(s.wIng, s.potEff, s.mul, wk.recipe, wk, s.potSun).total;
     const ratio = real > 0 ? s.dishS / real : 1;
     Object.assign(wk, {recipePick: keep.pick, recipeName: keep.name});
     wk.recipe = D.recipes.find(r => r.n === wk.recipeName) || D.recipes[0];
@@ -4339,6 +4339,131 @@ console.log('\n[15e] 屬性限定加成的 UI：摘要、標籤、截圖匯入�
   ok('屬性下拉共 19 個選項（全部屬性 ＋ 18 屬性）', r.opts.length === 19, String(r.opts.length));
   ok('屬性下拉要寫出箱中隻數', /psychic\|超能力（箱中 1）/.test(r.opts.join('\n')),
      r.opts.find(o => o.startsWith('psychic')));
+}
+
+console.log('\n[15f] 鍋子（週日 ×2）與料理ウィーク的四個分項');
+{
+  const r = await page.evaluate(() => {
+    const idx = n => D.dex.findIndex(x => x.n === n);
+    const mk = n => ({sp: idx(n), level:60, nature:'Bashful', ss:[null,null,null,null,null],
+      ingSet:[0,0,0], skillLv:6, ribbon:4, pin:false, ex:false, nick:''});
+    const RL = {}; D.recipes.forEach(x => { RL[x.n] = 20; });
+    const W = (evt, extra) => ({...wk, island:'greengrass', favMain:null, exBonus:null,
+      fav:new Set(['DURIN','ORAN','LEPPA']), areaBonus:15, pot:57, sleepH:8.5, camp:0,
+      collectH:4, mode:'total', dishType:'curry', recipeName:null, recipeLv:20,
+      recipePick:'auto', recipeScope:'type', recipeLevels:RL, strictBerry:false,
+      evt, ...(extra || {})});
+    const ALLOFF = Object.fromEntries(EVT_KEYS.map(k => [k, {on:false, v:0, ty:null}]));
+    const one = (k, v) => ({...ALLOFF, [k]: {on:true, v, ty:null}});
+    const out = {};
+
+    /* ---- 1) 容量公式（驗證 wiki「なべ」） ---- */
+    out.plain   = potSizes(W(ALLOFF), 0);
+    out.camp    = potSizes(W(ALLOFF, {camp:1}), 0);
+    out.wiki2   = potSizes(W(one('pot', 50), {pot:69}), 0);           // 69×1.5=103.5→104，週日 208
+    out.full    = potSizes(W(one('pot', 100), {camp:1}), 10);          // (114+10)×1.5 / (228+10)×1.5
+    out.oddPot  = potSizes(W(ALLOFF, {pot:57.4}), 0).w;                // 沒開活動時不多做一次四捨五入
+
+    /* ---- 2) 排程：週日的鍋子比較大 ---- */
+    const BASE = ['VENUSAUR','GOLDUCK','ARCANINE','WIGGLYTUFF','GALLADE'];
+    const team = (evt, extra, names) => {
+      const w = W(evt, extra);
+      buildPool(w);
+      roster = (names || BASE).map(mk);
+      roster.forEach(m => (m._bs = baseStats(m, w)));
+      const t = scoreTeam([0,1,2,3,4], roster, w, new Map());
+      const mp = bestPlan(t.wIng, t.potEff, t.mul, null, w, t.potSun);
+      const flat = mealPlan(t.wIng, t.potEff, t.mul, null, w, t.potEff);
+      const sunR = mealPlan(t.wIng, t.potEff, t.mul, null, w, t.potSun);
+      return {potEff: t.potEff, potSun: t.potSun, dishS: t.dishS, total: t.total,
+              searchDish: t.dishS / (1 + w.areaBonus/100), real: mp.total,
+              roomFlat: flat.room, roomSun: sunR.room, mealsFlat: 21 - flat.idleMeals,
+              sunMeals: sunR.plan.filter(x => x.sun).reduce((s, x) => s + x.n, 0),
+              sunOk: sunR.plan.filter(x => x.sun).every(x => x.r.cnt > t.potEff && x.r.cnt <= t.potSun),
+              planMeals: sunR.plan.reduce((s, x) => s + x.n, 0),
+              rankSun: rankRecipesForTeam(t, w).filter(x => x.sunOnly).every(x => x.capped <= SUN_MEALS)};
+    };
+    out.t0   = team(ALLOFF);
+    out.tPot = team(one('pot', 100));
+    /* 鍋子很小 → 一定有食譜只放得進週日鍋 */
+    out.tSmall = team(ALLOFF, {pot:21, recipeScope:'all'});
+
+    /* ---- 3) 食材專長 +1：只有食材專長，全能不算 ---- */
+    const avg = (n, evt) => baseStats(mk(n), W(evt)).avgIngAmt;
+    const ingMon = D.dex.find(x => x.sp === 'ingredient').n;
+    const berMon = D.dex.find(x => x.sp === 'berry').n;
+    const allMon = D.dex.find(x => x.sp === 'all').n;
+    out.ingSp = {name: ingMon, off: avg(ingMon, ALLOFF), on: avg(ingMon, one('ingSp', 1)),
+                 berOff: avg(berMon, ALLOFF), berOn: avg(berMon, one('ingSp', 1)),
+                 allOff: avg(allMon, ALLOFF), allOn: avg(allMon, one('ingSp', 1))};
+
+    /* ---- 4) 主技能的食材 ×1.5：只打 ingSpread ---- */
+    const so = (n, evt) => {
+      const m = mk(n), w = W(evt); m._bs = baseStats(m, w);
+      const o = memberOutput(m, w, SCORE_CTX);
+      return {tot: o.ing.reduce((a, b) => a + b, 0), procs: o.sim.procs, spread: o.pay.ingSpread || 0,
+              crit: o.critAdd, helpsDay: o.sim.helpsDay, fast: o.sim.fastShare};
+    };
+    const im = D.dex.find(x => x.ms === 'Ingredient Magnet S').n;
+    const bu = D.dex.find(x => x.ms === 'Bulk Up (Cooking Assist S)');
+    out.si = {name: im, off: so(im, ALLOFF), on: so(im, one('skillIng', 50))};
+    out.bu = bu ? {off: so(bu.n, ALLOFF), on: so(bu.n, one('skillIng', 50))} : null;
+
+    /* ---- 5) 料理回復 +5：睡不夠時活力會撐比較久 ---- */
+    const low = (evt) => { const m = mk('VENUSAUR'), w = W(evt, {sleepH:5}); m._bs = baseStats(m, w);
+      return memberOutput(m, w, SCORE_CTX).sim; };
+    const e0 = low(ALLOFF), e5 = low(one('mealE', 5));
+    out.mealE = {off: e0.helpsDay, on: e5.helpsDay, fastOff: e0.fastShare, fastOn: e5.fastShare};
+    /* 個體產能不吃（SCORE_WK 沒有 evt） */
+    const mpBefore = monPower(mk('VENUSAUR')).total;
+    wk.evt = Object.fromEntries(EVT_KEYS.map(k => [k, {on:true, v:50, ty:null}]));
+    out.mpSame = monPower(mk('VENUSAUR')).total === mpBefore;
+    wk.evt = blankEvt();
+    return out;
+  });
+
+  ok('平日容量 ＝ 舊公式（沒有券、沒有活動時就是填的值）', r.plain.w === 57, JSON.stringify(r.plain));
+  ok('週日容量 ×2（遊戲的週末加成，一直都有）', r.plain.s === 114, JSON.stringify(r.plain));
+  ok('好露營券 ×1.5 在最後、四捨五入', r.camp.w === 86 && r.camp.s === 171, JSON.stringify(r.camp));
+  ok('wiki 的例子：69 × 活動1.5 → 104，週日 208', r.wiki2.w === 104 && r.wiki2.s === 208, JSON.stringify(r.wiki2));
+  ok('主技能加的容量不吃活動與週末倍率，露營券要乘',
+     r.full.w === Math.round((114 + 10) * 1.5) && r.full.s === Math.round((228 + 10) * 1.5), JSON.stringify(r.full));
+  ok('沒開活動時不多做一次四捨五入（平日容量和舊版逐位相同）', r.oddPot === 57, String(r.oddPot));
+
+  ok('scoreTeam 帶出平日與週日兩個容量', r.t0.potEff === 57 && r.t0.potSun === 114,
+     `${r.t0.potEff} / ${r.t0.potSun}`);
+  /* 21 餐都排得到一般食譜時，總空位剛好多 3 × (週日 − 平日)。 */
+  ok('週日那 3 鍋的空位用週日的容量',
+     r.t0.mealsFlat < 21 || r.t0.roomSun - r.t0.roomFlat === 3 * (r.t0.potSun - r.t0.potEff),
+     `${r.t0.roomFlat} → ${r.t0.roomSun}`);
+  ok('活動鍋子 +100%：平日 ×2、週日 ×4', r.tPot.potEff === 114 && r.tPot.potSun === 228,
+     `${r.tPot.potEff} / ${r.tPot.potSun}`);
+  ok('鍋子變大料理分數不會變低', r.tPot.dishS >= r.t0.dishS, `${r.t0.dishS} → ${r.tPot.dishS}`);
+  ok('搜尋分數仍是決賽排程的下界（含週日鍋子）',
+     r.t0.searchDish <= r.t0.real + 1e-6 && r.tPot.searchDish <= r.tPot.real + 1e-6,
+     `${r.t0.searchDish} ≤ ${r.t0.real}`);
+  ok('只放得進週日鍋的食譜一週最多 3 次，而且食材數真的介於兩個容量之間',
+     r.tSmall.sunMeals <= 3 && r.tSmall.sunOk && r.tSmall.planMeals <= 21,
+     `週日大菜 ${r.tSmall.sunMeals} 次，共 ${r.tSmall.planMeals} 餐`);
+  ok('小鍋時排程真的用到了週日的大鍋', r.tSmall.sunMeals > 0, String(r.tSmall.sunMeals));
+  ok('「這隊最能煮的食譜」的只有週日那幾道最多 3 次', r.tSmall.rankSun);
+
+  ok(`食材專長撿來的食材 +1（${r.ingSp.name}）：每次撿到 +1 個`,
+     Math.abs(r.ingSp.on - r.ingSp.off - 1) < 1e-9, `${r.ingSp.off} → ${r.ingSp.on}`);
+  ok('樹果專長與全能型不吃「食材專長 +1」',
+     r.ingSp.berOn === r.ingSp.berOff && r.ingSp.allOn === r.ingSp.allOff,
+     `${r.ingSp.berOff}/${r.ingSp.berOn} · ${r.ingSp.allOff}/${r.ingSp.allOn}`);
+
+  ok(`主技能的食材 +50%（${r.si.name}）：多出來的剛好是技能那一份的一半`,
+     Math.abs((r.si.on.tot - r.si.off.tot) - r.si.off.procs * r.si.off.spread * 0.5) < 1e-6,
+     `${r.si.off.tot.toFixed(2)} → ${r.si.on.tot.toFixed(2)}`);
+  ok('怪力鉗：食材變多，但大成功那一半不變（多效果時只有食材增加）',
+     !r.bu || (r.bu.on.tot > r.bu.off.tot && r.bu.on.crit === r.bu.off.crit),
+     r.bu ? `${r.bu.off.crit} / ${r.bu.on.crit}` : '沒有怪力鉗');
+
+  ok('料理回復 +5：睡不夠時白天的幫忙次數變多', r.mealE.on > r.mealE.off,
+     `${r.mealE.off.toFixed(2)} → ${r.mealE.on.toFixed(2)}`);
+  ok('個體產能不吃本週活動（含四個新分項）', r.mpSame);
 }
 
 console.log('\n[16] 特別寶可夢同隊最多一隻（wk.oneSpecial）');
