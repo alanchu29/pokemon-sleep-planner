@@ -9013,6 +9013,95 @@
       "ef": "DWEBBLE"
     },
     {
+      "n": "FOONGUS",
+      "d": "Foongus",
+      "no": 590,
+      "sp": "ingredient",
+      "f": 5700,
+      "ip": 17.4,
+      "sk": 3.5,
+      "b": "CHESTO",
+      "cs": 12,
+      "pe": 0,
+      "re": 1,
+      "ms": "Charge Strength S",
+      "i0": [
+        [
+          15,
+          2
+        ]
+      ],
+      "i30": [
+        [
+          15,
+          5
+        ],
+        [
+          7,
+          7
+        ]
+      ],
+      "i60": [
+        [
+          15,
+          7
+        ],
+        [
+          7,
+          10
+        ],
+        [
+          6,
+          11
+        ]
+      ]
+    },
+    {
+      "n": "AMOONGUSS",
+      "d": "Amoonguss",
+      "no": 591,
+      "sp": "ingredient",
+      "f": 3500,
+      "ip": 20.4,
+      "sk": 4.7,
+      "b": "CHESTO",
+      "cs": 14,
+      "pe": 1,
+      "re": 0,
+      "ms": "Charge Strength S",
+      "i0": [
+        [
+          15,
+          2
+        ]
+      ],
+      "i30": [
+        [
+          15,
+          5
+        ],
+        [
+          7,
+          7
+        ]
+      ],
+      "i60": [
+        [
+          15,
+          7
+        ],
+        [
+          7,
+          10
+        ],
+        [
+          6,
+          11
+        ]
+      ],
+      "ef": "FOONGUS"
+    },
+    {
       "n": "RUFFLET",
       "d": "Rufflet",
       "no": 627,
@@ -14247,6 +14336,8 @@
       "MUSHARNA": "夢夢蝕",
       "DWEBBLE": "石居蟹",
       "CRUSTLE": "岩殿居蟹",
+      "FOONGUS": "哎呀球菇",
+      "AMOONGUSS": "敗露球菇",
       "RUFFLET": "毛頭小鷹",
       "BRAVIARY": "勇士雄鷹",
       "TYRUNT": "寶寶暴龍",
@@ -14453,6 +14544,8 @@
       "SWALOT",
       "CROAGUNK",
       "TOXICROAK",
+      "FOONGUS",
+      "AMOONGUSS",
       "TOXEL",
       "TOXTRICITY_AMPED",
       "TOXTRICITY_LOW_KEY",
@@ -14699,9 +14792,9 @@
   "meta": {
     "schema": 7,
     "src": "nerolis-lab/nerolis-lab",
-    "commit": "52157cb",
-    "commitDate": "2026-09-14",
-    "builtAt": "2026-09-29",
+    "commit": "74e5068",
+    "commitDate": "2026-10-06",
+    "builtAt": "2026-10-06",
     "zhSrc": "RaenonX i18n + 52poke zh-hant",
     "typesSrc": "由樹果推導（Pokémon Sleep 每隻只有一個屬性，就是牠撿的樹果的屬性；18 顆樹果對 18 個屬性，來源是上游 berries.ts 的 Berry.type）",
     "msExtraSrc": "tools/skills-extra.json（本專案維護 —— 上游快照沒有這些表）"
