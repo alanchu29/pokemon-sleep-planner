@@ -1781,6 +1781,22 @@ node tools/extract-data.mjs --offline   # 不 fetch 上游，沿用現有的 .tm
 上游那批 `remove skillAmount` / `refactor skill activation types` / `renamed
 skillValuePerProc` 的重構**完全沒有動到我們讀的欄位** —— 逐位比對驗過（驗法見「重建之後要驗什麼」）。
 
+#### 2026-11-09 的更新（`74e5068` → `26cead2`，release 2.72.0）：同一個效果換了欄位名
+
+| | |
+|---|---|
+| **新增夢妖／夢妖魔**（#200／#429，技能型・墨莓果） | 夢妖魔帶**新主技能**「魔法火焰（料理躍進S）」：鍋子 +7~31 **＋** 料理大成功 +1~5% |
+| 耿鬼 `ingredientPercentage` 16.1 → 16.6、聖誕皮卡丘 `carrySize` 16 → 20 | 純數值。逐位比對：全 dex 只有這兩隻的 `monPower` 變了 |
+
+⚠ **新技能的欄位是 `potAmounts`／`tastyAmounts`**，而料理強化S 是 `potSizeAmounts`、
+料理成功S 是 `chanceAmounts` —— 同一個效果、不同名字。照舊萃取的話 `game.json` 寫成
+`pot`／`tasty`，`rawPayload` 兩個都不讀，**夢妖魔的主技能靜靜地是 0**，腳本照樣印「100% 覆蓋 ✓」。
+這次是讀 diff 才看到的。
+
+所以 `extract-data.mjs` 現在有兩道：`MS_FIELD_ALIAS`（把別名收斂成引擎認的那一個）與
+`MS_FIELDS`（**引擎或截圖匯入認得的欄位白名單，其他一律 throw**）。上游再冒出新欄位名時，
+先看 `rawPayload` 該怎麼讀，再決定加進哪一個 —— 不要為了讓腳本跑過就直接塞進白名單。
+
 ### 6i. 樹果領域（精神擊破／超夢）：唯一**跨發動累積**的主技能（2026-09-15）
 
 使用者提供了遊戲內截圖，補上了上游程式碼看不出來的兩件事：官方中文名「精神擊破

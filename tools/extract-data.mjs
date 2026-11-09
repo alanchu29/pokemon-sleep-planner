@@ -76,13 +76,30 @@ const set = (arr: any[] | undefined) => (arr || []).map((i: any) => [ING_IDX[i.i
    所以鍵是 frontendComponentName || name；同一個鍵底下若還有數值不同的變體，
    第一個（MAINSKILLS 的註冊順序）保留原名，其餘加上「 [第一個用牠的物種]」。
    數值相同的多個實例（Ingredient Draw S 每個物種一個、只差食材池）合併成一個。 */
+/* 上游同一個效果在不同技能裡用了不同的欄位名，引擎只認一種 —— 在這裡收斂。
+   2026-11 的夢妖魔「魔法火焰（料理躍進S）」寫的是 potAmounts／tastyAmounts，
+   而料理強化S 是 potSizeAmounts、料理成功S 是 chanceAmounts。不改名的話引擎兩個都讀不到，
+   那個技能**靜靜地算成 0**（不會報錯，只是那隻永遠不會被推薦）。 */
+const MS_FIELD_ALIAS: any = { pot: 'potSize', tasty: 'chance' };
+/* 引擎或截圖匯入認得的欄位（含刻意不計分的夢之碎片、暴擊那幾個 —— 見 app.js 的 MS_CAVEAT）。
+   上游冒出**任何**不在這裡的欄位就 throw：它不是被算進去，就是被靜靜地丟掉，兩者都要人來決定。
+   新增時先確認 engine.js 的 rawPayload 有沒有讀它，再加進來。 */
+const MS_FIELDS = new Set(['strength', 'averageStrength', 'ingredient', 'bonusIngredient', 'energy',
+  'potSize', 'chance', 'selfBerry', 'teamBerry', 'latiasBerries', 'help', 'helps', 'latiosHelps',
+  'base', 'berryZone', 'crit', 'shard', 'skillHelps', 'critIngredient', 'dreamShard', 'critDreamShard']);
 const msNums = (s: any) => {
   const o: any = { max: s.RP?.length ?? 6 };
   for (const k of Object.keys(s)) {
     if (!Array.isArray(s[k])) continue;
     const at = k.indexOf('Amounts');
     if (at < 0) continue;
-    const base = k.slice(0, at), tail = k.slice(at + 7);
+    const raw = k.slice(0, at), tail = k.slice(at + 7);
+    const base = MS_FIELD_ALIAS[raw] || raw;
+    if (!MS_FIELDS.has(base))
+      throw new Error('引擎不認得的主技能欄位：' + (s.frontendComponentName || s.name) + '.' + k
+        + ' —— 先確認 engine.js 的 rawPayload 該怎麼讀它，再加進 MS_FIELDS（或 MS_FIELD_ALIAS）');
+    if (base in o && tail !== 'Low' && tail !== 'High')
+      throw new Error('主技能欄位改名後撞名：' + (s.frontendComponentName || s.name) + '.' + k);
     // 範圍型（xxxAmountsLow／High／Mean）：引擎吃的 xxx 放上游的期望值 Mean，
     // 兩端另存 xxxLo／xxxHi —— 遊戲畫面顯示的是兩端，截圖匯入要拿它們反查技能等級。
     if (tail === '' || tail === 'Mean') o[base] = s[k];

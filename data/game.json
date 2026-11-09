@@ -1008,7 +1008,7 @@
       "ip": 13.1,
       "sk": 4.2,
       "b": "GREPA",
-      "cs": 16,
+      "cs": 20,
       "pe": 0,
       "re": 0,
       "ms": "Dream Shard Magnet S",
@@ -2638,7 +2638,7 @@
       "no": 94,
       "sp": "ingredient",
       "f": 2200,
-      "ip": 16.1,
+      "ip": 16.6,
       "sk": 2.4,
       "b": "BLUK",
       "cs": 18,
@@ -4759,6 +4759,50 @@
         ]
       ],
       "ef": "SLOWPOKE"
+    },
+    {
+      "n": "MISDREAVUS",
+      "d": "Misdreavus",
+      "no": 200,
+      "sp": "skill",
+      "f": 2800,
+      "ip": 15,
+      "sk": 4.7,
+      "b": "BLUK",
+      "cs": 13,
+      "pe": 0,
+      "re": 1,
+      "ms": "Cooking Power-Up S",
+      "i0": [
+        [
+          9,
+          1
+        ]
+      ],
+      "i30": [
+        [
+          9,
+          2
+        ],
+        [
+          13,
+          2
+        ]
+      ],
+      "i60": [
+        [
+          9,
+          4
+        ],
+        [
+          13,
+          3
+        ],
+        [
+          6,
+          4
+        ]
+      ]
     },
     {
       "n": "WOBBUFFET",
@@ -7919,6 +7963,51 @@
         ]
       ],
       "ef": "DRIFLOON"
+    },
+    {
+      "n": "MISMAGIUS",
+      "d": "Mismagius",
+      "no": 429,
+      "sp": "skill",
+      "f": 2400,
+      "ip": 14.2,
+      "sk": 3.6,
+      "b": "BLUK",
+      "cs": 17,
+      "pe": 1,
+      "re": 0,
+      "ms": "Mystical Fire (Cooking Advance S)",
+      "i0": [
+        [
+          9,
+          1
+        ]
+      ],
+      "i30": [
+        [
+          9,
+          2
+        ],
+        [
+          13,
+          2
+        ]
+      ],
+      "i60": [
+        [
+          9,
+          4
+        ],
+        [
+          13,
+          3
+        ],
+        [
+          6,
+          4
+        ]
+      ],
+      "ef": "MISDREAVUS"
     },
     {
       "n": "HONCHKROW",
@@ -13031,6 +13120,27 @@
         4497
       ]
     },
+    "Mystical Fire (Cooking Advance S)": {
+      "max": 7,
+      "potSize": [
+        7,
+        10,
+        12,
+        17,
+        22,
+        27,
+        31
+      ],
+      "chance": [
+        1,
+        2,
+        2,
+        3,
+        3,
+        4,
+        5
+      ]
+    },
     "Cooking Assist S": {
       "max": 7,
       "ingredient": [
@@ -14031,6 +14141,7 @@
       "Bulk Up (Cooking Assist S)": "健美（料理輔助S）",
       "Cooking Power-Up S": "料理強化S",
       "Minus (Cooking Power-Up S)": "負電（料理強化S）",
+      "Mystical Fire (Cooking Advance S)": "魔法火焰（料理躍進S）",
       "Dream Shard Magnet S": "夢之碎片獲取S",
       "Dream Shard Magnet S Range": "夢之碎片獲取S（範圍）",
       "Aura Sphere (Dream Shard Magnet S)": "波導彈（夢之碎片獲取S）",
@@ -14242,6 +14353,7 @@
       "UMBREON": "月亮伊布",
       "MURKROW": "黑暗鴉",
       "SLOWKING": "呆呆王",
+      "MISDREAVUS": "夢妖",
       "WOBBUFFET": "果然翁",
       "STEELIX": "大鋼蛇",
       "SHUCKLE": "壺壺",
@@ -14313,6 +14425,7 @@
       "LUXRAY": "倫琴貓",
       "DRIFLOON": "飄飄球",
       "DRIFBLIM": "隨風球",
+      "MISMAGIUS": "夢妖魔",
       "HONCHKROW": "烏鴉頭頭",
       "BONSLY": "盆才怪",
       "MIME_JR": "魔尼尼",
@@ -14622,10 +14735,12 @@
       "GASTLY",
       "HAUNTER",
       "GENGAR",
+      "MISDREAVUS",
       "SHUPPET",
       "BANETTE",
       "DRIFLOON",
       "DRIFBLIM",
+      "MISMAGIUS",
       "PUMPKABOO_JUMBO",
       "PUMPKABOO_LARGE",
       "PUMPKABOO_MEDIUM",
@@ -14792,9 +14907,9 @@
   "meta": {
     "schema": 7,
     "src": "nerolis-lab/nerolis-lab",
-    "commit": "74e5068",
-    "commitDate": "2026-10-06",
-    "builtAt": "2026-10-06",
+    "commit": "26cead2",
+    "commitDate": "2026-11-02",
+    "builtAt": "2026-11-09",
     "zhSrc": "RaenonX i18n + 52poke zh-hant",
     "typesSrc": "由樹果推導（Pokémon Sleep 每隻只有一個屬性，就是牠撿的樹果的屬性；18 顆樹果對 18 個屬性，來源是上游 berries.ts 的 Berry.type）",
     "msExtraSrc": "tools/skills-extra.json（本專案維護 —— 上游快照沒有這些表）"
