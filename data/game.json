@@ -14907,9 +14907,9 @@
   "meta": {
     "schema": 7,
     "src": "nerolis-lab/nerolis-lab",
-    "commit": "26cead2",
-    "commitDate": "2026-11-02",
-    "builtAt": "2026-11-09",
+    "commit": "04db996",
+    "commitDate": "2026-11-14",
+    "builtAt": "2026-11-16",
     "zhSrc": "RaenonX i18n + 52poke zh-hant",
     "typesSrc": "由樹果推導（Pokémon Sleep 每隻只有一個屬性，就是牠撿的樹果的屬性；18 顆樹果對 18 個屬性，來源是上游 berries.ts 的 Berry.type）",
     "msExtraSrc": "tools/skills-extra.json（本專案維護 —— 上游快照沒有這些表）"
