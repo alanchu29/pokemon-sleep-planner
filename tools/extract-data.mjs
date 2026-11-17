@@ -297,6 +297,8 @@ data.meta = {
 const gaps = {
   pokemon: missP,
   recipes: missR,
+  // 食材以前不在這裡：2026-11 新增「一口堅果」時才發現漏了，缺的話畫面會靜靜地顯示 `Nut`
+  ings: data.ings.map((x) => x[0]).filter((n) => !data.zh.ings[n]),
   mainskills: Object.keys(data.ms).filter((k) => !data.zh.ms[k]),
   subskills: data.subskills.map((s) => s.n).filter((n) => !data.zh.subskills[n]),
   islands: data.islands.map((i) => i.n).filter((n) => !data.zh.islands[n]),

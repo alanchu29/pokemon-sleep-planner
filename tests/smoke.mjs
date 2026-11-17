@@ -107,9 +107,17 @@ await page.waitForTimeout(2500);
   // regression: `$` TDZ 會讓整支腳本在載入時死掉
   const alive = await page.evaluate(() => typeof $ === 'function' && typeof D === 'object' && typeof run === 'function');
   ok('頂層腳本執行完成（$ 的 TDZ 迴歸測試）', alive);
-  const d = await page.evaluate(() => ({ dex: D.dex.length, rec: D.recipes.length, zhPk: Object.keys(D.zh.pk).length, zhRec: Object.keys(D.zh.recipes).length }));
+  /* 還查不到遊戲內繁中名的食譜。新食譜上線當天常常只有分類、沒有料理名（2026-11 大餐週就是），
+     照規定不自創，留英文、列在這裡，並在 index.html「已知簡化」寫一條。這份清單是**明確的例外**，
+     而且反向守門：名字補進 tools/zh.txt 之後它還留著就會紅 —— 否則清單會一路留著、靜靜地放過
+     下一個缺漏。清空時記得一起拿掉「已知簡化」裡那一條。 */
+  const ZH_PENDING = [];
+  const d = await page.evaluate((pending) => ({ dex: D.dex.length, rec: D.recipes.length, zhPk: Object.keys(D.zh.pk).length,
+    missRec: D.recipes.map(r => r.n).filter(n => !D.zh.recipes[n]).sort().join(','),
+    pending: pending.slice().sort().join(','),
+    missIng: D.ings.map(x => x[0]).filter(n => !D.zh.ings[n]).join(',') }), ZH_PENDING);
   ok(`資料完整（${d.dex} 隻 / ${d.rec} 道）`, d.dex > 200 && d.rec > 50, JSON.stringify(d));
-  ok('繁中對照表 100% 覆蓋', d.zhPk === d.dex && d.zhRec === d.rec, JSON.stringify(d));
+  ok('繁中對照表覆蓋：寶可夢與食材 100%、食譜只缺待補清單裡的那幾道', d.zhPk === d.dex && d.missIng === '' && d.missRec === d.pending, JSON.stringify(d));
   ok('三個 view 都存在', await page.evaluate(() => ['plan','box','recipes'].every(v => !!$('view-'+v))));
 }
 
